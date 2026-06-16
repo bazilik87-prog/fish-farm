@@ -316,6 +316,7 @@ function renderUpgrades() {
 }
 
 function renderAquarium() {
+  const total = FISH.filter(f => f.unlocked).reduce((s, f) => s + f.rate, 0);
   document.getElementById('content').innerHTML = FISH.map(f => {
     if (!f.unlocked) {
       return `<div class="fish-item locked-item">
@@ -326,12 +327,13 @@ function renderAquarium() {
         </div>
       </div>`;
     }
-    const pct = Math.round(f.rate / FISH[0].rate * 100);
+    const pct = Math.round(f.rate / total * 100);
+    const barPct = Math.round(f.rate / FISH[0].rate * 100);
     return `<div class="fish-item">
       <span class="ico">${f.emoji}</span>
       <div class="inf">
         <div class="n">${f.name} <span class="badge">${pct}% шанс</span></div>
-        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(100,barPct)}%"></div></div>
       </div>
     </div>`;
   }).join('');
