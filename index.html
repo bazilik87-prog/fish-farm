@@ -6,131 +6,61 @@
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #1a1a2e;
-    color: #eee;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-  #ocean {
-    width: 100%;
-    height: 180px;
-    background: #0a3d6b;
-    position: relative;
-    overflow: hidden;
-    cursor: pointer;
-    border-bottom: 3px solid #1565c0;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .bubble {
-    position: absolute;
-    border-radius: 50%;
-    background: rgba(100,180,255,0.15);
-    animation: rise 3s infinite ease-in;
-  }
-  @keyframes rise {
-    0% { transform: translateY(0) scale(1); opacity: 0.6; }
-    100% { transform: translateY(-180px) scale(0.3); opacity: 0; }
-  }
-  .tap-anim {
-    position: absolute;
-    pointer-events: none;
-    font-size: 26px;
-    animation: popfish 0.8s ease-out forwards;
-  }
-  .plus-anim {
-    position: absolute;
-    pointer-events: none;
-    font-size: 14px;
-    font-weight: 700;
-    color: #FFD700;
-    animation: floatup 0.9s ease-out forwards;
-  }
-  @keyframes popfish {
-    0%   { transform: scale(0.5); opacity: 1; }
-    50%  { transform: scale(1.4); opacity: 1; }
-    100% { transform: scale(1) translateY(-50px); opacity: 0; }
-  }
-  @keyframes floatup {
-    0%   { transform: translateY(0); opacity: 1; }
-    100% { transform: translateY(-55px); opacity: 0; }
-  }
-  #hint {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 14px; color: rgba(255,255,255,0.6);
-    text-align: center; pointer-events: none;
-    transition: opacity 0.5s;
-  }
-  #stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    padding: 10px;
-    background: #16213e;
-  }
-  .st {
-    background: #0f3460;
-    border-radius: 10px;
-    padding: 8px 4px;
-    text-align: center;
-  }
-  .st b { display: block; font-size: 16px; font-weight: 700; color: #fff; }
-  .st span { font-size: 10px; color: #90caf9; }
-  #tabs {
-    display: flex;
-    background: #16213e;
-    border-bottom: 1px solid #0f3460;
-  }
-  .tab {
-    flex: 1; padding: 10px; text-align: center;
-    font-size: 13px; cursor: pointer;
-    color: #90caf9; border-bottom: 2px solid transparent;
-    transition: all 0.2s;
-  }
-  .tab.active { color: #FFD700; border-bottom-color: #FFD700; }
-  #content { padding: 10px; }
-  .upg {
-    display: flex; align-items: center; gap: 10px;
-    background: #0f3460; border-radius: 12px;
-    padding: 10px 12px; margin-bottom: 8px;
-  }
-  .upg .ico { font-size: 22px; }
-  .upg .inf { flex: 1; }
-  .upg .inf .n { font-size: 14px; font-weight: 600; color: #fff; }
-  .upg .inf .d { font-size: 11px; color: #90caf9; margin-top: 2px; }
-  .upg button {
-    background: #1565c0; color: #fff; border: none;
-    border-radius: 8px; padding: 7px 12px;
-    font-size: 12px; font-weight: 600; cursor: pointer;
-    white-space: nowrap; -webkit-tap-highlight-color: transparent;
-  }
-  .upg button:disabled { background: #333; color: #666; cursor: not-allowed; }
-  .upg button:active { transform: scale(0.95); }
-  .fish-item {
-    display: flex; align-items: center; gap: 10px;
-    background: #0f3460; border-radius: 12px;
-    padding: 10px 12px; margin-bottom: 8px;
-  }
-  .fish-item .ico { font-size: 22px; }
-  .fish-item .inf { flex: 1; }
-  .fish-item .inf .n { font-size: 13px; font-weight: 600; color: #fff; }
-  .bar-bg { height: 5px; background: #1a1a2e; border-radius: 3px; margin-top: 5px; }
-  .bar-fill { height: 5px; background: #1565c0; border-radius: 3px; transition: width 0.3s; }
-  .locked-item { opacity: 0.45; filter: grayscale(1); }
-  .badge {
-    font-size: 10px; background: #1565c0; color: #90caf9;
-    padding: 2px 7px; border-radius: 6px;
-  }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; overflow-x: hidden; }
+#ocean { width: 100%; height: 180px; position: relative; overflow: hidden; cursor: pointer; border-bottom: 3px solid #1565c0; -webkit-tap-highlight-color: transparent; transition: background 0.6s; }
+.bubble { position: absolute; border-radius: 50%; background: rgba(100,180,255,0.15); animation: rise 3s infinite ease-in; }
+@keyframes rise { 0% { transform: translateY(0) scale(1); opacity:0.6; } 100% { transform: translateY(-180px) scale(0.3); opacity:0; } }
+.tap-anim { position: absolute; pointer-events: none; font-size: 26px; animation: popfish 0.8s ease-out forwards; }
+.plus-anim { position: absolute; pointer-events: none; font-size: 14px; font-weight: 700; color: #FFD700; animation: floatup 0.9s ease-out forwards; }
+@keyframes popfish { 0% { transform:scale(0.5); opacity:1; } 50% { transform:scale(1.4); opacity:1; } 100% { transform:scale(1) translateY(-50px); opacity:0; } }
+@keyframes floatup { 0% { transform:translateY(0); opacity:1; } 100% { transform:translateY(-55px); opacity:0; } }
+#hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:14px; color:rgba(255,255,255,0.7); text-align:center; pointer-events:none; transition:opacity 0.5s; }
+#loc-bar { display:flex; overflow-x:auto; gap:6px; padding:8px 10px; background:#16213e; scrollbar-width:none; }
+#loc-bar::-webkit-scrollbar { display:none; }
+.loc-btn { flex-shrink:0; padding:6px 12px; border-radius:20px; border:1.5px solid #0f3460; background:#0f3460; color:#90caf9; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all 0.2s; }
+.loc-btn.active { background:#1565c0; border-color:#1565c0; color:#fff; }
+.loc-btn.locked { opacity:0.4; cursor:not-allowed; }
+#stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; padding:8px 10px; background:#16213e; }
+.st { background:#0f3460; border-radius:10px; padding:8px 4px; text-align:center; }
+.st b { display:block; font-size:16px; font-weight:700; color:#fff; }
+.st span { font-size:10px; color:#90caf9; }
+#tabs { display:flex; background:#16213e; border-bottom:1px solid #0f3460; }
+.tab { flex:1; padding:10px; text-align:center; font-size:12px; cursor:pointer; color:#90caf9; border-bottom:2px solid transparent; transition:all 0.2s; }
+.tab.active { color:#FFD700; border-bottom-color:#FFD700; }
+#content { padding:10px; padding-bottom:20px; }
+.upg { display:flex; align-items:center; gap:10px; background:#0f3460; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+.upg .ico { font-size:22px; }
+.upg .inf { flex:1; }
+.upg .inf .n { font-size:14px; font-weight:600; color:#fff; }
+.upg .inf .d { font-size:11px; color:#90caf9; margin-top:2px; }
+.upg button { background:#1565c0; color:#fff; border:none; border-radius:8px; padding:7px 12px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; -webkit-tap-highlight-color:transparent; }
+.upg button:disabled { background:#333; color:#666; cursor:not-allowed; }
+.upg button:active { transform:scale(0.95); }
+.fish-item { display:flex; align-items:center; gap:10px; background:#0f3460; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+.fish-item .ico { font-size:22px; width:30px; text-align:center; }
+.fish-item .inf { flex:1; }
+.fish-item .inf .n { font-size:13px; font-weight:600; color:#fff; }
+.bar-bg { height:5px; background:#1a1a2e; border-radius:3px; margin-top:5px; }
+.bar-fill { height:5px; border-radius:3px; transition:width 0.3s; }
+.locked-item { opacity:0.4; filter:grayscale(1); }
+.badge { font-size:10px; background:#1565c0; color:#90caf9; padding:2px 7px; border-radius:6px; }
+.loc-card { background:#0f3460; border-radius:12px; padding:14px; margin-bottom:10px; }
+.loc-card h4 { font-size:14px; font-weight:600; color:#fff; margin-bottom:4px; }
+.loc-card p { font-size:12px; color:#90caf9; margin-bottom:10px; }
+.loc-card button { background:#1565c0; color:#fff; border:none; border-radius:8px; padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; }
+.loc-card button:disabled { background:#333; color:#666; cursor:not-allowed; }
+.loc-card.current { border:1.5px solid #FFD700; }
 </style>
 </head>
 <body>
 
 <div id="ocean" ontouchstart="tapOcean(event)" onclick="tapOcean(event)">
   <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
+  <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);pointer-events:none;"></div>
 </div>
+
+<div id="loc-bar"></div>
 
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
@@ -140,76 +70,107 @@
 </div>
 
 <div id="tabs">
-  <div class="tab active" onclick="showTab('upgrades')">⬆️ Улучшения</div>
-  <div class="tab" onclick="showTab('aquarium')">🐠 Аквариум</div>
+  <div class="tab active" onclick="showTab('upgrades')">⬆️ Улучш.</div>
+  <div class="tab" onclick="showTab('aquarium')">🐠 Рыбы</div>
+  <div class="tab" onclick="showTab('locations')">🗺 Локации</div>
   <div class="tab" onclick="showTab('settings')">⚙️</div>
 </div>
 
 <div id="content"></div>
 
-<div style="padding: 10px;">
-  <button onclick="resetGame()" style="width:100%;background:#7f1d1d;color:#fca5a5;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
-    🗑 Сбросить прогресс
-  </button>
-</div>
-
 <script>
 const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.ready();
-  tg.expand();
-  tg.setHeaderColor('#1a1a2e');
-  tg.setBackgroundColor('#1a1a2e');
-}
+if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor('#1a1a2e'); tg.setBackgroundColor('#1a1a2e'); }
+
+const LOCATIONS = [
+  { id:'pond',    name:'Пруд',    emoji:'🌿', bg:'#1a3a2a', border:'#2d6a4f', bubbleColor:'rgba(80,200,120,0.15)', cost:0,      unlocked:true,  tapMult:1.0, desc:'Начальная локация. Спокойная вода.' },
+  { id:'river',   name:'Река',    emoji:'🏞', bg:'#0d2b45', border:'#1a6b8a', bubbleColor:'rgba(80,160,220,0.15)', cost:5000,    unlocked:false, tapMult:2.0, desc:'Быстрое течение, крупная рыба.' },
+  { id:'tropics', name:'Тропики', emoji:'🌴', bg:'#1a2a0a', border:'#4a8a1a', bubbleColor:'rgba(150,220,80,0.15)', cost:30000,   unlocked:false, tapMult:5.0, desc:'Экзотические виды, богатый улов.' },
+  { id:'deep',    name:'Глубины', emoji:'🌊', bg:'#050a2a', border:'#1a1a8a', bubbleColor:'rgba(50,50,200,0.15)',  cost:150000,  unlocked:false, tapMult:15.0, desc:'Тёмные воды скрывают огромных существ.' },
+  { id:'space',   name:'Космос',  emoji:'🚀', bg:'#05050f', border:'#4a1a8a', bubbleColor:'rgba(150,50,220,0.15)', cost:1000000, unlocked:false, tapMult:50.0, desc:'Инопланетные формы жизни. Невероятный улов!' },
+];
+
+const ALL_FISH = {
+  pond:    [
+    { emoji:'🐟', name:'Карась',    rate:1.0,  needCoins:0,    locCoins:0   },
+    { emoji:'🐸', name:'Лягушка',   rate:0.5,  needCoins:10,   locCoins:0   },
+    { emoji:'🦆', name:'Утка',      rate:0.2,  needCoins:50,   locCoins:0   },
+    { emoji:'🐢', name:'Черепаха',  rate:0.08, needCoins:200,  locCoins:0   },
+  ],
+  river:   [
+    { emoji:'🐡', name:'Окунь',     rate:1.0,  needCoins:0,    locCoins:500  },
+    { emoji:'🦦', name:'Выдра',     rate:0.4,  needCoins:700,  locCoins:500  },
+    { emoji:'🐊', name:'Крокодил', rate:0.15, needCoins:2000, locCoins:500  },
+    { emoji:'🦛', name:'Гиппо',     rate:0.05, needCoins:5000, locCoins:500  },
+  ],
+  tropics: [
+    { emoji:'🐠', name:'Тропик',    rate:1.0,  needCoins:0,    locCoins:3000  },
+    { emoji:'🦜', name:'Попугай',   rate:0.4,  needCoins:4000, locCoins:3000  },
+    { emoji:'🐍', name:'Змея',      rate:0.15, needCoins:8000, locCoins:3000  },
+    { emoji:'🦋', name:'Бабочка',   rate:0.05, needCoins:20000,locCoins:3000  },
+  ],
+  deep:    [
+    { emoji:'🦑', name:'Кальмар',   rate:1.0,  needCoins:0,     locCoins:15000 },
+    { emoji:'🐙', name:'Осьминог',  rate:0.4,  needCoins:18000, locCoins:15000 },
+    { emoji:'🦈', name:'Акула',     rate:0.15, needCoins:30000, locCoins:15000 },
+    { emoji:'🐳', name:'Кит',       rate:0.04, needCoins:80000, locCoins:15000 },
+  ],
+  space:   [
+    { emoji:'👾', name:'Пришелец',  rate:1.0,  needCoins:0,      locCoins:100000 },
+    { emoji:'🛸', name:'НЛО',       rate:0.3,  needCoins:120000, locCoins:100000 },
+    { emoji:'🌌', name:'Галактика', rate:0.1,  needCoins:300000, locCoins:100000 },
+    { emoji:'⭐', name:'Звезда',    rate:0.03, needCoins:1000000,locCoins:100000 },
+  ],
+};
 
 const UPGRADES = [
-  { id:'rod',   name:'Удочка',  emoji:'🎣', desc:'×2 монеты за тап',   costs:[20,80,300,1000],  bought:0, max:4 },
-  { id:'net',   name:'Сеть',    emoji:'🕸', desc:'+2 авто-улова/сек',  costs:[50,200,800,3000], bought:0, max:4 },
-  { id:'boat',  name:'Лодка',   emoji:'⛵', desc:'×3 к авто-улову',    costs:[150,600,2500],    bought:0, max:3 },
-  { id:'sonar', name:'Сонар',   emoji:'📡', desc:'×2 ко всему',        costs:[500,2500,10000],  bought:0, max:3 },
+  { id:'rod',   name:'Удочка',  emoji:'🎣', desc:'×2 монеты за тап',  costs:[20,80,300,1000],  bought:0, max:4 },
+  { id:'net',   name:'Сеть',    emoji:'🕸', desc:'+2 авто-улова/сек', costs:[50,200,800,3000], bought:0, max:4 },
+  { id:'boat',  name:'Лодка',   emoji:'⛵', desc:'×3 к авто-улову',   costs:[150,600,2500],    bought:0, max:3 },
+  { id:'sonar', name:'Сонар',   emoji:'📡', desc:'×2 ко всему',       costs:[500,2500,10000],  bought:0, max:3 },
 ];
 
-const FISH = [
-  { emoji:'🐟', name:'Рыбка',    rate:1.0,  unlocked:true,  needCoins:0    },
-  { emoji:'🐠', name:'Тропик',   rate:0.4,  unlocked:false, needCoins:30   },
-  { emoji:'🐡', name:'Шар',      rate:0.2,  unlocked:false, needCoins:100  },
-  { emoji:'🦈', name:'Акула',    rate:0.05, unlocked:false, needCoins:500  },
-  { emoji:'🐙', name:'Осьминог', rate:0.02, unlocked:false, needCoins:2000 },
-];
-
-let state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
+let state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0, currentLoc:'pond', unlockedLocs:['pond'], unlockedFish:{pond:['Карась']}, caughtFish:{} };
 let currentTab = 'upgrades';
 let tapped = false;
 let lastAuto = Date.now();
 
 function fmtCoins(c) {
-  if (c >= 1000000) return (c/1000000).toFixed(2) + 'M';
-  if (c >= 1000)    return (c/1000).toFixed(1) + 'k';
+  if (c >= 1000000) return (c/1000000).toFixed(2)+'M';
+  if (c >= 1000)    return (c/1000).toFixed(1)+'k';
   return c.toFixed(1);
 }
 
+function currentLoc() { return LOCATIONS.find(l => l.id === state.currentLoc); }
+function currentFish() { return ALL_FISH[state.currentLoc] || []; }
+
 function loadState() {
   try {
-    const saved = localStorage.getItem('fishfarm_save');
+    const saved = localStorage.getItem('fishfarm_save2');
     if (saved) {
       const s = JSON.parse(saved);
-      state.coins  = s.coins  || 0;
-      state.caught = s.caught || 0;
+      state.coins        = s.coins  || 0;
+      state.caught       = s.caught || 0;
+      state.currentLoc   = s.currentLoc || 'pond';
+      state.unlockedLocs = s.unlockedLocs || ['pond'];
+      state.unlockedFish = s.unlockedFish || {pond:['Карась']};
+      state.caughtFish   = s.caughtFish || {};
       UPGRADES.forEach(u => { const b = s.upgrades?.[u.id]; if (b) u.bought = b; });
-      FISH.forEach(f => { const ul = s.fish?.[f.name]; if (ul) f.unlocked = ul; });
+      LOCATIONS.forEach(l => { if (state.unlockedLocs.includes(l.id)) l.unlocked = true; });
       calcStats();
     }
   } catch(e) {}
 }
 
 function saveState() {
-  const data = {
-    coins: state.coins,
-    caught: state.caught,
+  localStorage.setItem('fishfarm_save2', JSON.stringify({
+    coins: state.coins, caught: state.caught,
+    currentLoc: state.currentLoc,
+    unlockedLocs: state.unlockedLocs,
+    unlockedFish: state.unlockedFish,
+    caughtFish: state.caughtFish,
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, u.bought])),
-    fish: Object.fromEntries(FISH.map(f => [f.name, f.unlocked])),
-  };
-  localStorage.setItem('fishfarm_save', JSON.stringify(data));
+  }));
 }
 
 function calcStats() {
@@ -217,22 +178,30 @@ function calcStats() {
   UPGRADES.forEach(u => {
     if (u.id==='rod')   tapMult *= Math.pow(2, u.bought);
     if (u.id==='net')   auto += 2 * u.bought;
-    if (u.id==='boat' && u.bought > 0) auto *= Math.pow(3, u.bought);
-    if (u.id==='sonar' && u.bought > 0) { tapMult *= Math.pow(2, u.bought); auto *= Math.pow(2, u.bought); }
+    if (u.id==='boat' && u.bought>0) auto *= Math.pow(3, u.bought);
+    if (u.id==='sonar' && u.bought>0) { tapMult *= Math.pow(2, u.bought); auto *= Math.pow(2, u.bought); }
   });
-  state.tapPower   = Math.round(0.1 * tapMult * 10) / 10;
+  const locMult = currentLoc()?.tapMult || 1;
+  state.tapPower   = Math.round(0.1 * tapMult * locMult * 10) / 10;
   state.autoPerSec = Math.round(auto * 10) / 10;
 }
 
 function unlockFish() {
-  FISH.forEach(f => { if (!f.unlocked && state.coins >= f.needCoins) f.unlocked = true; });
+  const loc = state.currentLoc;
+  if (!state.unlockedFish[loc]) state.unlockedFish[loc] = [];
+  ALL_FISH[loc].forEach(f => {
+    if (!state.unlockedFish[loc].includes(f.name) && state.coins >= f.needCoins)
+      state.unlockedFish[loc].push(f.name);
+  });
 }
 
 function randomFish() {
-  const pool  = FISH.filter(f => f.unlocked);
-  const total = pool.reduce((s, f) => s + f.rate, 0);
+  const loc = state.currentLoc;
+  const pool = (ALL_FISH[loc] || []).filter(f => (state.unlockedFish[loc]||[]).includes(f.name));
+  if (!pool.length) return ALL_FISH[loc][0];
+  const total = pool.reduce((s,f) => s+f.rate, 0);
   let r = Math.random() * total;
-  for (const f of pool) { r -= f.rate; if (r <= 0) return f; }
+  for (const f of pool) { r -= f.rate; if (r<=0) return f; }
   return pool[0];
 }
 
@@ -240,87 +209,188 @@ function tapOcean(e) {
   e.preventDefault();
   const touch = e.touches?.[0] || e;
   const rect  = document.getElementById('ocean').getBoundingClientRect();
-  const x = (touch.clientX || touch.pageX) - rect.left;
-  const y = (touch.clientY || touch.pageY) - rect.top;
-
-  if (!tapped) { document.getElementById('hint').style.opacity = '0'; tapped = true; }
-
+  const x = (touch.clientX||touch.pageX) - rect.left;
+  const y = (touch.clientY||touch.pageY) - rect.top;
+  if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   const f      = randomFish();
   const earned = state.tapPower;
-  state.coins  = Math.round((state.coins + earned) * 10) / 10;
+  state.coins  = Math.round((state.coins+earned)*100)/100;
   state.caught++;
+  state.caughtFish[f.name] = (state.caughtFish[f.name] || 0) + 1;
   unlockFish();
-
-  spawnAnim(x, y, f.emoji, '+' + earned.toFixed(1));
+  spawnAnim(x, y, f.emoji, '+'+earned.toFixed(1));
   updateUI();
   saveState();
-
   if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
 function spawnAnim(x, y, emoji, label) {
   const ocean = document.getElementById('ocean');
   const el = document.createElement('div');
-  el.className = 'tap-anim';
-  el.textContent = emoji;
-  el.style.cssText = `left:${x - 13}px;top:${y - 13}px;`;
+  el.className='tap-anim'; el.textContent=emoji;
+  el.style.cssText=`left:${x-13}px;top:${y-13}px;`;
   ocean.appendChild(el);
-
   const plus = document.createElement('div');
-  plus.className = 'plus-anim';
-  plus.textContent = label;
-  plus.style.cssText = `left:${x + 8}px;top:${y - 5}px;`;
+  plus.className='plus-anim'; plus.textContent=label;
+  plus.style.cssText=`left:${x+8}px;top:${y-5}px;`;
   ocean.appendChild(plus);
-
-  setTimeout(() => { el.remove(); plus.remove(); }, 900);
+  setTimeout(()=>{ el.remove(); plus.remove(); }, 900);
 }
 
 function spawnBubbles() {
   const ocean = document.getElementById('ocean');
-  for (let i = 0; i < 5; i++) {
+  ocean.querySelectorAll('.bubble').forEach(b=>b.remove());
+  const color = currentLoc()?.bubbleColor || 'rgba(100,180,255,0.15)';
+  for (let i=0; i<5; i++) {
     const b = document.createElement('div');
-    b.className = 'bubble';
-    const size = 6 + Math.random() * 14;
-    b.style.cssText = `width:${size}px;height:${size}px;left:${Math.random()*95}%;bottom:0;animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*2}s`;
+    b.className='bubble';
+    const size=6+Math.random()*14;
+    b.style.cssText=`width:${size}px;height:${size}px;left:${Math.random()*95}%;bottom:0;background:${color};animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*2}s`;
     ocean.appendChild(b);
   }
 }
 
+function switchLocation(id) {
+  const loc = LOCATIONS.find(l=>l.id===id);
+  if (!loc || !loc.unlocked) return;
+  state.currentLoc = id;
+  const ocean = document.getElementById('ocean');
+  ocean.style.background = loc.bg;
+  ocean.style.borderBottomColor = loc.border;
+  document.getElementById('loc-label').textContent = loc.emoji+' '+loc.name;
+  spawnBubbles();
+  calcStats();
+  updateUI();
+  saveState();
+  renderLocBar();
+}
+
+function unlockLocation(id) {
+  const loc = LOCATIONS.find(l=>l.id===id);
+  if (!loc || loc.unlocked) return;
+  if (state.coins < loc.cost) return;
+  state.coins = Math.round((state.coins - loc.cost)*100)/100;
+  loc.unlocked = true;
+  state.unlockedLocs.push(id);
+  if (!state.unlockedFish[id]) state.unlockedFish[id] = [ALL_FISH[id][0].name];
+  saveState();
+  updateUI();
+  renderLocBar();
+  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
+
+function renderLocBar() {
+  document.getElementById('loc-bar').innerHTML = LOCATIONS.map(l => {
+    const isActive = l.id === state.currentLoc;
+    const cls = !l.unlocked ? 'loc-btn locked' : isActive ? 'loc-btn active' : 'loc-btn';
+    return `<div class="${cls}" onclick="${l.unlocked ? "switchLocation('"+l.id+"')" : "showTab('locations')"}">${l.emoji} ${l.name}</div>`;
+  }).join('');
+}
+
 function updateUI() {
   document.getElementById('s-coins').textContent = fmtCoins(state.coins);
-  document.getElementById('s-fish').textContent  = state.caught >= 1000 ? (state.caught/1000).toFixed(1)+'k' : state.caught;
-  document.getElementById('s-tap').textContent   = '+' + state.tapPower.toFixed(1);
+  document.getElementById('s-fish').textContent  = state.caught>=1000 ? (state.caught/1000).toFixed(1)+'k' : state.caught;
+  document.getElementById('s-tap').textContent   = '+'+state.tapPower.toFixed(1);
   document.getElementById('s-auto').textContent  = state.autoPerSec;
   renderContent();
 }
 
 function showTab(tab) {
   currentTab = tab;
-  document.querySelectorAll('.tab').forEach((t, i) => {
+  document.querySelectorAll('.tab').forEach((t,i) => {
     t.classList.toggle('active',
-      (i === 0 && tab === 'upgrades') ||
-      (i === 1 && tab === 'aquarium') ||
-      (i === 2 && tab === 'settings')
+      (i===0&&tab==='upgrades')||(i===1&&tab==='aquarium')||
+      (i===2&&tab==='locations')||(i===3&&tab==='settings')
     );
   });
   renderContent();
 }
 
 function renderContent() {
-  if (currentTab === 'upgrades') renderUpgrades();
-  else if (currentTab === 'aquarium') renderAquarium();
+  if (currentTab==='upgrades')  renderUpgrades();
+  else if (currentTab==='aquarium')  renderAquarium();
+  else if (currentTab==='locations') renderLocations();
   else renderSettings();
+}
+
+function renderUpgrades() {
+  document.getElementById('content').innerHTML = UPGRADES.map(u => {
+    const cost=u.costs[u.bought], maxed=u.bought>=u.max, canBuy=!maxed&&state.coins>=cost;
+    return `<div class="upg">
+      <span class="ico">${u.emoji}</span>
+      <div class="inf"><div class="n">${u.name} ${u.bought>0?'<span class="badge">ур.'+u.bought+'</span>':''}</div><div class="d">${u.desc}</div></div>
+      <button onclick="buyUpgrade('${u.id}')" ${!canBuy?'disabled':''}>
+        ${maxed?'Макс ✓':'🪙 '+cost}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+function renderAquarium() {
+  const loc = state.currentLoc;
+  const fish = ALL_FISH[loc] || [];
+  const unlocked = state.unlockedFish[loc] || [];
+  const pool = fish.filter(f=>unlocked.includes(f.name));
+  const total = pool.reduce((s,f)=>s+f.rate,0);
+  const locInfo = currentLoc();
+  document.getElementById('content').innerHTML =
+    `<div style="font-size:12px;color:#90caf9;margin-bottom:10px;padding:8px 10px;background:#0f3460;border-radius:10px">
+      ${locInfo.emoji} <b style="color:#fff">${locInfo.name}</b> — рыбы этой локации
+    </div>` +
+    fish.map(f => {
+      const isUnlocked = unlocked.includes(f.name);
+      if (!isUnlocked) {
+        const missing = f.needCoins > 0 && state.coins < f.needCoins;
+        return `<div class="fish-item locked-item">
+          <span class="ico">🔒</span>
+          <div class="inf"><div class="n">???</div>
+          <div class="d">${f.needCoins>0?'Нужно '+fmtCoins(f.needCoins)+' монет':'Открывается на локации'}</div></div>
+        </div>`;
+      }
+      const pct = total>0 ? Math.round(f.rate/total*100) : 0;
+      const barColor = locInfo.border;
+      const cnt = state.caughtFish[f.name] || 0;
+      return `<div class="fish-item">
+        <span class="ico">${f.emoji}</span>
+        <div class="inf">
+          <div class="n">${f.name} <span class="badge">${pct}% шанс</span> <span class="badge" style="background:#0a2a0a;color:#6ddc6d">×${cnt>=1000?(cnt/1000).toFixed(1)+'k':cnt}</span></div>
+          <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function renderLocations() {
+  document.getElementById('content').innerHTML = LOCATIONS.map(loc => {
+    const isCurrent = loc.id === state.currentLoc;
+    const canUnlock = !loc.unlocked && state.coins >= loc.cost;
+    return `<div class="loc-card ${isCurrent?'current':''}">
+      <h4>${loc.emoji} ${loc.name} ${isCurrent?'<span class="badge">текущая</span>':''}</h4>
+      <p>${loc.desc}<br><span style="color:#FFD700">×${loc.tapMult} к монетам</span></p>
+      ${loc.unlocked
+        ? (isCurrent
+            ? `<button disabled>Здесь</button>`
+            : `<button onclick="switchLocation('${loc.id}')">Перейти</button>`)
+        : `<button onclick="unlockLocation('${loc.id}')" ${!canUnlock?'disabled':''}>
+            🔓 Открыть — 🪙 ${fmtCoins(loc.cost)}
+           </button>`
+      }
+    </div>`;
+  }).join('');
 }
 
 function renderSettings() {
   document.getElementById('content').innerHTML = `
-    <div style="padding:10px 0">
+    <div style="padding:4px 0">
       <div style="background:#0f3460;border-radius:12px;padding:16px;margin-bottom:10px">
-        <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:6px">Статистика</div>
-        <div style="font-size:12px;color:#90caf9">Монет: ${fmtCoins(state.coins)}</div>
-        <div style="font-size:12px;color:#90caf9">Поймано рыб: ${state.caught}</div>
-        <div style="font-size:12px;color:#90caf9">Монет за тап: ${state.tapPower.toFixed(1)}</div>
-        <div style="font-size:12px;color:#90caf9">Авто/сек: ${state.autoPerSec}</div>
+        <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">Статистика</div>
+        <div style="font-size:12px;color:#90caf9;line-height:2">
+          Монет: ${fmtCoins(state.coins)}<br>
+          Поймано рыб: ${state.caught}<br>
+          Монет за тап: ${state.tapPower.toFixed(1)}<br>
+          Авто/сек: ${state.autoPerSec}<br>
+          Локация: ${currentLoc()?.emoji} ${currentLoc()?.name}
+        </div>
       </div>
       <div style="background:#3d0f0f;border-radius:12px;padding:16px">
         <div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>
@@ -332,68 +402,12 @@ function renderSettings() {
     </div>`;
 }
 
-function resetGame() {
-  if (!confirm('Сбросить весь прогресс? Это нельзя отменить.')) return;
-  localStorage.removeItem('fishfarm_save');
-  state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
-  UPGRADES.forEach(u => u.bought = 0);
-  FISH.forEach((f, i) => f.unlocked = i === 0);
-  tapped = false;
-  document.getElementById('hint').style.opacity = '1';
-  calcStats();
-  updateUI();
-  showTab('upgrades');
-}
-
-function renderUpgrades() {
-  document.getElementById('content').innerHTML = UPGRADES.map(u => {
-    const cost  = u.costs[u.bought];
-    const maxed = u.bought >= u.max;
-    const canBuy = !maxed && state.coins >= cost;
-    return `<div class="upg">
-      <span class="ico">${u.emoji}</span>
-      <div class="inf">
-        <div class="n">${u.name} ${u.bought > 0 ? '<span class="badge">ур. '+u.bought+'</span>' : ''}</div>
-        <div class="d">${u.desc}</div>
-      </div>
-      <button onclick="buyUpgrade('${u.id}')" ${!canBuy ? 'disabled' : ''}>
-        ${maxed ? 'Макс ✓' : '🪙 ' + cost}
-      </button>
-    </div>`;
-  }).join('');
-}
-
-function renderAquarium() {
-  const unlockedFish = FISH.filter(f => f.unlocked);
-  const total = unlockedFish.reduce((s, f) => s + f.rate, 0);
-  document.getElementById('content').innerHTML = FISH.map(f => {
-    if (!f.unlocked) {
-      return `<div class="fish-item locked-item">
-        <span class="ico">🔒</span>
-        <div class="inf">
-          <div class="n">???</div>
-          <div class="d">Открывается при ${f.needCoins} монетах</div>
-        </div>
-      </div>`;
-    }
-    const pct    = Math.round(f.rate / total * 100);
-    const barPct = Math.round(f.rate / total * 100);
-    return `<div class="fish-item">
-      <span class="ico">${f.emoji}</span>
-      <div class="inf">
-        <div class="n">${f.name} <span class="badge">${pct}% шанс</span></div>
-        <div class="bar-bg"><div class="bar-fill" style="width:${barPct}%"></div></div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
 function buyUpgrade(id) {
-  const u = UPGRADES.find(x => x.id === id);
-  if (!u || u.bought >= u.max) return;
-  const cost = u.costs[u.bought];
-  if (state.coins < cost) return;
-  state.coins = Math.round((state.coins - cost) * 10) / 10;
+  const u = UPGRADES.find(x=>x.id===id);
+  if (!u||u.bought>=u.max) return;
+  const cost=u.costs[u.bought];
+  if (state.coins<cost) return;
+  state.coins=Math.round((state.coins-cost)*100)/100;
   u.bought++;
   calcStats();
   unlockFish();
@@ -403,39 +417,49 @@ function buyUpgrade(id) {
 }
 
 function autoTick() {
-  const now = Date.now();
-  const dt  = (now - lastAuto) / 1000;
-  lastAuto  = now;
-  if (state.autoPerSec > 0) {
-    const earned = Math.round(state.autoPerSec * dt * state.tapPower * 10) / 10;
-    if (earned > 0) {
-      state.coins  = Math.round((state.coins + earned) * 10) / 10;
-      state.caught += Math.ceil(earned);
+  const now=Date.now(), dt=(now-lastAuto)/1000;
+  lastAuto=now;
+  if (state.autoPerSec>0) {
+    const earned=Math.round(state.autoPerSec*dt*state.tapPower*100)/100;
+    if (earned>0) {
+      state.coins=Math.round((state.coins+earned)*100)/100;
+      state.caught+=Math.ceil(earned);
+      const af=randomFish();
+      state.caughtFish[af.name]=(state.caughtFish[af.name]||0)+Math.ceil(earned);
       unlockFish();
       updateUI();
       saveState();
-      const ocean = document.getElementById('ocean');
-      const x = Math.random() * (ocean.offsetWidth - 40) + 20;
-      const y = Math.random() * 120 + 20;
-      spawnAnim(x, y, randomFish().emoji, '+' + earned.toFixed(1));
+      const ocean=document.getElementById('ocean');
+      const x=Math.random()*(ocean.offsetWidth-40)+20;
+      const y=Math.random()*120+20;
+      spawnAnim(x, y, randomFish().emoji, '+'+earned.toFixed(1));
     }
   }
   setTimeout(autoTick, 500);
 }
 
 function resetGame() {
-  if (!confirm('Сбросить весь прогресс?')) return;
-  localStorage.removeItem('fishfarm_save');
-  state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
-  UPGRADES.forEach(u => u.bought = 0);
-  FISH.forEach((f, i) => { f.unlocked = i === 0; });
-  tapped = false;
-  document.getElementById('hint').style.opacity = '1';
-  updateUI();
+  if (!confirm('Сбросить весь прогресс? Это нельзя отменить.')) return;
+  localStorage.removeItem('fishfarm_save2');
+  state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0, currentLoc:'pond', unlockedLocs:['pond'], unlockedFish:{pond:['Карась']}, caughtFish:{} };
+  UPGRADES.forEach(u=>u.bought=0);
+  LOCATIONS.forEach((l,i)=>{ l.unlocked = i===0; });
+  tapped=false;
+  document.getElementById('hint').style.opacity='1';
+  calcStats();
+  switchLocation('pond');
+  showTab('upgrades');
 }
 
 loadState();
+const initLoc = currentLoc();
+const ocean = document.getElementById('ocean');
+ocean.style.background = initLoc.bg;
+ocean.style.borderBottomColor = initLoc.border;
+document.getElementById('loc-label').textContent = initLoc.emoji+' '+initLoc.name;
+LOCATIONS.forEach(l => { if (state.unlockedLocs.includes(l.id)) l.unlocked=true; });
 spawnBubbles();
+renderLocBar();
 updateUI();
 setTimeout(autoTick, 500);
 </script>
