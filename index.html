@@ -135,7 +135,7 @@
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
   <div class="st"><b id="s-fish">0</b><span>🐟 поймано</span></div>
-  <div class="st"><b id="s-tap">+1</b><span>за тап</span></div>
+  <div class="st"><b id="s-tap">+0.1</b><span>за тап</span></div>
   <div class="st"><b id="s-auto">0</b><span>🎣 авто/сек</span></div>
 </div>
 
@@ -147,7 +147,6 @@
 <div id="content"></div>
 
 <script>
-// Инициализация Telegram WebApp
 const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
@@ -171,12 +170,17 @@ const FISH = [
   { emoji:'🐙', name:'Осьминог', rate:0.02, unlocked:false, needCoins:2000 },
 ];
 
-let state = { coins:0, caught:0, tapPower:1, autoPerSec:0 };
+let state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
 let currentTab = 'upgrades';
 let tapped = false;
 let lastAuto = Date.now();
 
-// Загрузка прогресса из localStorage
+function fmtCoins(c) {
+  if (c >= 1000000) return (c/1000000).toFixed(2) + 'M';
+  if (c >= 1000)    return (c/1000).toFixed(1) + 'k';
+  return c.toFixed(1);
+}
+
 function loadState() {
   try {
     const saved = localStorage.getItem('fishfarm_save');
@@ -202,14 +206,14 @@ function saveState() {
 }
 
 function calcStats() {
-  let tap = 1, auto = 0;
+  let tapMult = 1, auto = 0;
   UPGRADES.forEach(u => {
-    if (u.id==='rod')   tap  *= Math.pow(2, u.bought);
+    if (u.id==='rod')   tapMult *= Math.pow(2, u.bought);
     if (u.id==='net')   auto += 2 * u.bought;
     if (u.id==='boat' && u.bought > 0) auto *= Math.pow(3, u.bought);
-    if (u.id==='sonar' && u.bought > 0) { tap *= Math.pow(2, u.bought); auto *= Math.pow(2, u.bought); }
+    if (u.id==='sonar' && u.bought > 0) { tapMult *= Math.pow(2, u.bought); auto *= Math.pow(2, u.bought); }
   });
-  state.tapPower   = Math.max(1, Math.round(tap));
+  state.tapPower   = Math.round(0.1 * tapMult * 10) / 10;
   state.autoPerSec = Math.round(auto * 10) / 10;
 }
 
@@ -236,18 +240,18 @@ function tapOcean(e) {
 
   const f      = randomFish();
   const earned = state.tapPower;
-  state.coins += earned;
+  state.coins  = Math.round((state.coins + earned) * 10) / 10;
   state.caught++;
   unlockFish();
 
-  spawnAnim(x, y, f.emoji, earned);
+  spawnAnim(x, y, f.emoji, '+' + earned.toFixed(1));
   updateUI();
   saveState();
 
   if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
-function spawnAnim(x, y, emoji, coins) {
+function spawnAnim(x, y, emoji, label) {
   const ocean = document.getElementById('ocean');
   const el = document.createElement('div');
   el.className = 'tap-anim';
@@ -257,7 +261,7 @@ function spawnAnim(x, y, emoji, coins) {
 
   const plus = document.createElement('div');
   plus.className = 'plus-anim';
-  plus.textContent = '+' + coins;
+  plus.textContent = label;
   plus.style.cssText = `left:${x + 8}px;top:${y - 5}px;`;
   ocean.appendChild(plus);
 
@@ -276,10 +280,9 @@ function spawnBubbles() {
 }
 
 function updateUI() {
-  const c = state.coins;
-  document.getElementById('s-coins').textContent = c >= 1000000 ? (c/1000000).toFixed(1)+'M' : c >= 1000 ? (c/1000).toFixed(1)+'k' : c;
+  document.getElementById('s-coins').textContent = fmtCoins(state.coins);
   document.getElementById('s-fish').textContent  = state.caught >= 1000 ? (state.caught/1000).toFixed(1)+'k' : state.caught;
-  document.getElementById('s-tap').textContent   = '+' + state.tapPower;
+  document.getElementById('s-tap').textContent   = '+' + state.tapPower.toFixed(1);
   document.getElementById('s-auto').textContent  = state.autoPerSec;
   renderContent();
 }
@@ -316,7 +319,8 @@ function renderUpgrades() {
 }
 
 function renderAquarium() {
-  const total = FISH.filter(f => f.unlocked).reduce((s, f) => s + f.rate, 0);
+  const unlockedFish = FISH.filter(f => f.unlocked);
+  const total = unlockedFish.reduce((s, f) => s + f.rate, 0);
   document.getElementById('content').innerHTML = FISH.map(f => {
     if (!f.unlocked) {
       return `<div class="fish-item locked-item">
@@ -327,13 +331,13 @@ function renderAquarium() {
         </div>
       </div>`;
     }
-    const pct = Math.round(f.rate / total * 100);
-    const barPct = Math.round(f.rate / FISH[0].rate * 100);
+    const pct    = Math.round(f.rate / total * 100);
+    const barPct = Math.round(f.rate / total * 100);
     return `<div class="fish-item">
       <span class="ico">${f.emoji}</span>
       <div class="inf">
         <div class="n">${f.name} <span class="badge">${pct}% шанс</span></div>
-        <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(100,barPct)}%"></div></div>
+        <div class="bar-bg"><div class="bar-fill" style="width:${barPct}%"></div></div>
       </div>
     </div>`;
   }).join('');
@@ -344,7 +348,7 @@ function buyUpgrade(id) {
   if (!u || u.bought >= u.max) return;
   const cost = u.costs[u.bought];
   if (state.coins < cost) return;
-  state.coins -= cost;
+  state.coins = Math.round((state.coins - cost) * 10) / 10;
   u.bought++;
   calcStats();
   unlockFish();
@@ -358,17 +362,17 @@ function autoTick() {
   const dt  = (now - lastAuto) / 1000;
   lastAuto  = now;
   if (state.autoPerSec > 0) {
-    const earned = Math.floor(state.autoPerSec * dt * state.tapPower);
+    const earned = Math.round(state.autoPerSec * dt * state.tapPower * 10) / 10;
     if (earned > 0) {
-      state.coins  += earned;
-      state.caught += earned;
+      state.coins  = Math.round((state.coins + earned) * 10) / 10;
+      state.caught += Math.ceil(earned);
       unlockFish();
       updateUI();
       saveState();
       const ocean = document.getElementById('ocean');
       const x = Math.random() * (ocean.offsetWidth - 40) + 20;
       const y = Math.random() * 120 + 20;
-      spawnAnim(x, y, randomFish().emoji, earned);
+      spawnAnim(x, y, randomFish().emoji, '+' + earned.toFixed(1));
     }
   }
   setTimeout(autoTick, 500);
