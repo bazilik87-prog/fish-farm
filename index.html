@@ -142,9 +142,16 @@
 <div id="tabs">
   <div class="tab active" onclick="showTab('upgrades')">⬆️ Улучшения</div>
   <div class="tab" onclick="showTab('aquarium')">🐠 Аквариум</div>
+  <div class="tab" onclick="showTab('settings')">⚙️</div>
 </div>
 
 <div id="content"></div>
+
+<div style="padding: 10px;">
+  <button onclick="resetGame()" style="width:100%;background:#7f1d1d;color:#fca5a5;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+    🗑 Сбросить прогресс
+  </button>
+</div>
 
 <script>
 const tg = window.Telegram?.WebApp;
@@ -290,14 +297,52 @@ function updateUI() {
 function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'upgrades') || (i === 1 && tab === 'aquarium'));
+    t.classList.toggle('active',
+      (i === 0 && tab === 'upgrades') ||
+      (i === 1 && tab === 'aquarium') ||
+      (i === 2 && tab === 'settings')
+    );
   });
   renderContent();
 }
 
 function renderContent() {
   if (currentTab === 'upgrades') renderUpgrades();
-  else renderAquarium();
+  else if (currentTab === 'aquarium') renderAquarium();
+  else renderSettings();
+}
+
+function renderSettings() {
+  document.getElementById('content').innerHTML = `
+    <div style="padding:10px 0">
+      <div style="background:#0f3460;border-radius:12px;padding:16px;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:6px">Статистика</div>
+        <div style="font-size:12px;color:#90caf9">Монет: ${fmtCoins(state.coins)}</div>
+        <div style="font-size:12px;color:#90caf9">Поймано рыб: ${state.caught}</div>
+        <div style="font-size:12px;color:#90caf9">Монет за тап: ${state.tapPower.toFixed(1)}</div>
+        <div style="font-size:12px;color:#90caf9">Авто/сек: ${state.autoPerSec}</div>
+      </div>
+      <div style="background:#3d0f0f;border-radius:12px;padding:16px">
+        <div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>
+        <div style="font-size:12px;color:#ff9999;margin-bottom:12px">Весь прогресс будет удалён безвозвратно</div>
+        <button onclick="resetGame()" style="background:#c0392b;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;width:100%">
+          🗑 Сбросить прогресс
+        </button>
+      </div>
+    </div>`;
+}
+
+function resetGame() {
+  if (!confirm('Сбросить весь прогресс? Это нельзя отменить.')) return;
+  localStorage.removeItem('fishfarm_save');
+  state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
+  UPGRADES.forEach(u => u.bought = 0);
+  FISH.forEach((f, i) => f.unlocked = i === 0);
+  tapped = false;
+  document.getElementById('hint').style.opacity = '1';
+  calcStats();
+  updateUI();
+  showTab('upgrades');
 }
 
 function renderUpgrades() {
@@ -376,6 +421,17 @@ function autoTick() {
     }
   }
   setTimeout(autoTick, 500);
+}
+
+function resetGame() {
+  if (!confirm('Сбросить весь прогресс?')) return;
+  localStorage.removeItem('fishfarm_save');
+  state = { coins:0, caught:0, tapPower:0.1, autoPerSec:0 };
+  UPGRADES.forEach(u => u.bought = 0);
+  FISH.forEach((f, i) => { f.unlocked = i === 0; });
+  tapped = false;
+  document.getElementById('hint').style.opacity = '1';
+  updateUI();
 }
 
 loadState();
