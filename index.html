@@ -221,7 +221,10 @@ function getTr(id) {
   for (var i=0;i<TRANSPORTS.length;i++) if (TRANSPORTS[i].id===tid) return TRANSPORTS[i];
   return TRANSPORTS[0];
 }
-function getDur(id) { return state.durability[id||state.transport]||100; }
+function getDur(id) {
+  var d = state.durability[id||state.transport];
+  return (d === undefined || d === null) ? 100 : d;
+}
 function durColor(d) { return d>=75?'#6ddc6d':d>=50?'#FFD700':d>=25?'#ff9944':'#f44336'; }
 function delivTime(tr) {
   var d=getDur(tr.id);
@@ -977,7 +980,12 @@ function renderBank() {
       +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: 1 звезда Telegram за каждый обмен</div>'
       +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за 1 звезду Telegram</button>'
     +'</div>'
-    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит TON Fish на указанный кошелёк в течение 24 часов.<br><br><a href="https://www.tonfish.io" style="color:#1565c0">tonfish.io</a></div>';
+    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит TON Fish на указанный кошелёк в течение 24 часов.<br><br><a href="https://www.tonfish.io" style="color:#1565c0">tonfish.io</a></div>'
+    +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
+    +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Напиши боту эту команду:</div>'
+    +'<div id="bank-cmd" style="font-size:12px;color:#FFD700;font-family:monospace;word-break:break-all;margin-bottom:10px"></div>'
+    +'<div style="font-size:11px;color:#90caf9">Бот пришлёт кнопку оплаты ⭐ прямо в чат</div>'
+    +'</div>';
 }
 function updateBankPreview() {
   var input=document.getElementById('ex-amount');
@@ -1017,14 +1025,9 @@ function exchangeCoins() {
       });
     } else { showNotif('Ошибка: нет ссылки'); }
   }).catch(function(){
-    // Fallback — показываем инструкцию с командой бота
-    document.getElementById('content').innerHTML +=
-      '<div class="card" style="background:#1a2a0a;margin-top:10px">'
-      +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Альтернативный способ</div>'
-      +'<div style="font-size:12px;color:#90caf9;line-height:1.8">Напиши боту команду:<br>'
-      +'<span style="color:#FFD700;font-family:monospace">/bank '+amount+' '+wallet+'</span><br><br>'
-      +'Бот пришлёт кнопку оплаты ⭐</div>'
-      +'</div>';
+    var cmd = '/bank '+amount+' '+wallet;
+    document.getElementById('bank-fallback').style.display='block';
+    document.getElementById('bank-cmd').textContent = cmd;
   });
 }
 function renderDaily() {
