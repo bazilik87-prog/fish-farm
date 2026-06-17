@@ -98,6 +98,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="tab" onclick="showTab('kitchen')">🍳</div>
   <div class="tab" onclick="showTab('market')">🏪</div>
   <div class="tab" onclick="showTab('daily')">🎁</div>
+  <div class="tab" onclick="showTab('quests')">📋</div>
   <div class="tab" onclick="showTab('boosts')">⚡</div>
   <div class="tab" onclick="showTab('leaders')">🏆</div>
   <div class="tab" onclick="showTab('locations')">🗺</div>
@@ -119,26 +120,26 @@ var LOCATIONS = [
 ];
 
 var FISH = {
-  pond:   [{emoji:'🐟',name:'Карась',     rate:1.0,need:0,     life:2 },
-           {emoji:'🐠',name:'Красноперка',rate:0.5,need:100,    life:4 },
-           {emoji:'🐟',name:'Лещ',        rate:0.2,need:500,    life:8 },
-           {emoji:'🐡',name:'Щука',       rate:0.08,need:200000,  life:16}],
-  river:  [{emoji:'🐡',name:'Окунь',   rate:1.0, need:0,   life:2 },
-           {emoji:'🦦',name:'Выдра',   rate:0.4, need:7000, life:5 },
-           {emoji:'🐊',name:'Крокодил',rate:0.15,need:200000,life:10},
-           {emoji:'🦛',name:'Гиппо',   rate:0.05,need:50000,life:20}],
-  tropics:[{emoji:'🐠',name:'Тропик', rate:1.0, need:0,    life:3 },
-           {emoji:'🦜',name:'Попугай',rate:0.4, need:40000, life:6 },
-           {emoji:'🐍',name:'Змея',   rate:0.15,need:800000, life:12},
-           {emoji:'🦋',name:'Бабочка',rate:0.05,need:200000,life:24}],
-  deep:   [{emoji:'🦑',name:'Кальмар', rate:1.0, need:0,    life:4 },
-           {emoji:'🐙',name:'Осьминог',rate:0.4, need:180000,life:8 },
-           {emoji:'🦈',name:'Акула',   rate:0.15,need:3000000,life:16},
-           {emoji:'🐳',name:'Кит',     rate:0.04,need:800000,life:24}],
-  space:  [{emoji:'👾',name:'Пришелец', rate:1.0, need:0,      life:6 },
-           {emoji:'🛸',name:'НЛО',      rate:0.3, need:1200000, life:12},
-           {emoji:'🌌',name:'Галактика',rate:0.1, need:3000000, life:20},
-           {emoji:'⭐',name:'Звезда',   rate:0.03,need:10000000,life:24}]
+  pond:   [{emoji:'🐟',name:'Карась',     rate:1.0,need:0,     life:1 },
+           {emoji:'🐠',name:'Красноперка',rate:0.5,need:100,    life:1 },
+           {emoji:'🐟',name:'Лещ',        rate:0.2,need:500,    life:1 },
+           {emoji:'🐡',name:'Щука',       rate:0.08,need:200000,  life:1}],
+  river:  [{emoji:'🐡',name:'Окунь',   rate:1.0, need:0,   life:1 },
+           {emoji:'🦦',name:'Выдра',   rate:0.4, need:7000, life:1 },
+           {emoji:'🐊',name:'Крокодил',rate:0.15,need:200000,life:1},
+           {emoji:'🦛',name:'Гиппо',   rate:0.05,need:50000,life:1}],
+  tropics:[{emoji:'🐠',name:'Тропик', rate:1.0, need:0,    life:1 },
+           {emoji:'🦜',name:'Попугай',rate:0.4, need:40000, life:1 },
+           {emoji:'🐍',name:'Змея',   rate:0.15,need:800000, life:1},
+           {emoji:'🦋',name:'Бабочка',rate:0.05,need:200000,life:1}],
+  deep:   [{emoji:'🦑',name:'Кальмар', rate:1.0, need:0,    life:1 },
+           {emoji:'🐙',name:'Осьминог',rate:0.4, need:180000,life:1 },
+           {emoji:'🦈',name:'Акула',   rate:0.15,need:3000000,life:1},
+           {emoji:'🐳',name:'Кит',     rate:0.04,need:800000,life:1}],
+  space:  [{emoji:'👾',name:'Пришелец', rate:1.0, need:0,      life:1 },
+           {emoji:'🛸',name:'НЛО',      rate:0.3, need:1200000, life:1},
+           {emoji:'🌌',name:'Галактика',rate:0.1, need:3000000, life:1},
+           {emoji:'⭐',name:'Звезда',   rate:0.03,need:10000000,life:1}]
 };
 
 var ALL_FISH = [];
@@ -177,6 +178,21 @@ var UPGRADES = [
 
 var DAILY = [10,25,50,100,200,400,1000];
 
+var QUEST_TEMPLATES = [
+  {id:'catch50',    text:'Поймай 50 рыб',          type:'catch',    goal:50,   reward:30  },
+  {id:'catch100',   text:'Поймай 100 рыб',         type:'catch',    goal:100,  reward:60  },
+  {id:'catch200',   text:'Поймай 200 рыб',         type:'catch',    goal:200,  reward:120 },
+  {id:'sell1',      text:'Отправь 1 доставку',     type:'deliver',  goal:1,    reward:50  },
+  {id:'sell3',      text:'Отправь 3 доставки',     type:'deliver',  goal:3,    reward:150 },
+  {id:'dry1',       text:'Высуши 1 пакет',         type:'dry',      goal:1,    reward:80  },
+  {id:'dry3',       text:'Высуши 3 пакета',        type:'dry',      goal:3,    reward:250 },
+  {id:'earn500',    text:'Заработай 500 монет',    type:'earn',     goal:500,  reward:100 },
+  {id:'earn1000',   text:'Заработай 1000 монет',   type:'earn',     goal:1000, reward:200 },
+  {id:'catch_rare', text:'Поймай 10 редких рыб',  type:'rare',     goal:10,   reward:200 },
+  {id:'repair1',    text:'Почини транспорт',       type:'repair',   goal:1,    reward:70  },
+  {id:'catch20loc', text:'Поймай 20 рыб в локации',type:'catchloc', goal:20,   reward:80  },
+];
+
 // ── Состояние ─────────────────────────────────────────
 var state = {
   coins:0,caught:0,tapPower:0.1,autoPerSec:0,
@@ -186,7 +202,8 @@ var state = {
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,
   drying:[],driedFish:[],
-  boosts:{doubleTap:0, turboDlv:false, luckyRod:0, autoRepair:false}
+  boosts:{doubleTap:0, turboDlv:false, luckyRod:0, autoRepair:false},
+  quests:[], questsDate:0, questProgress:{}
 };
 
 var marketPrices = {};
@@ -312,7 +329,8 @@ function save() {
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
       lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
-      drying:state.drying, driedFish:state.driedFish, boosts:state.boosts
+      drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
+      quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress
     }));
   } catch(e){}
 }
@@ -340,6 +358,9 @@ function load() {
     state.drying            = s.drying    || [];
     state.driedFish         = s.driedFish || [];
     state.boosts            = s.boosts    || {doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false};
+    state.quests            = s.quests       || [];
+    state.questsDate        = s.questsDate   || 0;
+    state.questProgress     = s.questProgress|| {};
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
     if (s.prices)  marketPrices    = s.prices;
@@ -358,19 +379,11 @@ function processOffline() {
     showNotif('💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings));
     state.delivery=null;
   }
-  // Обрабатываем готовые слоты сушки
-  var stillDrying=[];
+  // Готовые слоты сушки — НЕ собираем автоматически, просто помечаем
   for (var d=0;d<state.drying.length;d++) {
-    var slot=state.drying[d];
-    if (now>=slot.endsAt) {
-      var packs=slot.packets||1;
-      for (var p=0;p<packs;p++) {
-        state.driedFish.push({name:slot.name,emoji:slot.emoji,dieAt:slot.endsAt+43200000});
-      }
-    } else stillDrying.push(slot);
+    if (now>=state.drying[d].endsAt) state.drying[d].notified=true;
   }
-  state.drying=stillDrying;
-  // Убираем просроченную сушёную рыбу
+  // Убираем просроченную сушёную рыбу (6ч с момента endsAt)
   state.driedFish=state.driedFish.filter(function(f){ return f.dieAt>now; });
   // Убираем погибшую свежую рыбу
   var dead=[], live=[];
@@ -505,7 +518,7 @@ function updateUI() {
 function showTab(tab) {
   currentTab=tab;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','daily','boosts','leaders','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -516,6 +529,7 @@ function renderContent() {
   else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
   else if (currentTab==='daily') renderDaily();
+  else if (currentTab==='quests') renderQuests();
   else if (currentTab==='boosts') renderBoosts();
   else if (currentTab==='leaders') renderLeaders();
   else if (currentTab==='locations') renderLocations();
@@ -684,7 +698,7 @@ function renderKitchen() {
   var html = '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб → 1 пакет сушёной · Срок годности 12ч</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб → 1 пакет сушёной · Срок годности 6ч</div>'
     +'</div>';
 
   // Слоты сушки
@@ -695,16 +709,21 @@ function renderKitchen() {
       var left = Math.max(0, Math.ceil((slot.endsAt-now)/1000));
       var pct  = Math.min(100, Math.round((now-slot.startedAt)/(slot.endsAt-slot.startedAt)*100));
       var done = now >= slot.endsAt;
+      var done = now >= slot.endsAt;
+      var expiresAt = slot.endsAt + 21600000; // 6ч с момента окончания
+      var expireLeft = Math.max(0, Math.ceil((expiresAt-now)/3600000*10)/10);
       html += '<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-        +'<span style="font-size:14px;font-weight:600;color:#fff">'+slot.emoji+' '+slot.name+' сушёная <span class="badge">'+( slot.packets||1)+' пак.</span></span>'
+        +'<span style="font-size:14px;font-weight:600;color:#fff">'+slot.emoji+' '+slot.name+' сушёная <span class="badge">'+(slot.packets||1)+' пак.</span></span>'
         +(done
           ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">Собрать 📦</button>'
           : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(left)+'</span>')
         +'</div>'
-        +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
+        +'<div style="background:#1a1a2e;border-radius:4px;height:6px;margin-bottom:4px">'
         +'<div style="background:'+(done?'#6ddc6d':'#FFD700')+';height:6px;border-radius:4px;width:'+pct+'%"></div>'
-        +'</div></div>';
+        +'</div>'
+        +(done?'<div style="font-size:11px;color:#ff9944">⏳ Истекает через '+expireLeft+'ч — собери скорее!</div>':'')
+        +'</div>';
     }
     html += '</div>';
   }
@@ -801,6 +820,7 @@ function startDrying(name) {
   // Добавляем слот сушки с количеством пакетов
   state.drying.push({name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
   dryPacks[name] = 1;
+  addQuestProgress('dry', packs);
   showNotif((def?def.emoji:'🐟')+' '+packs+' пак. '+name+' отправлено на сушку!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -811,7 +831,7 @@ function collectDried(idx) {
   if (!slot || Date.now()<slot.endsAt) return;
   var packs = slot.packets||1;
   for (var p=0;p<packs;p++) {
-    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+43200000});
+    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+21600000}); // 6 часов с момента окончания сушки
   }
   state.drying.splice(idx,1);
   showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' сушёной готово!');
@@ -821,25 +841,16 @@ function collectDried(idx) {
 
 function checkDrying() {
   var now=Date.now();
-  // Автоматически переносим готовые слоты в driedFish
-  var stillDrying=[];
+  // НЕ собираем автоматически — только уведомляем что готово
   for (var i=0;i<state.drying.length;i++) {
     var slot=state.drying[i];
-    if (now>=slot.endsAt) {
-      var packs=slot.packets||1;
-      for (var p=0;p<packs;p++) {
-        state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+43200000});
-      }
-      showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' готово — забери на кухне!');
-    } else {
-      stillDrying.push(slot);
+    if (now>=slot.endsAt && !slot.notified) {
+      slot.notified=true;
+      showNotif('📦 '+slot.emoji+' '+slot.name+' сушёная готова — зайди на кухню!');
+      save();
     }
   }
-  if (stillDrying.length !== state.drying.length) {
-    state.drying = stillDrying;
-    save();
-  }
-  // Проверяем просроченные пакеты
+  // Проверяем истёкшие пакеты на складе
   var deadDried=[], liveDried=[];
   for (var j=0;j<state.driedFish.length;j++) {
     if (state.driedFish[j].dieAt<=now) deadDried.push(state.driedFish[j]);
@@ -853,6 +864,127 @@ function checkDrying() {
   if (currentTab==='kitchen') renderKitchen();
 }
 
+function getTodayDate() {
+  var d=new Date(); return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();
+}
+function generateQuests() {
+  var today=getTodayDate();
+  if (state.questsDate===today && state.quests.length===5) return;
+  // Генерируем 5 случайных уникальных квестов
+  var pool=QUEST_TEMPLATES.slice();
+  var picked=[];
+  // Перемешиваем с сидом от даты
+  var seed=today;
+  function rnd() { seed=(seed*1664525+1013904223)&0xffffffff; return Math.abs(seed)/0x80000000; }
+  pool.sort(function(){ return rnd()-0.5; });
+  for (var i=0;i<5&&i<pool.length;i++) picked.push(pool[i].id);
+  state.quests=picked;
+  state.questsDate=today;
+  // Сбрасываем прогресс только для новых квестов
+  var newProgress={};
+  for (var j=0;j<picked.length;j++) newProgress[picked[j]]=state.questProgress[picked[j]]||0;
+  state.questProgress=newProgress;
+  save();
+}
+function getQuest(id) {
+  for (var i=0;i<QUEST_TEMPLATES.length;i++) if(QUEST_TEMPLATES[i].id===id) return QUEST_TEMPLATES[i];
+  return null;
+}
+function addQuestProgress(type, amount) {
+  generateQuests();
+  var changed=false;
+  var allDoneBefore=true;
+  for (var i=0;i<state.quests.length;i++) {
+    var q=getQuest(state.quests[i]); if(!q) continue;
+    if ((state.questProgress[q.id]||0) < q.goal) allDoneBefore=false;
+  }
+  if (allDoneBefore) return; // уже все выполнены
+
+  for (var i=0;i<state.quests.length;i++) {
+    var q=getQuest(state.quests[i]); if(!q) continue;
+    if (q.type===type) {
+      var prev=state.questProgress[q.id]||0;
+      if (prev<q.goal) {
+        state.questProgress[q.id]=Math.min(q.goal, prev+(amount||1));
+        changed=true;
+      }
+    }
+  }
+
+  // Проверяем — все ли выполнены теперь
+  if (changed) {
+    var allDone=true;
+    var totalReward=0;
+    for (var j=0;j<state.quests.length;j++) {
+      var qq=getQuest(state.quests[j]); if(!qq) continue;
+      if ((state.questProgress[qq.id]||0)<qq.goal) { allDone=false; break; }
+      totalReward+=qq.reward;
+    }
+    if (allDone) {
+      state.coins=Math.round((state.coins+150)*100)/100;
+      showNotif('🎉 Все квесты выполнены! +🪙150');
+      if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    }
+    updateUI(); save();
+  }
+}
+function renderQuests() {
+  generateQuests();
+  var today=getTodayDate();
+  var now=Date.now();
+  // Сколько до следующего сброса
+  var tomorrow=new Date(); tomorrow.setHours(24,0,0,0);
+  var hoursLeft=Math.ceil((tomorrow-now)/3600000);
+
+  var html='<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Ежедневные квесты</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Обновляются через '+hoursLeft+' ч</div>'
+    +'</div>';
+
+  var completed=0;
+  var totalReward=0;
+  for (var i=0;i<state.quests.length;i++) {
+    var q=getQuest(state.quests[i]); if(!q) continue;
+    var prog=state.questProgress[q.id]||0;
+    var done=prog>=q.goal;
+    if(done) completed++;
+    totalReward+=q.reward;
+    var pct=Math.min(100,Math.round(prog/q.goal*100));
+    html+='<div class="card" style="'+(done?'background:#0a2a0a;border:1px solid #2d6a4f':'background:#0f3460')+'">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+      +'<div style="font-size:13px;font-weight:600;color:'+(done?'#6ddc6d':'#fff')+'">'+q.text+'</div>'
+      +(done?'<div style="font-size:16px">✅</div>':'')
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px">'
+      +'<div style="background:'+(done?'#6ddc6d':'#1565c0')+';height:6px;border-radius:4px;width:'+pct+'%"></div>'
+      +'</div>'
+      +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+prog+'/'+q.goal+'</div>'
+      +'</div>'
+      +'</div>';
+  }
+
+  // Итоговая награда
+  if (completed===5) {
+    html+='<div class="card" style="text-align:center;background:#1a2a0a;border:1.5px solid #6ddc6d">'
+      +'<div style="font-size:14px;font-weight:600;color:#6ddc6d">🎉 Все квесты выполнены!</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Возвращайся завтра за новыми!</div>'
+      +'</div>';
+  } else {
+    html+='<div class="card" style="background:#0a1a2e;text-align:center">'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:4px">Выполни все 5 квестов и получи</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 150 монет</div>'
+      +'<div style="font-size:11px;color:#666;margin-top:4px">Выполнено: '+completed+'/5</div>'
+      +'</div>';
+  }
+
+  // Обновляем инструкцию
+  html+='<div class="card" style="font-size:11px;color:#666;line-height:1.8">'
+    +'Квесты обновляются каждый день в полночь. Выполняй их чтобы получать монеты!</div>';
+
+  document.getElementById('content').innerHTML=html;
+}
 function renderBoosts() {
   var now = Date.now();
   var b = state.boosts;
@@ -1206,9 +1338,10 @@ function renderSettings() {
     +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик рядом с тапом. Тапай в меру — шанс будет максимальным.<br><br>'
     +'<b style="color:#fff">🐠 Склад</b><br>Рыба живёт ограниченное время. Редкая живёт дольше. Продавай вовремя!<br><br>'
-    +'<b style="color:#fff">🍳 Кухня</b><br>Собери 10 рыб одного вида и отправь на сушку. Выбирай количество пакетов кнопками − / +. Чем редче рыба — тем дольше сушится (карась 1ч, редкие до 10ч). Таймер срока годности 12 часов стартует сразу после окончания сушки, даже если ты офлайн. Успей продать!<br><br>'
+    +'<b style="color:#fff">🍳 Кухня</b><br>Собери 10 рыб одного вида и отправь на сушку. Выбирай количество пакетов кнопками − / +. Чем редче рыба — тем дольше сушится (карась 1ч, редкие до 10ч). После окончания сушки нужно вручную собрать пакеты — у тебя есть 6 часов до истечения срока годности!<br><br>'
     +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери транспорт и отправь рыбу. До рынка 1 км. Цены меняются каждые 30 сек 📈📉<br><br>'
     +'<b style="color:#fff">🔧 Амортизация</b><br>Каждая доставка -10% прочности. Низкая прочность = дольше едет. 0% = сломан, нужен ремонт.<br><br>'
+    +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов — лови рыбу, отправляй доставки, суши рыбу. За каждый выполненный квест получаешь монеты. Обновляются в полночь.<br><br>'
     +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars. ⚡ Двойной улов ×2 монеты на 1ч · 🚀 Турбо доставка мгновенно · 🎣 +50% шанс улова на 30 мин · 🔧 Мгновенный ремонт транспорта.<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил = сброс!<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — отображаются как 🎣 Рыбак #N. Твой результат обновляется автоматически раз в минуту.<br><br>'
@@ -1242,6 +1375,10 @@ function tapOcean(e) {
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
   state.liveFish.push({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000});
   unlockFish();
+  // Квест: улов
+  var isRare = (FISH[state.currentLoc]||[]).indexOf(f) > 0;
+  addQuestProgress('catch', 1);
+  if (isRare) addQuestProgress('rare', 1);
   spawnAnim(x,y,f.emoji,'+'+earned.toFixed(1));
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -1299,6 +1436,7 @@ function sendDelivery() {
   state.durability[tr.id]=Math.max(0,dur-10);
   state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
   state.selectedFish=null; state.selectedDried=false;
+  addQuestProgress('deliver', 1);
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1308,6 +1446,7 @@ function repairTr(id) {
   state.coins=Math.round((state.coins-tr.repairCost)*100)/100;
   state.durability[id]=100;
   showNotif('🔧 '+tr.emoji+' '+tr.name+' отремонтирован!');
+  addQuestProgress('repair', 1);
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1366,7 +1505,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false}};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false},quests:[],questsDate:0,questProgress:{}};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
