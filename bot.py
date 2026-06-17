@@ -24,21 +24,22 @@ CORS = {
 }
 
 BOOST_NAMES = {
-    'doubleTap':  'Double Catch (x2 coins for 1 hour)',
-    'turboDlv':   'Turbo Delivery (instant delivery)',
-    'luckyRod':   'Lucky Rod (+50% catch chance for 30 min)',
-    'autoRepair': 'Auto Repair (instant vehicle repair)',
+    'doubleTap':  'Double Catch x2 for 1 hour',
+    'turboDlv':   'Turbo Delivery instant',
+    'luckyRod':   'Lucky Rod +50pct for 30min',
+    'autoRepair': 'Auto Repair vehicle',
 }
-
 BOOST_LABELS = {
-    'doubleTap':  '⚡ Double Catch',
-    'turboDlv':   '🚀 Turbo Delivery',
-    'luckyRod':   '🎣 Lucky Rod',
-    'autoRepair': '🔧 Auto Repair',
+    'doubleTap':  '⚡ Двойной улов',
+    'turboDlv':   '🚀 Турбо доставка',
+    'luckyRod':   '🎣 Удачная рыбалка',
+    'autoRepair': '🔧 Авторемонт',
 }
 
+# Хранилище pending обменов: user_id -> {coins, wallet}
+pending = {}
 
-# ── HTTP API ──────────────────────────────────────────
+
 async def create_invoice(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -51,18 +52,20 @@ async def create_invoice(request):
 
     try:
         if action == 'exchange':
-            coins  = int(data.get('coins', 0))
-            wallet = str(data.get('wallet', '')).strip()
+            coins   = int(data.get('coins', 0))
+            wallet  = str(data.get('wallet', '')).strip()
+            user_id = int(data.get('user_id', 0))
             if coins < 1 or not wallet:
                 return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
+            # Сохраняем данные обмена
+            pending[str(user_id)] = {'coins': coins, 'wallet': wallet,
+                                     'username': str(data.get('username', ''))}
+            # Короткий payload: тип:user_id
+            payload = f"ex:{user_id}"
             link = await bot.create_invoice_link(
                 title="TON Fish Exchange",
-                description=f"Exchange {coins} coins for {coins} TON Fish",
-                payload=json.dumps({
-                    "type": "exchange", "coins": coins, "wallet": wallet,
-                    "user_id": int(data.get('user_id', 0)),
-                    "username": str(data.get('username', ''))
-                }),
+                description=f"{coins} coins to TON Fish",
+                payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Fee", amount=1)],
                 provider_token="",
@@ -71,14 +74,13 @@ async def create_invoice(request):
 
         elif action == 'boost':
             boost_id = str(data.get('boost', ''))
+            user_id  = int(data.get('user_id', 0))
             name = BOOST_NAMES.get(boost_id, 'Boost')
+            payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,
                 description=name,
-                payload=json.dumps({
-                    "type": "boost", "boost": boost_id,
-                    "user_id": int(data.get('user_id', 0))
-                }),
+                payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Boost", amount=1)],
                 provider_token="",
@@ -95,7 +97,6 @@ async def health(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
-# ── Telegram бот ──────────────────────────────────────
 @dp.message(CommandStart())
 async def start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -104,7 +105,7 @@ async def start(message: types.Message):
     await message.answer(
         "🐟 *Добро пожаловать на Рыбную ферму!*\n\n"
         "Лови рыбу, улучшай снаряжение, открывай локации.\n\n"
-        "💡 /bank — обменять монеты на TON Fish\n"
+        "💡 /bank СУММА КОШЕЛЁК — обмен монет\n"
         "⚡ /boost — купить бустер\n\n"
         "Нажми кнопку чтобы начать 👇",
         parse_mode="Markdown",
@@ -114,43 +115,33 @@ async def start(message: types.Message):
 
 @dp.message(Command('bank'))
 async def bank_command(message: types.Message):
-    """Команда для обмена монет — без аргументов показывает инструкцию"""
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "💱 *Обмен монет на TON Fish*\n\n"
-            "Используй команду:\n"
-            "`/bank СУММА КОШЕЛЁК`\n\n"
-            "Пример:\n"
-            "`/bank 100 UQDabcdef...`\n\n"
-            "Или открой банк прямо в игре 👇",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-            ]])
+            "💱 Использование:\n`/bank СУММА КОШЕЛЁК`\n\nПример:\n`/bank 100 UQD...`",
+            parse_mode="Markdown"
         )
         return
     try:
-        coins = int(text[1])
+        coins  = int(text[1])
         wallet = text[2]
     except Exception:
-        await message.answer("❌ Неверный формат. Пример: `/bank 100 UQD...`", parse_mode="Markdown")
+        await message.answer("❌ Пример: `/bank 100 UQD...`", parse_mode="Markdown")
         return
 
+    user_id = message.from_user.id
+    pending[str(user_id)] = {'coins': coins, 'wallet': wallet,
+                             'username': message.from_user.username or ''}
     link = await bot.create_invoice_link(
         title="TON Fish Exchange",
-        description=f"Exchange {coins} coins for {coins} TON Fish",
-        payload=json.dumps({
-            "type": "exchange", "coins": coins, "wallet": wallet,
-            "user_id": message.from_user.id,
-            "username": message.from_user.username or ""
-        }),
+        description=f"{coins} coins to TON Fish",
+        payload=f"ex:{user_id}",
         currency="XTR",
         prices=[LabeledPrice(label="Fee", amount=1)],
         provider_token="",
     )
     await message.answer(
-        f"💱 *Обмен {coins} монет → {coins} TON Fish*\n👛 `{wallet[:20]}...`",
+        f"💱 *Обмен {coins} монет → {coins} TON Fish*",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="⭐ Оплатить 1 звезду", url=link)
@@ -160,16 +151,11 @@ async def bank_command(message: types.Message):
 
 @dp.message(Command('boost'))
 async def boost_command(message: types.Message):
-    """Меню бустеров"""
-    buttons = []
-    for bid, label in BOOST_LABELS.items():
-        buttons.append([InlineKeyboardButton(
-            text=label,
-            callback_data=f"boost:{bid}"
-        )])
-    buttons.append([InlineKeyboardButton(text="🎣 Вернуться в игру", web_app=WebAppInfo(url=GAME_URL))])
+    buttons = [[InlineKeyboardButton(text=label, callback_data=f"boost:{bid}")]
+               for bid, label in BOOST_LABELS.items()]
+    buttons.append([InlineKeyboardButton(text="🎣 В игру", web_app=WebAppInfo(url=GAME_URL))])
     await message.answer(
-        "⚡ *Бустеры за ⭐ Telegram Stars*\n\nВыбери бустер:",
+        "⚡ *Бустеры за ⭐ Stars*",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
@@ -178,20 +164,18 @@ async def boost_command(message: types.Message):
 @dp.callback_query(F.data.startswith('boost:'))
 async def boost_callback(callback: types.CallbackQuery):
     boost_id = callback.data.split(':')[1]
-    name = BOOST_NAMES.get(boost_id, 'Boost')
+    name  = BOOST_NAMES.get(boost_id, 'Boost')
+    label = BOOST_LABELS.get(boost_id, name)
+    user_id = callback.from_user.id
     link = await bot.create_invoice_link(
-        title=name,
-        description=name,
-        payload=json.dumps({
-            "type": "boost", "boost": boost_id,
-            "user_id": callback.from_user.id
-        }),
+        title=name, description=name,
+        payload=f"bo:{boost_id}:{user_id}",
         currency="XTR",
         prices=[LabeledPrice(label="Boost", amount=1)],
         provider_token="",
     )
     await callback.message.answer(
-        f"⚡ *{BOOST_LABELS.get(boost_id, name)}*",
+        f"⚡ *{label}*",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="⭐ Купить за 1 звезду", url=link)
@@ -207,16 +191,12 @@ async def pre_checkout(query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment(message: types.Message):
-    try:
-        payload = json.loads(message.successful_payment.invoice_payload)
-        ptype   = payload.get('type', 'exchange')
-    except Exception:
-        await message.answer("❌ Ошибка обработки.")
-        return
+    payload = message.successful_payment.invoice_payload
 
-    if ptype == 'boost':
-        boost_id = payload.get('boost', '')
-        label = BOOST_LABELS.get(boost_id, 'Бустер')
+    if payload.startswith('bo:'):
+        parts    = payload.split(':')
+        boost_id = parts[1] if len(parts) > 1 else ''
+        label    = BOOST_LABELS.get(boost_id, 'Бустер')
         await message.answer(
             f"✅ *{label} активирован!*\n\nВернись в игру 👇",
             parse_mode="Markdown",
@@ -224,11 +204,16 @@ async def successful_payment(message: types.Message):
                 InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-    else:
-        coins    = payload.get('coins', 0)
-        wallet   = payload.get('wallet', '')
-        user_id  = payload.get('user_id', message.from_user.id)
-        username = payload.get('username', '')
+
+    elif payload.startswith('ex:'):
+        user_id = payload.split(':')[1]
+        info    = pending.pop(user_id, None)
+        if not info:
+            await message.answer("✅ Оплата получена! Свяжись с администратором для получения TON Fish.")
+            return
+        coins    = info['coins']
+        wallet   = info['wallet']
+        username = info['username']
         await message.answer(
             f"✅ *Заявка принята!*\n\n"
             f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet}`\n\n"
@@ -244,16 +229,6 @@ async def successful_payment(message: types.Message):
             )
 
 
-@dp.message(F.web_app_data)
-async def handle_web_app_data(message: types.Message):
-    """Резервный обработчик если sendData всё же сработает"""
-    try:
-        data = json.loads(message.web_app_data.data)
-        await message.answer(f"Получены данные: {data}")
-    except Exception:
-        pass
-
-
 @dp.message()
 async def any_message(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -262,7 +237,6 @@ async def any_message(message: types.Message):
     await message.answer("Нажми кнопку чтобы играть 👇", reply_markup=keyboard)
 
 
-# ── Запуск ────────────────────────────────────────────
 async def main():
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
