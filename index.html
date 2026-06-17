@@ -1016,7 +1016,16 @@ function exchangeCoins() {
         }
       });
     } else { showNotif('Ошибка: нет ссылки'); }
-  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
+  }).catch(function(){
+    // Fallback — показываем инструкцию с командой бота
+    document.getElementById('content').innerHTML +=
+      '<div class="card" style="background:#1a2a0a;margin-top:10px">'
+      +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Альтернативный способ</div>'
+      +'<div style="font-size:12px;color:#90caf9;line-height:1.8">Напиши боту команду:<br>'
+      +'<span style="color:#FFD700;font-family:monospace">/bank '+amount+' '+wallet+'</span><br><br>'
+      +'Бот пришлёт кнопку оплаты ⭐</div>'
+      +'</div>';
+  });
 }
 function renderDaily() {
   var st=getDailyStatus();
