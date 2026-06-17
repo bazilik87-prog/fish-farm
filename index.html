@@ -551,6 +551,57 @@ function renderMarket() {
 
   document.getElementById('content').innerHTML=html;
 }
+function renderBank() {
+  var coins = Math.floor(state.coins);
+  document.getElementById('content').innerHTML =
+    '<div class="card" style="text-align:center;padding:20px">'
+      +'<div style="font-size:32px;margin-bottom:8px">🏦</div>'
+      +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">Банк FishFarm</div>'
+      +'<div style="font-size:12px;color:#90caf9">Обменяй монеты на TON Fish токены</div>'
+    +'</div>'
+    +'<div class="card">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+        +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">Монеты</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
+        +'<div style="font-size:24px;color:#90caf9">→</div>'
+        +'<div style="text-align:center;flex:1"><div style="font-size:28px">🐟</div><div style="font-size:13px;color:#90caf9;margin-top:4px">TON Fish</div><div style="font-size:11px;color:#666;margin-top:2px">tonfish.io</div></div>'
+      +'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Сумма обмена (монеты):</div>'
+      +'<div style="display:flex;gap:8px;margin-bottom:12px">'
+        +'<input id="ex-amount" type="number" min="1" max="'+coins+'" value="'+Math.min(100,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
+        +'<button class="btn" onclick="setBankMax()">Макс</button>'
+      +'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Твой TON кошелёк:</div>'
+      +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
+      +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
+        +'<div style="font-size:12px;color:#90caf9">Ты получишь</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">🐟 '+Math.min(100,coins)+' TON Fish</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 1:1 · Отправка вручную в течение 24ч</div>'
+      +'</div>'
+      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: 1 звезда Telegram за каждый обмен</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за 1 звезду Telegram</button>'
+    +'</div>'
+    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит TON Fish на указанный кошелёк в течение 24 часов.<br><br><a href="https://www.tonfish.io" style="color:#1565c0">tonfish.io</a></div>';
+}
+function updateBankPreview() {
+  var input=document.getElementById('ex-amount');
+  var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
+  var p=document.getElementById('bank-preview');
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">🐟 '+val+' TON Fish</div><div style="font-size:11px;color:#666;margin-top:4px">Курс 1:1 · Отправка вручную в течение 24ч</div>';
+}
+function setBankMax() {
+  var input=document.getElementById('ex-amount');
+  if(input){input.value=Math.floor(state.coins);updateBankPreview();}
+}
+function exchangeCoins() {
+  var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
+  var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
+  var wallet=wi?wi.value.trim():'';
+  if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
+  if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
+  if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
+  if(tg&&tg.sendData){tg.sendData(JSON.stringify({action:'exchange',coins:amount,wallet:wallet}));}
+  else{showNotif('Открой игру через Telegram бота!');}
+}
 function renderDaily() {
   var st=getDailyStatus();
   var html='<div class="card" style="text-align:center">'
