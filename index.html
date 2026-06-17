@@ -119,25 +119,25 @@ var LOCATIONS = [
 
 var FISH = {
   pond:   [{emoji:'🐟',name:'Карась',     rate:1.0,need:0,     life:2 },
-           {emoji:'🐠',name:'Красноперка',rate:0.5,need:10,    life:4 },
-           {emoji:'🐟',name:'Лещ',        rate:0.2,need:50,    life:8 },
-           {emoji:'🐡',name:'Щука',       rate:0.08,need:200,  life:16}],
+           {emoji:'🐠',name:'Красноперка',rate:0.5,need:100,    life:4 },
+           {emoji:'🐟',name:'Лещ',        rate:0.2,need:500,    life:8 },
+           {emoji:'🐡',name:'Щука',       rate:0.08,need:200000,  life:16}],
   river:  [{emoji:'🐡',name:'Окунь',   rate:1.0, need:0,   life:2 },
-           {emoji:'🦦',name:'Выдра',   rate:0.4, need:700, life:5 },
-           {emoji:'🐊',name:'Крокодил',rate:0.15,need:2000,life:10},
-           {emoji:'🦛',name:'Гиппо',   rate:0.05,need:5000,life:20}],
+           {emoji:'🦦',name:'Выдра',   rate:0.4, need:7000, life:5 },
+           {emoji:'🐊',name:'Крокодил',rate:0.15,need:200000,life:10},
+           {emoji:'🦛',name:'Гиппо',   rate:0.05,need:50000,life:20}],
   tropics:[{emoji:'🐠',name:'Тропик', rate:1.0, need:0,    life:3 },
-           {emoji:'🦜',name:'Попугай',rate:0.4, need:4000, life:6 },
-           {emoji:'🐍',name:'Змея',   rate:0.15,need:8000, life:12},
-           {emoji:'🦋',name:'Бабочка',rate:0.05,need:20000,life:24}],
+           {emoji:'🦜',name:'Попугай',rate:0.4, need:40000, life:6 },
+           {emoji:'🐍',name:'Змея',   rate:0.15,need:800000, life:12},
+           {emoji:'🦋',name:'Бабочка',rate:0.05,need:200000,life:24}],
   deep:   [{emoji:'🦑',name:'Кальмар', rate:1.0, need:0,    life:4 },
-           {emoji:'🐙',name:'Осьминог',rate:0.4, need:18000,life:8 },
-           {emoji:'🦈',name:'Акула',   rate:0.15,need:30000,life:16},
-           {emoji:'🐳',name:'Кит',     rate:0.04,need:80000,life:24}],
+           {emoji:'🐙',name:'Осьминог',rate:0.4, need:180000,life:8 },
+           {emoji:'🦈',name:'Акула',   rate:0.15,need:3000000,life:16},
+           {emoji:'🐳',name:'Кит',     rate:0.04,need:800000,life:24}],
   space:  [{emoji:'👾',name:'Пришелец', rate:1.0, need:0,      life:6 },
-           {emoji:'🛸',name:'НЛО',      rate:0.3, need:120000, life:12},
-           {emoji:'🌌',name:'Галактика',rate:0.1, need:300000, life:20},
-           {emoji:'⭐',name:'Звезда',   rate:0.03,need:1000000,life:24}]
+           {emoji:'🛸',name:'НЛО',      rate:0.3, need:1200000, life:12},
+           {emoji:'🌌',name:'Галактика',rate:0.1, need:3000000, life:20},
+           {emoji:'⭐',name:'Звезда',   rate:0.03,need:10000000,life:24}]
 };
 
 var ALL_FISH = [];
@@ -1063,7 +1063,8 @@ function renderLeaders() {
   });
 }
 function renderSettings() {
-  var li=getLoc()
+  var li=getLoc();
+  var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
   document.getElementById('content').innerHTML=
     '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
