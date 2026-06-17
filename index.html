@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden}
@@ -95,6 +98,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="tab" onclick="showTab('kitchen')">🍳 Кухня</div>
   <div class="tab" onclick="showTab('market')">🏪 Рынок</div>
   <div class="tab" onclick="showTab('daily')">🎁 Бонус</div>
+  <div class="tab" onclick="showTab('leaders')">🏆</div>
   <div class="tab" onclick="showTab('locations')">🗺</div>
   <div class="tab" onclick="showTab('settings')">⚙️</div>
 </div>
@@ -494,7 +498,7 @@ function updateUI() {
 function showTab(tab) {
   currentTab=tab;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','daily','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','leaders','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -505,6 +509,7 @@ function renderContent() {
   else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
   else if (currentTab==='daily') renderDaily();
+  else if (currentTab==='leaders') renderLeaders();
   else if (currentTab==='locations') renderLocations();
   else renderSettings();
 }
@@ -927,8 +932,138 @@ function renderLocations() {
   }
   document.getElementById('content').innerHTML=html;
 }
+// ── Firebase конфиг ───────────────────────────────────
+// Вставь свои данные из Firebase Console
+var FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyCIWhrRP6VfZMxYNJsBQPWPLEuW6D-d3rw",
+  authDomain:        "fishfarm-3a4f8.firebaseapp.com",
+  databaseURL:       "https://fishfarm-3a4f8-default-rtdb.firebaseio.com",
+  projectId:         "fishfarm-3a4f8",
+  storageBucket:     "fishfarm-3a4f8.firebasestorage.app",
+  messagingSenderId: "1072194969423",
+  appId:             "1:1072194969423:web:817f2be467a56392cf6f3a",
+  measurementId:     "G-T4P5ZBLP8Z"
+};
+
+var firebaseApp = null;
+var firebaseDB  = null;
+
+function initFirebase() {
+  try {
+    if (FIREBASE_CONFIG.apiKey === 'ВСТАВЬ_API_KEY') return; // не настроен
+    if (!firebaseApp) {
+      firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+      firebaseDB  = firebase.database();
+    }
+  } catch(e) {}
+}
+
+// Уникальный анонимный ID игрока (генерируется один раз)
+function getPlayerId() {
+  var id = localStorage.getItem('ff_player_id');
+  if (!id) {
+    id = 'p_' + Math.random().toString(36).substr(2,9) + '_' + Date.now().toString(36);
+    localStorage.setItem('ff_player_id', id);
+  }
+  return id;
+}
+
+// Порядковый номер игрока (Рыбак #N)
+function getPlayerNumber(playerId, callback) {
+  if (!firebaseDB) { callback(0); return; }
+  var numRef = firebaseDB.ref('player_numbers/' + playerId);
+  numRef.once('value', function(snap) {
+    if (snap.exists()) { callback(snap.val()); return; }
+    // Новый игрок — получаем следующий номер
+    var counterRef = firebaseDB.ref('player_counter');
+    counterRef.transaction(function(cur) { return (cur||0)+1; }, function(err, committed, snap2) {
+      if (committed) {
+        var num = snap2.val();
+        numRef.set(num);
+        callback(num);
+      } else callback(0);
+    });
+  });
+}
+
+// Отправляем счёт в Firebase (не чаще раза в минуту)
+var lastScoreUpload = 0;
+function uploadScore() {
+  if (!firebaseDB) return;
+  var now = Date.now();
+  if (now - lastScoreUpload < 60000) return;
+  lastScoreUpload = now;
+  var pid = getPlayerId();
+  getPlayerNumber(pid, function(num) {
+    firebaseDB.ref('leaderboard/' + pid).set({
+      num:    num,
+      coins:  Math.floor(state.coins),
+      caught: state.caught,
+      loc:    state.currentLoc,
+      ts:     now
+    });
+  });
+}
+
+function renderLeaders() {
+  document.getElementById('content').innerHTML =
+    '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">🏆</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Таблица лидеров</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Топ рыбаков по монетам</div>'
+    +'</div>'
+    +'<div id="leaders-list"><div style="text-align:center;padding:20px;color:#666">⏳ Загрузка...</div></div>';
+
+  if (!firebaseDB) {
+    document.getElementById('leaders-list').innerHTML =
+      '<div class="card" style="text-align:center;color:#f44336;font-size:13px">'
+      +'⚠️ Firebase не настроен<br><span style="font-size:11px;color:#666">Добавь конфигурацию Firebase в index.html</span></div>';
+    return;
+  }
+
+  var myPid = getPlayerId();
+  firebaseDB.ref('leaderboard').orderByChild('coins').limitToLast(50).once('value', function(snap) {
+    var entries = [];
+    snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
+    entries.sort(function(a,b){ return b.data.coins - a.data.coins; });
+
+    if (entries.length === 0) {
+      document.getElementById('leaders-list').innerHTML =
+        '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока никого нет 🐟<br>Будь первым!</div>';
+      return;
+    }
+
+    var locEmoji = {pond:'🌿',river:'🏞',tropics:'🌴',deep:'🌊',space:'🚀'};
+    var medals = ['🥇','🥈','🥉'];
+    var html = '';
+    var myRank = -1;
+
+    for (var i=0;i<entries.length;i++) {
+      var e = entries[i];
+      var isMe = e.id === myPid;
+      if (isMe) myRank = i+1;
+      var rank = i<3 ? medals[i] : '#'+(i+1);
+      var name = '🎣 Рыбак #'+(e.data.num||'?');
+      var loc = locEmoji[e.data.loc]||'🌿';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
+        +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+'">'+name+(isMe?' (ты)':'')+'</div>'
+        +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🐟 '+e.data.caught+' поймано</div>'
+        +'</div>'
+        +'<div style="font-size:14px;font-weight:700;color:#FFD700">🪙'+fmt(e.data.coins)+'</div>'
+        +'</div>';
+    }
+
+    if (myRank === -1) {
+      html += '<div class="card" style="text-align:center;font-size:12px;color:#666">Тебя пока нет в таблице — лови рыбу!</div>';
+    }
+
+    document.getElementById('leaders-list').innerHTML = html;
+  });
+}
 function renderSettings() {
-  var li=getLoc(), mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
+  var li=getLoc()
   document.getElementById('content').innerHTML=
     '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
@@ -939,6 +1074,7 @@ function renderSettings() {
     +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери транспорт и отправь рыбу. До рынка 1 км. Цены меняются каждые 30 сек 📈📉<br><br>'
     +'<b style="color:#fff">🔧 Амортизация</b><br>Каждая доставка -10% прочности. Низкая прочность = дольше едет. 0% = сломан, нужен ремонт.<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил = сброс!<br><br>'
+    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — отображаются как 🎣 Рыбак #N. Твой результат обновляется автоматически раз в минуту.<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>🎣 Удочка — шанс и монеты · 🕸 Сеть — авто/сек · ⛵ Лодка — авто/сек · 📡 Сонар — авто/сек<br><br>'
     +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации — множитель монет и новые рыбы.</div></div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
@@ -1132,6 +1268,7 @@ function tick() {
     }
   }
   checkDeaths(); checkDelivery(); checkDrying();
+  uploadScore();
   if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
   var te=document.getElementById('mkt-timer');
   if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
@@ -1141,6 +1278,7 @@ function tick() {
 // ── Запуск ────────────────────────────────────────────
 load();
 processOffline();
+initFirebase();
 initPrices();
 if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
 calcStats();
