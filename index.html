@@ -711,7 +711,7 @@ function renderMarket() {
       html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">'+(isDried?'📦':'🐟')+' '+sel+(isDried?' сушёная':'')+': '+selCnt+' шт · 🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
       var saltPrice = SALT_PRICE[state.currentLoc]||1;
-      var maxSalt = tr.capacity - selCnt;
+      var maxSalt = tr.capacity; // обратный путь — полная вместимость
       var curSaltOrder = Math.min(state.saltOrder||0, maxSalt);
       var saltCost = curSaltOrder * saltPrice;
       var canAffordSalt = state.coins >= saltCost;
@@ -1523,7 +1523,7 @@ function changeSaltOrder(delta) {
   for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
   var selPool=state.selectedDried?driedGrouped:grouped;
   var selCnt=sel&&selPool[sel]?Math.min(selPool[sel],tr.capacity):0;
-  var maxSalt=tr.capacity-selCnt;
+  var maxSalt=tr.capacity;
   state.saltOrder=Math.max(0,Math.min(maxSalt,(state.saltOrder||0)+delta));
   renderMarket();
 }
