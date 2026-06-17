@@ -913,9 +913,23 @@ function renderBoosts() {
 }
 
 function buyBoost(id) {
-  if (!tg || !tg.sendData) { showNotif('Открой игру через Telegram бота!'); return; }
-  tg.sendData(JSON.stringify({action:'boost', boost:id}));
-  setTimeout(function(){ if(tg.close) tg.close(); }, 300);
+  showNotif('⏳ Создаём счёт...');
+  var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+  fetch(BOT_API_URL+'/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'boost',boost:id,user_id:userId})
+  }).then(function(r){return r.json();}).then(function(data){
+    if(data.link && tg && tg.openInvoice) {
+      tg.openInvoice(data.link, function(status){
+        if(status==='paid') {
+          activateBoost(id);
+          showNotif('✅ Бустер активирован!');
+          if(currentTab==='boosts') renderBoosts();
+        }
+      });
+    } else { showNotif('Ошибка создания счёта'); }
+  }).catch(function(){ showNotif('Ошибка соединения с сервером'); });
 }
 
 function activateBoost(id) {
@@ -979,13 +993,24 @@ function exchangeCoins() {
   if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
   if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
   if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
-  if(tg&&tg.sendData){
-    tg.sendData(JSON.stringify({action:'exchange',coins:amount,wallet:wallet}));
-    // Закрываем Mini App — бот пришлёт кнопку оплаты в чат
-    setTimeout(function(){ if(tg.close) tg.close(); }, 300);
-  } else {
-    showNotif('Открой игру через Telegram бота!');
-  }
+  showNotif('⏳ Создаём счёт...');
+  var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+  var username = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||'') : '';
+  fetch(BOT_API_URL+'/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'exchange',coins:amount,wallet:wallet,user_id:userId,username:username})
+  }).then(function(r){return r.json();}).then(function(data){
+    if(data.link && tg && tg.openInvoice) {
+      tg.openInvoice(data.link, function(status){
+        if(status==='paid') {
+          state.coins=Math.round((state.coins-amount)*100)/100;
+          showNotif('✅ Оплата прошла! TON Fish будут отправлены в течение 24ч');
+          updateUI(); save();
+        }
+      });
+    } else { showNotif('Ошибка создания счёта'); }
+  }).catch(function(){ showNotif('Ошибка соединения с сервером'); });
 }
 function renderDaily() {
   var st=getDailyStatus();
@@ -1023,7 +1048,8 @@ function renderLocations() {
   }
   document.getElementById('content').innerHTML=html;
 }
-// ── Firebase конфиг ───────────────────────────────────
+// URL API бота на Railway (замени на свой после деплоя)
+var BOT_API_URL = 'https://fish-farm-production-436a.up.railway.app';
 // Вставь свои данные из Firebase Console
 var FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCIWhrRP6VfZMxYNJsBQPWPLEuW6D-d3rw",
