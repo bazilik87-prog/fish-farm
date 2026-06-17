@@ -72,6 +72,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
 </div>
+<div id="bank-banner" onclick="showTab('bank')" style="background:linear-gradient(135deg,#0a2a5a,#1565c0,#0a3d6b);margin:0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">🏦</div>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#fff">Банк FishFarm</div>
+      <div style="font-size:11px;color:#90caf9;margin-top:2px">Обменяй монеты на 🐟 TON Fish за ⭐</div>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Открыть →</div>
+</div>
 <div id="loc-bar"></div>
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
@@ -159,7 +169,7 @@ var state = {
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
-  dailyDay:0,dailyLastClaim:0,lastSeen:0
+  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null
 };
 
 var marketPrices = {};
@@ -411,6 +421,7 @@ function showTab(tab) {
 function renderContent() {
   if (currentTab==='upgrades') renderUpgrades();
   else if (currentTab==='aquarium') renderAquarium();
+  else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
   else if (currentTab==='daily') renderDaily();
   else if (currentTab==='locations') renderLocations();
@@ -488,17 +499,17 @@ function renderMarket() {
   html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🚚 Транспорт</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+trBtns+'</div>'
     +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+tr.name+' · '+tr.capacity+' рыб · '+fmtTime(dt)+'</div>'
-    // Прочность
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<span style="font-size:11px;color:'+durColor(dur)+'">🔧 '+(broken?'Сломан!':dur+'%')+'</span>'
     +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px"><div style="background:'+durColor(dur)+';height:6px;border-radius:4px;width:'+dur+'%"></div></div>'
     +(dur<100?'<button class="btn '+(state.coins>=tr.repairCost?'btn-gold':'')+'" onclick="repairTr(\''+tr.id+'\')" '+(state.coins>=tr.repairCost?'':'disabled')+' style="font-size:10px;padding:4px 8px">🔧 🪙'+fmt(tr.repairCost)+'</button>':'')
     +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ Сломан — нужен ремонт!</div>':'')+'</div>';
 
-  // Список рыб
+  // Список рыб с выбором вида
   if (Object.keys(grouped).length===0) {
     html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
   } else {
+    html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Выбери вид для отправки:</div>';
     for (var name in grouped) {
       var cnt=grouped[name], def=null;
       for (var di=0;di<ALL_FISH.length;di++) if(ALL_FISH[di].name===name) def=ALL_FISH[di];
@@ -506,20 +517,38 @@ function renderMarket() {
       var ti2=mp.trend>0?'📈':mp.trend<0?'📉':'➡️';
       var tc=mp.trend>0?'price-up':mp.trend<0?'price-down':'price-flat';
       var diff=Math.round((mp.cur-bp)/bp*100);
-      html+='<div class="mkt-item"><span class="ico">'+(def?def.emoji:'🐟')+'</span>'
-        +'<div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
-        +'<div class="pr"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+'/шт</span>'
-        +' <span style="color:#555;font-size:10px">'+(diff>0?'+':'')+diff+'%</span></div></div></div>';
+      var sendCnt=Math.min(cnt, tr.capacity);
+      var earn=Math.round(mp.cur*sendCnt*100)/100;
+      var isSelected=state.selectedFish===name;
+      html+='<div onclick="selectFish(\''+name+'\')" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
+        +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
+        +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+'/шт</span>'
+        +' <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span>'
+        +' <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+' за '+sendCnt+'шт</span></div>'
+        +'</div>'
+        +(isSelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')
+        +'</div>';
     }
-    var sendCnt=Math.min(totalFish,tr.capacity);
-    var earn=calcEarnings(sendCnt);
+    html+='</div>';
+
+    // Кнопка отправки
     var busy=!!dlv;
-    html+='<div class="card" style="background:#0a2a0a">'
-      +'<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">📦 Отправить: '+sendCnt+' рыб · 🪙'+fmt(earn)+' · ⏱ '+fmtTime(dt)+'</div>'
-      +'<button class="btn btn-full '+((!busy&&!broken)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken)?'disabled':'')+'>'
-      +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':tr.emoji+' Отправить (1 км)')
+    var sel=state.selectedFish&&grouped[state.selectedFish]?state.selectedFish:null;
+    var sendCnt2=sel?Math.min(grouped[sel],tr.capacity):0;
+    var earn2=sel?Math.round((marketPrices[sel]?marketPrices[sel].cur:BASE_PRICES[sel]||1)*sendCnt2*100)/100:0;
+    html+='<div class="card" style="background:#0a2a0a">';
+    if (!sel) {
+      html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 Выбери вид рыбы выше</div>';
+    } else {
+      html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">📦 '+sel+': '+sendCnt2+' шт · 🪙'+fmt(earn2)+' · ⏱ '+fmtTime(dt)+'</div>';
+    }
+    html+='<button class="btn btn-full '+((!busy&&!broken&&sel)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel)?'disabled':'')+'>'
+      +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':sel?tr.emoji+' Отправить '+sel+' (1 км)':'Выбери рыбу')
       +'</button></div>';
   }
+
   document.getElementById('content').innerHTML=html;
 }
 function renderDaily() {
@@ -609,15 +638,34 @@ function buyUpgrade(id) {
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
+function selectFish(name) {
+  state.selectedFish = state.selectedFish===name ? null : name;
+  renderMarket();
+}
 function sendDelivery() {
   if (state.delivery) return;
   var tr=getTr(), dur=getDur(tr.id);
   if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
-  var count=Math.min(state.liveFish.length,tr.capacity); if (!count) return;
-  var earn=calcEarnings(count), secs=delivTime(tr);
-  state.liveFish.splice(0,count);
+  var sel=state.selectedFish;
+  if (!sel) { showNotif('Выбери вид рыбы!'); return; }
+  // собираем только выбранный вид
+  var toSend=[], rest=[];
+  for (var i=0;i<state.liveFish.length;i++) {
+    if (state.liveFish[i].name===sel && toSend.length<tr.capacity) toSend.push(state.liveFish[i]);
+    else rest.push(state.liveFish[i]);
+  }
+  if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
+  var earn=0;
+  for (var j=0;j<toSend.length;j++) {
+    var mp=marketPrices[toSend[j].name]||{cur:BASE_PRICES[toSend[j].name]||1};
+    earn+=mp.cur;
+  }
+  earn=Math.round(earn*100)/100;
+  var secs=delivTime(tr);
+  state.liveFish=rest;
   state.durability[tr.id]=Math.max(0,dur-10);
-  state.delivery={count:count,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
+  state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
+  state.selectedFish=null;
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -682,7 +730,7 @@ function resetGame() {
   if (!confirm('Сбросить весь прогресс?')) return;
   if (!confirm('Вы уверены? Нельзя отменить!')) return;
   localStorage.removeItem('ff5');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
