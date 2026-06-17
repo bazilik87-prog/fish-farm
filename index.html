@@ -348,16 +348,27 @@ function processOffline() {
     showNotif('💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings));
     state.delivery=null;
   }
-  var dead=[];
-  var live=[];
+  // Обрабатываем готовые слоты сушки
+  var stillDrying=[];
+  for (var d=0;d<state.drying.length;d++) {
+    var slot=state.drying[d];
+    if (now>=slot.endsAt) {
+      var packs=slot.packets||1;
+      for (var p=0;p<packs;p++) {
+        state.driedFish.push({name:slot.name,emoji:slot.emoji,dieAt:slot.endsAt+43200000});
+      }
+    } else stillDrying.push(slot);
+  }
+  state.drying=stillDrying;
+  // Убираем просроченную сушёную рыбу
+  state.driedFish=state.driedFish.filter(function(f){ return f.dieAt>now; });
+  // Убираем погибшую свежую рыбу
+  var dead=[], live=[];
   for (var i=0;i<state.liveFish.length;i++) {
     if (state.liveFish[i].dieAt<=now) dead.push(state.liveFish[i]);
     else live.push(state.liveFish[i]);
   }
-  if (dead.length) {
-    state.liveFish=live;
-    showNotif('💀 Пока тебя не было погибло '+dead.length+' рыб!',true);
-  }
+  if (dead.length) { state.liveFish=live; showNotif('💀 Пока тебя не было погибло '+dead.length+' рыб!',true); }
 }
 
 // ── Расчёты ───────────────────────────────────────────
@@ -721,6 +732,7 @@ function renderKitchen() {
       // Ищем уже сушащиеся слоты этого вида
       var dryingPacks = 0;
       for (var sdi=0;sdi<state.drying.length;sdi++) if(state.drying[sdi].name===fn) dryingPacks+=state.drying[sdi].packets;
+      var curPacks = dryPacks[fn]||1;
       html += '<div style="padding:10px 0;border-bottom:1px solid #1a2a5a">'
         +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
         +'<span style="font-size:20px">'+(fdef?fdef.emoji:'🐟')+'</span>'
@@ -732,8 +744,8 @@ function renderKitchen() {
           ? '<div style="display:flex;align-items:center;gap:8px">'
             +'<button class="btn" onclick="changePacks(\''+fn+'\',-1)" style="padding:6px 12px;font-size:16px">−</button>'
             +'<div style="flex:1;text-align:center">'
-            +'<span id="packs-'+fn+'" style="font-size:16px;font-weight:700;color:#FFD700">1</span>'
-            +' <span style="font-size:11px;color:#90caf9">пак. = <span id="fish-'+fn+'">10</span> рыб</span>'
+            +'<span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span>'
+            +' <span style="font-size:11px;color:#90caf9">пак. = '+(curPacks*10)+' рыб</span>'
             +'</div>'
             +'<button class="btn" onclick="changePacks(\''+fn+'\',1)" style="padding:6px 12px;font-size:16px">+</button>'
             +'<button class="btn btn-green" onclick="startDrying(\''+fn+'\')" style="padding:6px 14px">Сушить</button>'
@@ -747,7 +759,7 @@ function renderKitchen() {
   document.getElementById('content').innerHTML = html;
 }
 
-var dryPacks = {}; // {fishName: количество пакетов выбрано}
+var dryPacks = {};
 
 function changePacks(name, delta) {
   var grouped={};
@@ -755,10 +767,7 @@ function changePacks(name, delta) {
   var max = Math.floor((grouped[name]||0)/10);
   if (!dryPacks[name]) dryPacks[name]=1;
   dryPacks[name] = Math.max(1, Math.min(max, dryPacks[name]+delta));
-  var el = document.getElementById('packs-'+name);
-  var el2 = document.getElementById('fish-'+name);
-  if (el) el.textContent = dryPacks[name];
-  if (el2) el2.textContent = dryPacks[name]*10;
+  renderKitchen();
 }
 
 function startDrying(name) {
@@ -789,7 +798,7 @@ function collectDried(idx) {
   if (!slot || Date.now()<slot.endsAt) return;
   var packs = slot.packets||1;
   for (var p=0;p<packs;p++) {
-    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:Date.now()+86400000});
+    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+43200000});
   }
   state.drying.splice(idx,1);
   showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' сушёной готово!');
@@ -799,18 +808,35 @@ function collectDried(idx) {
 
 function checkDrying() {
   var now=Date.now();
-  // Проверяем просроченные пакеты сушёной
+  // Автоматически переносим готовые слоты в driedFish
+  var stillDrying=[];
+  for (var i=0;i<state.drying.length;i++) {
+    var slot=state.drying[i];
+    if (now>=slot.endsAt) {
+      var packs=slot.packets||1;
+      for (var p=0;p<packs;p++) {
+        state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+43200000});
+      }
+      showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' готово — забери на кухне!');
+    } else {
+      stillDrying.push(slot);
+    }
+  }
+  if (stillDrying.length !== state.drying.length) {
+    state.drying = stillDrying;
+    save();
+  }
+  // Проверяем просроченные пакеты
   var deadDried=[], liveDried=[];
-  for (var i=0;i<state.driedFish.length;i++) {
-    if (state.driedFish[i].dieAt<=now) deadDried.push(state.driedFish[i]);
-    else liveDried.push(state.driedFish[i]);
+  for (var j=0;j<state.driedFish.length;j++) {
+    if (state.driedFish[j].dieAt<=now) deadDried.push(state.driedFish[j]);
+    else liveDried.push(state.driedFish[j]);
   }
   if (deadDried.length) {
     state.driedFish=liveDried;
     showNotif('📦 Истёк срок годности: '+deadDried.length+' пакетов выброшено!',true);
     save();
   }
-  // Если на кухне — обновляем
   if (currentTab==='kitchen') renderKitchen();
 }
 
@@ -909,7 +935,7 @@ function renderSettings() {
     +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик рядом с тапом. Тапай в меру — шанс будет максимальным.<br><br>'
     +'<b style="color:#fff">🐠 Склад</b><br>Рыба живёт ограниченное время. Редкая живёт дольше. Продавай вовремя!<br><br>'
-    +'<b style="color:#fff">🍳 Кухня</b><br>Собери 10 рыб одного вида и отправь на сушку. Чем редче рыба — тем дольше сушится (от 5 мин до 1 часа). Готовый пакет продаётся на рынке по цене 1 свежей рыбы. Срок годности пакета — 24 часа!<br><br>'
+    +'<b style="color:#fff">🍳 Кухня</b><br>Собери 10 рыб одного вида и отправь на сушку. Выбирай количество пакетов кнопками − / +. Чем редче рыба — тем дольше сушится (карась 1ч, редкие до 10ч). Таймер срока годности 12 часов стартует сразу после окончания сушки, даже если ты офлайн. Успей продать!<br><br>'
     +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери транспорт и отправь рыбу. До рынка 1 км. Цены меняются каждые 30 сек 📈📉<br><br>'
     +'<b style="color:#fff">🔧 Амортизация</b><br>Каждая доставка -10% прочности. Низкая прочность = дольше едет. 0% = сломан, нужен ремонт.<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил = сброс!<br><br>'
