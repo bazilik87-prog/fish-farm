@@ -98,6 +98,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="tab" onclick="showTab('kitchen')">🍳</div>
   <div class="tab" onclick="showTab('market')">🏪</div>
   <div class="tab" onclick="showTab('daily')">🎁</div>
+  <div class="tab" onclick="showTab('boosts')">⚡</div>
   <div class="tab" onclick="showTab('leaders')">🏆</div>
   <div class="tab" onclick="showTab('locations')">🗺</div>
   <div class="tab" onclick="showTab('settings')">⚙️</div>
@@ -184,7 +185,8 @@ var state = {
   transport:'bike',delivery:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,
-  drying:[],driedFish:[]
+  drying:[],driedFish:[],
+  boosts:{doubleTap:0, turboDlv:false, luckyRod:0, autoRepair:false}
 };
 
 var marketPrices = {};
@@ -307,7 +309,7 @@ function save() {
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
       lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
-      drying:state.drying, driedFish:state.driedFish
+      drying:state.drying, driedFish:state.driedFish, boosts:state.boosts
     }));
   } catch(e){}
 }
@@ -334,6 +336,7 @@ function load() {
     state.lastSeen          = s.lastSeen  || Date.now();
     state.drying            = s.drying    || [];
     state.driedFish         = s.driedFish || [];
+    state.boosts            = s.boosts    || {doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false};
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
     if (s.prices)  marketPrices    = s.prices;
@@ -393,7 +396,8 @@ function catchChance() {
   var rod=null;
   for (var i=0;i<UPGRADES.length;i++) if(UPGRADES[i].id==='rod') rod=UPGRADES[i];
   var base=Math.min(0.65,0.20+(rod?rod.bought:0)*0.09);
-  return Math.round(base*scareFactor*100)/100;
+  var lucky=(state.boosts.luckyRod>Date.now())?1.5:1;
+  return Math.min(0.95, Math.round(base*scareFactor*lucky*100)/100);
 }
 function updateScare() {
   var now=Date.now(), ntimes=[];
@@ -498,7 +502,7 @@ function updateUI() {
 function showTab(tab) {
   currentTab=tab;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','daily','leaders','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','boosts','leaders','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -509,6 +513,7 @@ function renderContent() {
   else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
   else if (currentTab==='daily') renderDaily();
+  else if (currentTab==='boosts') renderBoosts();
   else if (currentTab==='leaders') renderLeaders();
   else if (currentTab==='locations') renderLocations();
   else renderSettings();
@@ -845,6 +850,86 @@ function checkDrying() {
   if (currentTab==='kitchen') renderKitchen();
 }
 
+function renderBoosts() {
+  var now = Date.now();
+  var b = state.boosts;
+  var boostList = [
+    {
+      id:'doubleTap', name:'Двойной улов', emoji:'⚡',
+      desc:'×2 монеты за тап на 1 час',
+      active: b.doubleTap > now,
+      timeLeft: b.doubleTap > now ? Math.ceil((b.doubleTap-now)/60000) : 0
+    },
+    {
+      id:'turboDlv', name:'Турбо доставка', emoji:'🚀',
+      desc:'Следующая доставка мгновенная',
+      active: !!b.turboDlv,
+      timeLeft: 0
+    },
+    {
+      id:'luckyRod', name:'Удачная рыбалка', emoji:'🎣',
+      desc:'+50% шанс улова на 30 минут',
+      active: b.luckyRod > now,
+      timeLeft: b.luckyRod > now ? Math.ceil((b.luckyRod-now)/60000) : 0
+    },
+    {
+      id:'autoRepair', name:'Авторемонт', emoji:'🔧',
+      desc:'Мгновенно чинит транспорт',
+      active: false,
+      timeLeft: 0
+    }
+  ];
+
+  var html = '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">⚡</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Бустеры</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Временные усиления за ⭐ Telegram Stars</div>'
+    +'</div>';
+
+  for (var i=0;i<boostList.length;i++) {
+    var bst = boostList[i];
+    html += '<div class="card" style="display:flex;align-items:center;gap:12px">'
+      +'<div style="font-size:32px">'+bst.emoji+'</div>'
+      +'<div style="flex:1">'
+      +'<div style="font-size:14px;font-weight:600;color:#fff">'+bst.name+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+bst.desc+'</div>'
+      +(bst.active && bst.timeLeft>0
+        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен · осталось '+bst.timeLeft+' мин</div>'
+        : bst.active
+        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен</div>'
+        : '')
+      +'</div>'
+      +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+(bst.active?'disabled':'')+'>'
+      +(bst.active?'Активен':'⭐ 1')
+      +'</button>'
+      +'</div>';
+  }
+
+  html += '<div class="card" style="font-size:11px;color:#666;text-align:center;line-height:1.8">'
+    +'Оплата через Telegram Stars — безопасно и мгновенно.<br>'
+    +'1 ⭐ = 1 бустер. Бустеры не складываются.</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function buyBoost(id) {
+  if (!tg || !tg.sendData) { showNotif('Открой игру через Telegram бота!'); return; }
+  tg.sendData(JSON.stringify({action:'boost', boost:id}));
+}
+
+function activateBoost(id) {
+  var now = Date.now();
+  if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000; // 1 час
+  if (id==='turboDlv')   state.boosts.turboDlv   = true;
+  if (id==='luckyRod')   state.boosts.luckyRod   = now + 1800000; // 30 мин
+  if (id==='autoRepair') {
+    // Чиним текущий транспорт
+    state.durability[state.transport] = 100;
+    showNotif('🔧 Транспорт мгновенно отремонтирован!');
+  }
+  save(); updateUI();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
 function renderBank() {
   var coins = Math.floor(state.coins);
   document.getElementById('content').innerHTML =
@@ -1074,6 +1159,7 @@ function renderSettings() {
     +'<b style="color:#fff">🍳 Кухня</b><br>Собери 10 рыб одного вида и отправь на сушку. Выбирай количество пакетов кнопками − / +. Чем редче рыба — тем дольше сушится (карась 1ч, редкие до 10ч). Таймер срока годности 12 часов стартует сразу после окончания сушки, даже если ты офлайн. Успей продать!<br><br>'
     +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери транспорт и отправь рыбу. До рынка 1 км. Цены меняются каждые 30 сек 📈📉<br><br>'
     +'<b style="color:#fff">🔧 Амортизация</b><br>Каждая доставка -10% прочности. Низкая прочность = дольше едет. 0% = сломан, нужен ремонт.<br><br>'
+    +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars. ⚡ Двойной улов ×2 монеты на 1ч · 🚀 Турбо доставка мгновенно · 🎣 +50% шанс улова на 30 мин · 🔧 Мгновенный ремонт транспорта.<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил = сброс!<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — отображаются как 🎣 Рыбак #N. Твой результат обновляется автоматически раз в минуту.<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>🎣 Удочка — шанс и монеты · 🕸 Сеть — авто/сек · ⛵ Лодка — авто/сек · 📡 Сонар — авто/сек<br><br>'
@@ -1098,7 +1184,9 @@ function tapOcean(e) {
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
   if (Math.random()>catchChance()) { spawnAnim(x,y,'💨','Мимо!'); if(currentTab==='upgrades') renderUpgrades(); return; }
-  var f=randFish(), earned=state.tapPower;
+  var f=randFish();
+  var boostMult=(state.boosts.doubleTap>Date.now())?2:1;
+  var earned=Math.round(state.tapPower*boostMult*10)/10;
   state.coins=Math.round((state.coins+earned)*100)/100;
   state.caught++;
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
@@ -1156,6 +1244,8 @@ function sendDelivery() {
   }
   earn=Math.round(earn*100)/100;
   var secs=delivTime(tr);
+  // Турбо доставка — мгновенно
+  if (state.boosts.turboDlv) { secs=1; state.boosts.turboDlv=false; showNotif('🚀 Турбо доставка активирована!'); }
   state.durability[tr.id]=Math.max(0,dur-10);
   state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
   state.selectedFish=null; state.selectedDried=false;
@@ -1226,7 +1316,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[]};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false}};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
