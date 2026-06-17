@@ -44,12 +44,12 @@ async def create_invoice(request):
         if coins < 1 or not wallet:
             return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
         link = await bot.create_invoice_link(
-            title="🐟 Обмен монет на TON Fish",
-            description=f"{coins} монет → {coins} TON Fish",
+            title="TON Fish Exchange",
+            description=f"{coins} coins to {coins} TON Fish",
             payload=json.dumps({"type": "exchange", "coins": coins, "wallet": wallet,
                                 "user_id": data.get('user_id', 0), "username": data.get('username', '')}),
             currency="XTR",
-            prices=[LabeledPrice(label="⭐ Комиссия", amount=1)],
+            prices=[LabeledPrice(label="Exchange fee", amount=1)],
             provider_token="",
         )
         return web.json_response({'link': link}, headers=CORS)
