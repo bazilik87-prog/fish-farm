@@ -919,7 +919,10 @@ function buyBoost(id) {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'boost',boost:id,user_id:userId})
-  }).then(function(r){return r.json();}).then(function(data){
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(data){
     if(data.link && tg && tg.openInvoice) {
       tg.openInvoice(data.link, function(status){
         if(status==='paid') {
@@ -928,8 +931,8 @@ function buyBoost(id) {
           if(currentTab==='boosts') renderBoosts();
         }
       });
-    } else { showNotif('Ошибка создания счёта'); }
-  }).catch(function(){ showNotif('Ошибка соединения с сервером'); });
+    } else { showNotif('Ошибка: нет ссылки'); }
+  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
 }
 
 function activateBoost(id) {
@@ -1000,7 +1003,10 @@ function exchangeCoins() {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'exchange',coins:amount,wallet:wallet,user_id:userId,username:username})
-  }).then(function(r){return r.json();}).then(function(data){
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(data){
     if(data.link && tg && tg.openInvoice) {
       tg.openInvoice(data.link, function(status){
         if(status==='paid') {
@@ -1009,8 +1015,8 @@ function exchangeCoins() {
           updateUI(); save();
         }
       });
-    } else { showNotif('Ошибка создания счёта'); }
-  }).catch(function(){ showNotif('Ошибка соединения с сервером'); });
+    } else { showNotif('Ошибка: нет ссылки'); }
+  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
 }
 function renderDaily() {
   var st=getDailyStatus();
