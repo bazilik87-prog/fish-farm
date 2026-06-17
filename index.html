@@ -231,42 +231,97 @@ function updatePrices() {
 }
 
 // ── Сохранение ────────────────────────────────────────
+// ── Версия сохранения ─────────────────────────────────
+// Меняй SAVE_VERSION когда структура данных несовместима.
+// Добавляй миграцию в migrate() чтобы не терять прогресс игроков.
+var SAVE_VERSION = 1;
+var SAVE_KEY = 'ff_save';
+
+function migrate(s) {
+  var v = s.version || 0;
+
+  // Миграция с версии 0 (старые ключи ff3/ff4/ff5) → версия 1
+  if (v < 1) {
+    // Подтягиваем старые сохранения из ff5/ff4/ff3
+    if (!s.coins && !s.caught) {
+      var old = JSON.parse(localStorage.getItem('ff5') || localStorage.getItem('ff4') || localStorage.getItem('ff3') || 'null');
+      if (old) {
+        s.coins  = old.coins  || 0;
+        s.caught = old.caught || 0;
+        s.loc    = old.loc    || 'pond';
+        s.ulocs  = old.ulocs  || ['pond'];
+        s.ufish  = old.ufish  || {pond:['Карась']};
+        s.cfish  = old.cfish  || {};
+        s.live   = old.live   || [];
+        s.transport  = old.transport  || 'bike';
+        s.delivery   = old.delivery   || null;
+        s.utrans     = old.utrans     || ['bike'];
+        s.dur        = old.dur        || {bike:100,moped:100,car:100,truck:100};
+        s.dailyDay   = old.dailyDay   || 0;
+        s.dailyLast  = old.dailyLast  || 0;
+        s.lastSeen   = old.lastSeen   || Date.now();
+        s.upg        = old.upg        || {};
+        s.prices     = old.prices     || {};
+        s.priceTs    = old.priceTs    || 0;
+        // Удаляем старые ключи
+        localStorage.removeItem('ff5');
+        localStorage.removeItem('ff4');
+        localStorage.removeItem('ff3');
+      }
+    }
+    s.version = 1;
+  }
+
+  // Сюда добавляй будущие миграции:
+  // if (v < 2) { s.newField = defaultValue; s.version = 2; }
+  // if (v < 3) { ... s.version = 3; }
+
+  return s;
+}
+
 function save() {
   try {
     var upg={};
     for (var i=0;i<UPGRADES.length;i++) upg[UPGRADES[i].id]=UPGRADES[i].bought;
-    localStorage.setItem('ff5',JSON.stringify({
-      coins:state.coins,caught:state.caught,
-      loc:state.currentLoc,ulocs:state.unlockedLocs,
-      ufish:state.unlockedFish,cfish:state.caughtFish,live:state.liveFish,
-      transport:state.transport,delivery:state.delivery,
-      utrans:state.unlockedTransports,dur:state.durability,
-      dailyDay:state.dailyDay,dailyLast:state.dailyLastClaim,
-      lastSeen:Date.now(),upg:upg,prices:marketPrices,priceTs:lastPriceUpdate
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: SAVE_VERSION,
+      coins:state.coins, caught:state.caught,
+      loc:state.currentLoc, ulocs:state.unlockedLocs,
+      ufish:state.unlockedFish, cfish:state.caughtFish, live:state.liveFish,
+      transport:state.transport, delivery:state.delivery,
+      utrans:state.unlockedTransports, dur:state.durability,
+      dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
+      lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate
     }));
   } catch(e){}
 }
+
 function load() {
   try {
-    var s=JSON.parse(localStorage.getItem('ff5')||'null');
-    if (!s) return;
-    state.coins=s.coins||0; state.caught=s.caught||0;
-    state.currentLoc=s.loc||'pond';
-    state.unlockedLocs=s.ulocs||['pond'];
-    state.unlockedFish=s.ufish||{pond:['Карась']};
-    state.caughtFish=s.cfish||{};
-    state.liveFish=s.live||[];
-    state.transport=s.transport||'bike';
-    state.delivery=s.delivery||null;
-    state.unlockedTransports=s.utrans||['bike'];
-    state.durability=s.dur||{bike:100,moped:100,car:100,truck:100};
-    state.dailyDay=s.dailyDay||0;
-    state.dailyLastClaim=s.dailyLast||0;
-    state.lastSeen=s.lastSeen||Date.now();
+    var raw = localStorage.getItem(SAVE_KEY);
+    var s = JSON.parse(raw || 'null') || {version:0};
+    s = migrate(s);
+    if (!s.coins && !s.caught && !s.ulocs) return; // нет данных
+    state.coins  = s.coins  || 0;
+    state.caught = s.caught || 0;
+    state.currentLoc        = s.loc   || 'pond';
+    state.unlockedLocs      = s.ulocs || ['pond'];
+    state.unlockedFish      = s.ufish || {pond:['Карась']};
+    state.caughtFish        = s.cfish || {};
+    state.liveFish          = s.live  || [];
+    state.transport         = s.transport || 'bike';
+    state.delivery          = s.delivery  || null;
+    state.unlockedTransports= s.utrans    || ['bike'];
+    state.durability        = s.dur || {bike:100,moped:100,car:100,truck:100};
+    state.dailyDay          = s.dailyDay  || 0;
+    state.dailyLastClaim    = s.dailyLast || 0;
+    state.lastSeen          = s.lastSeen  || Date.now();
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
-    if (s.prices) marketPrices=s.prices;
-    if (s.priceTs) lastPriceUpdate=s.priceTs;
+    if (s.prices)  marketPrices    = s.prices;
+    if (s.priceTs) lastPriceUpdate = s.priceTs;
+    // Сохраняем мигрированные данные сразу
+    save();
   } catch(e){}
 }
 
@@ -780,7 +835,10 @@ function claimDaily() {
 function resetGame() {
   if (!confirm('Сбросить весь прогресс?')) return;
   if (!confirm('Вы уверены? Нельзя отменить!')) return;
+  localStorage.removeItem(SAVE_KEY);
   localStorage.removeItem('ff5');
+  localStorage.removeItem('ff4');
+  localStorage.removeItem('ff3');
   state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
