@@ -92,6 +92,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div id="tabs">
   <div class="tab active" onclick="showTab('upgrades')">⬆️ Улучш.</div>
   <div class="tab" onclick="showTab('aquarium')">🐠 Рыбы</div>
+  <div class="tab" onclick="showTab('kitchen')">🍳 Кухня</div>
   <div class="tab" onclick="showTab('market')">🏪 Рынок</div>
   <div class="tab" onclick="showTab('daily')">🎁 Бонус</div>
   <div class="tab" onclick="showTab('locations')">🗺</div>
@@ -146,6 +147,15 @@ var BASE_PRICES = {
   'Пришелец':10,'НЛО':30,'Галактика':80,'Звезда':250
 };
 
+// Время сушки в секундах (10 рыб → 1 пакет)
+var DRY_TIME = {
+  'Карась':300,     'Красноперка':480,  'Лещ':720,      'Щука':1200,
+  'Окунь':360,      'Выдра':600,        'Крокодил':900, 'Гиппо':1500,
+  'Тропик':420,     'Попугай':660,      'Змея':960,     'Бабочка':1800,
+  'Кальмар':480,    'Осьминог':720,     'Акула':1200,   'Кит':2400,
+  'Пришелец':600,   'НЛО':900,          'Галактика':1500,'Звезда':3600
+};
+
 var TRANSPORTS = [
   {id:'bike', name:'Велосипед',emoji:'🚲',capacity:5,  cost:0,     time:480,repairCost:50   },
   {id:'moped',name:'Мопед',    emoji:'🛵',capacity:15, cost:5000,  time:180,repairCost:500  },
@@ -169,7 +179,8 @@ var state = {
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
-  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null
+  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,
+  drying:[],driedFish:[]
 };
 
 var marketPrices = {};
@@ -291,7 +302,8 @@ function save() {
       transport:state.transport, delivery:state.delivery,
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
-      lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate
+      lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
+      drying:state.drying, driedFish:state.driedFish
     }));
   } catch(e){}
 }
@@ -316,6 +328,8 @@ function load() {
     state.dailyDay          = s.dailyDay  || 0;
     state.dailyLastClaim    = s.dailyLast || 0;
     state.lastSeen          = s.lastSeen  || Date.now();
+    state.drying            = s.drying    || [];
+    state.driedFish         = s.driedFish || [];
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
     if (s.prices)  marketPrices    = s.prices;
@@ -469,13 +483,14 @@ function updateUI() {
 function showTab(tab) {
   currentTab=tab;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','market','daily','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
 function renderContent() {
   if (currentTab==='upgrades') renderUpgrades();
   else if (currentTab==='aquarium') renderAquarium();
+  else if (currentTab==='kitchen') renderKitchen();
   else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
   else if (currentTab==='daily') renderDaily();
@@ -522,6 +537,8 @@ function renderMarket() {
   var next=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000));
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  var driedGrouped={};
+  for (var di=0;di<state.driedFish.length;di++) { var dn=state.driedFish[di].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
   var totalFish=state.liveFish.length;
   var dur=getDur(tr.id), broken=dur<=0;
   var dt=delivTime(tr);
@@ -561,51 +578,209 @@ function renderMarket() {
     +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ Сломан — нужен ремонт!</div>':'')+'</div>';
 
   // Список рыб с выбором вида
-  if (Object.keys(grouped).length===0) {
+  var hasFresh = Object.keys(grouped).length > 0;
+  var hasDried = Object.keys(driedGrouped).length > 0;
+
+  if (!hasFresh && !hasDried) {
     html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
   } else {
-    html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Выбери вид для отправки:</div>';
-    for (var name in grouped) {
-      var cnt=grouped[name], def=null;
-      for (var di=0;di<ALL_FISH.length;di++) if(ALL_FISH[di].name===name) def=ALL_FISH[di];
-      var bp=BASE_PRICES[name]||1, mp=marketPrices[name]||{cur:bp,trend:0};
-      var ti2=mp.trend>0?'📈':mp.trend<0?'📉':'➡️';
-      var tc=mp.trend>0?'price-up':mp.trend<0?'price-down':'price-flat';
-      var diff=Math.round((mp.cur-bp)/bp*100);
-      var sendCnt=Math.min(cnt, tr.capacity);
-      var earn=Math.round(mp.cur*sendCnt*100)/100;
-      var isSelected=state.selectedFish===name;
-      html+='<div onclick="selectFish(\''+name+'\')" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
-        +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
-        +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
-        +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+'/шт</span>'
-        +' <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span>'
-        +' <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+' за '+sendCnt+'шт</span></div>'
-        +'</div>'
-        +(isSelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')
-        +'</div>';
+    html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Выбери что отправить:</div>';
+
+    // Свежая рыба
+    if (hasFresh) {
+      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 Свежая рыба:</div>';
+      for (var name in grouped) {
+        var cnt=grouped[name], def=null;
+        for (var dfi=0;dfi<ALL_FISH.length;dfi++) if(ALL_FISH[dfi].name===name) def=ALL_FISH[dfi];
+        var bp=BASE_PRICES[name]||1, mp=marketPrices[name]||{cur:bp,trend:0};
+        var ti2=mp.trend>0?'📈':mp.trend<0?'📉':'➡️';
+        var tc=mp.trend>0?'price-up':mp.trend<0?'price-down':'price-flat';
+        var diff=Math.round((mp.cur-bp)/bp*100);
+        var sendCnt=Math.min(cnt,tr.capacity);
+        var earn=Math.round(mp.cur*sendCnt*100)/100;
+        var isSelected=state.selectedFish===name&&!state.selectedDried;
+        html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
+          +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+'/шт</span> <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+'</span></div></div>'
+          +(isSelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')+'</div>';
+      }
+    }
+
+    // Сушёная рыба
+    if (hasDried) {
+      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 Сушёная рыба:</div>';
+      for (var dname in driedGrouped) {
+        var dcnt=driedGrouped[dname], ddef=null;
+        for (var ddfi=0;ddfi<ALL_FISH.length;ddfi++) if(ALL_FISH[ddfi].name===dname) ddef=ALL_FISH[ddfi];
+        var dbp=BASE_PRICES[dname]||1, dmp=marketPrices[dname]||{cur:dbp};
+        var dsendCnt=Math.min(dcnt,tr.capacity);
+        var dearn=Math.round(dmp.cur*dsendCnt*100)/100;
+        var isDrySelected=state.selectedFish===dname&&state.selectedDried;
+        html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#1a1a3a')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
+          +'<span style="font-size:22px">'+(ddef?ddef.emoji:'📦')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dname+' сушёная <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#90caf9;margin-top:2px">🪙'+fmt(dmp.cur)+'/пакет · 🪙'+fmt(dearn)+' итого</div></div>'
+          +(isDrySelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')+'</div>';
+      }
     }
     html+='</div>';
 
     // Кнопка отправки
     var busy=!!dlv;
-    var sel=state.selectedFish&&grouped[state.selectedFish]?state.selectedFish:null;
-    var sendCnt2=sel?Math.min(grouped[sel],tr.capacity):0;
-    var earn2=sel?Math.round((marketPrices[sel]?marketPrices[sel].cur:BASE_PRICES[sel]||1)*sendCnt2*100)/100:0;
-    html+='<div class="card" style="background:#0a2a0a">';
-    if (!sel) {
-      html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 Выбери вид рыбы выше</div>';
-    } else {
-      html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">📦 '+sel+': '+sendCnt2+' шт · 🪙'+fmt(earn2)+' · ⏱ '+fmtTime(dt)+'</div>';
+    var sel=state.selectedFish;
+    var isDried=!!state.selectedDried;
+    var selPool=isDried?driedGrouped:grouped;
+    var selCnt=sel&&selPool[sel]?Math.min(selPool[sel],tr.capacity):0;
+    var selEarn=0;
+    if (sel&&selCnt) {
+      var smp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+      selEarn=Math.round(smp.cur*selCnt*100)/100;
     }
-    html+='<button class="btn btn-full '+((!busy&&!broken&&sel)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel)?'disabled':'')+'>'
-      +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':sel?tr.emoji+' Отправить '+sel+' (1 км)':'Выбери рыбу')
+    html+='<div class="card" style="background:#0a2a0a">';
+    if (!sel||!selCnt) {
+      html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 Выбери что отправить</div>';
+    } else {
+      html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">'+(isDried?'📦':'🐟')+' '+sel+(isDried?' сушёная':'')+': '+selCnt+' шт · 🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
+    }
+    html+='<button class="btn btn-full '+((!busy&&!broken&&sel&&selCnt)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel||!selCnt)?'disabled':'')+'>'
+      +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':sel&&selCnt?tr.emoji+' Отправить (1 км)':'Выбери что отправить')
       +'</button></div>';
   }
 
   document.getElementById('content').innerHTML=html;
 }
+function renderKitchen() {
+  var now = Date.now();
+  var grouped = {};
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  var driedGrouped = {};
+  for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
+
+  var html = '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб → 1 пакет сушёной · Срок годности 24ч</div>'
+    +'</div>';
+
+  // Слоты сушки
+  if (state.drying.length > 0) {
+    html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🌡 Сушится:</div>';
+    for (var d=0;d<state.drying.length;d++) {
+      var slot = state.drying[d];
+      var left = Math.max(0, Math.ceil((slot.endsAt-now)/1000));
+      var pct  = Math.min(100, Math.round((now-slot.startedAt)/(slot.endsAt-slot.startedAt)*100));
+      var done = now >= slot.endsAt;
+      html += '<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+        +'<span style="font-size:14px;font-weight:600;color:#fff">'+slot.emoji+' '+slot.name+' сушёная</span>'
+        +(done
+          ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">Собрать 📦</button>'
+          : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(left)+'</span>')
+        +'</div>'
+        +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
+        +'<div style="background:'+(done?'#6ddc6d':'#FFD700')+';height:6px;border-radius:4px;width:'+pct+'%"></div>'
+        +'</div></div>';
+    }
+    html += '</div>';
+  }
+
+  // Готовые пакеты
+  if (Object.keys(driedGrouped).length > 0) {
+    html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Сушёная рыба на складе:</div>';
+    for (var dn2 in driedGrouped) {
+      var dcnt = driedGrouped[dn2];
+      var def = null; for (var fi=0;fi<ALL_FISH.length;fi++) if(ALL_FISH[fi].name===dn2) def=ALL_FISH[fi];
+      var bp = BASE_PRICES[dn2]||1;
+      var mp = marketPrices[dn2]||{cur:bp};
+      // Ближайший срок годности
+      var nearDie = 0;
+      for (var di2=0;di2<state.driedFish.length;di2++) if(state.driedFish[di2].name===dn2) { nearDie=state.driedFish[di2].dieAt; break; }
+      var timeLeft = Math.max(0, Math.ceil((nearDie-now)/3600000*10)/10);
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
+        +'<span style="font-size:20px">'+(def?def.emoji:'📦')+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:600;color:#fff">'+dn2+' сушёная <span class="badge">x'+dcnt+'</span></div>'
+        +'<div style="font-size:11px;color:#90caf9">🪙'+fmt(mp.cur)+'/пакет · ⏳ '+timeLeft+'ч до истечения</div>'
+        +'</div></div>';
+    }
+    html += '</div>';
+  }
+
+  // Список рыб для сушки
+  if (Object.keys(grouped).length === 0) {
+    html += '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 Нет рыбы на складе</div>';
+  } else {
+    html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🐟 Выбери рыбу для сушки (нужно 10 шт):</div>';
+    for (var fn in grouped) {
+      var fcnt = grouped[fn];
+      var fdef = null; for (var ffi=0;ffi<ALL_FISH.length;ffi++) if(ALL_FISH[ffi].name===fn) fdef=ALL_FISH[ffi];
+      var dtime = DRY_TIME[fn]||600;
+      var canDry = fcnt >= 10;
+      var alreadyDrying = false;
+      for (var sdi=0;sdi<state.drying.length;sdi++) if(state.drying[sdi].name===fn) { alreadyDrying=true; break; }
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
+        +'<span style="font-size:20px">'+(fdef?fdef.emoji:'🐟')+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
+        +'<div style="font-size:11px;color:#90caf9">⏱ '+fmtTime(dtime)+' · нужно 10 шт</div>'
+        +'</div>'
+        +'<button class="btn '+(canDry&&!alreadyDrying?'btn-green':'')+'" onclick="startDrying(\''+fn+'\')" '+(!canDry||alreadyDrying?'disabled':'')+'>'
+        +(alreadyDrying?'Сушится':canDry?'Сушить':'x'+fcnt+'/10')
+        +'</button></div>';
+    }
+    html += '</div>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function startDrying(name) {
+  // Проверяем что уже не сушится
+  for (var i=0;i<state.drying.length;i++) if(state.drying[i].name===name) { showNotif('Уже сушится!'); return; }
+  // Собираем 10 рыб
+  var taken=0, rest=[];
+  for (var j=0;j<state.liveFish.length;j++) {
+    if (state.liveFish[j].name===name && taken<10) { taken++; }
+    else rest.push(state.liveFish[j]);
+  }
+  if (taken<10) { showNotif('Нужно минимум 10 штук!'); return; }
+  var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
+  var dtime = DRY_TIME[name]||600;
+  state.liveFish = rest;
+  state.drying.push({name:name, emoji:def?def.emoji:'🐟', startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
+  showNotif((def?def.emoji:'🐟')+' '+name+' отправлена на сушку!');
+  updateUI(); save();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+}
+
+function collectDried(idx) {
+  var slot = state.drying[idx];
+  if (!slot || Date.now()<slot.endsAt) return;
+  state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:Date.now()+86400000}); // 24ч
+  state.drying.splice(idx,1);
+  showNotif('📦 Пакет '+slot.emoji+' '+slot.name+' сушёной готов!');
+  updateUI(); save();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
+
+function checkDrying() {
+  var now=Date.now();
+  // Проверяем просроченные пакеты сушёной
+  var deadDried=[], liveDried=[];
+  for (var i=0;i<state.driedFish.length;i++) {
+    if (state.driedFish[i].dieAt<=now) deadDried.push(state.driedFish[i]);
+    else liveDried.push(state.driedFish[i]);
+  }
+  if (deadDried.length) {
+    state.driedFish=liveDried;
+    showNotif('📦 Истёк срок годности: '+deadDried.length+' пакетов выброшено!',true);
+    save();
+  }
+  // Если на кухне — обновляем
+  if (currentTab==='kitchen') renderKitchen();
+}
+
 function renderBank() {
   var coins = Math.floor(state.coins);
   document.getElementById('content').innerHTML =
@@ -744,34 +919,49 @@ function buyUpgrade(id) {
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
-function selectFish(name) {
-  state.selectedFish = state.selectedFish===name ? null : name;
+function selectFish(name, dried) {
+  if (state.selectedFish===name && !!state.selectedDried===!!dried) {
+    state.selectedFish=null; state.selectedDried=false;
+  } else {
+    state.selectedFish=name; state.selectedDried=!!dried;
+  }
   renderMarket();
 }
 function sendDelivery() {
   if (state.delivery) return;
   var tr=getTr(), dur=getDur(tr.id);
   if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
-  var sel=state.selectedFish;
-  if (!sel) { showNotif('Выбери вид рыбы!'); return; }
-  // собираем только выбранный вид
-  var toSend=[], rest=[];
-  for (var i=0;i<state.liveFish.length;i++) {
-    if (state.liveFish[i].name===sel && toSend.length<tr.capacity) toSend.push(state.liveFish[i]);
-    else rest.push(state.liveFish[i]);
-  }
-  if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
-  var earn=0;
-  for (var j=0;j<toSend.length;j++) {
-    var mp=marketPrices[toSend[j].name]||{cur:BASE_PRICES[toSend[j].name]||1};
-    earn+=mp.cur;
+  var sel=state.selectedFish, isDried=!!state.selectedDried;
+  if (!sel) { showNotif('Выбери что отправить!'); return; }
+  var toSend=[], rest=[], earn=0;
+  if (isDried) {
+    // Отправляем сушёные пакеты
+    var taken=0;
+    for (var i=0;i<state.driedFish.length;i++) {
+      if (state.driedFish[i].name===sel && taken<tr.capacity) {
+        var mp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mp.cur; toSend.push(state.driedFish[i]); taken++;
+      } else rest.push(state.driedFish[i]);
+    }
+    if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
+    state.driedFish=rest;
+  } else {
+    // Отправляем свежую
+    var taken2=0;
+    for (var j=0;j<state.liveFish.length;j++) {
+      if (state.liveFish[j].name===sel && taken2<tr.capacity) {
+        var mp2=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mp2.cur; toSend.push(state.liveFish[j]); taken2++;
+      } else rest.push(state.liveFish[j]);
+    }
+    if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
+    state.liveFish=rest;
   }
   earn=Math.round(earn*100)/100;
   var secs=delivTime(tr);
-  state.liveFish=rest;
   state.durability[tr.id]=Math.max(0,dur-10);
   state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
-  state.selectedFish=null;
+  state.selectedFish=null; state.selectedDried=false;
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -839,7 +1029,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[]};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
@@ -881,7 +1071,7 @@ function tick() {
       unlockFish(); updateUI(); save();
     }
   }
-  checkDeaths(); checkDelivery();
+  checkDeaths(); checkDelivery(); checkDrying();
   if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
   var te=document.getElementById('mkt-timer');
   if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
