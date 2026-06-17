@@ -681,7 +681,7 @@ function renderKitchen() {
   var html = '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб → 1 пакет сушёной · Срок годности 24ч</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб → 1 пакет сушёной · Срок годности 12ч</div>'
     +'</div>';
 
   // Слоты сушки
@@ -915,6 +915,7 @@ function renderBoosts() {
 function buyBoost(id) {
   if (!tg || !tg.sendData) { showNotif('Открой игру через Telegram бота!'); return; }
   tg.sendData(JSON.stringify({action:'boost', boost:id}));
+  setTimeout(function(){ if(tg.close) tg.close(); }, 300);
 }
 
 function activateBoost(id) {
@@ -978,8 +979,13 @@ function exchangeCoins() {
   if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
   if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
   if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
-  if(tg&&tg.sendData){tg.sendData(JSON.stringify({action:'exchange',coins:amount,wallet:wallet}));}
-  else{showNotif('Открой игру через Telegram бота!');}
+  if(tg&&tg.sendData){
+    tg.sendData(JSON.stringify({action:'exchange',coins:amount,wallet:wallet}));
+    // Закрываем Mini App — бот пришлёт кнопку оплаты в чат
+    setTimeout(function(){ if(tg.close) tg.close(); }, 300);
+  } else {
+    showNotif('Открой игру через Telegram бота!');
+  }
 }
 function renderDaily() {
   var st=getDailyStatus();
