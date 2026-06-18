@@ -1465,7 +1465,8 @@ function renderLeaders() {
   });
 }
 function showNotifLog() {
-  var html = '<div class="card" style="text-align:center;padding:16px">'
+  var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
+    +'<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">История уведомлений</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Последние 50 событий</div>'
@@ -1478,15 +1479,14 @@ function showNotifLog() {
     for (var i=0;i<notifLog.length;i++) {
       var n=notifLog[i];
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a">'
-        +'<div style="font-size:11px;color:#666;white-space:nowrap">'+n.time+'</div>'
+        +'<div style="font-size:11px;color:#666;white-space:nowrap;min-width:35px">'+n.time+'</div>'
         +'<div style="font-size:13px;color:'+(n.dead?'#f44336':'#fff')+'">'+n.msg+'</div>'
         +'</div>';
     }
     html += '</div>';
     html += '<button class="btn btn-full" onclick="notifLog=[];renderSettings()" style="margin-top:8px;background:#3d0f0f">🗑 Очистить историю</button>';
   }
-
-  html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px">← Назад</button>';
+  html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
   document.getElementById('content').innerHTML = html;
 }
 
@@ -1494,7 +1494,22 @@ function renderSettings() {
   var li=getLoc();
   var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
   document.getElementById('content').innerHTML=
-    '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
+    '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
+    +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
+    +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
+    +'</div>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
+    +'<div style="font-size:12px;color:#90caf9;line-height:2">'
+    +'Монет: '+fmt(state.coins)+'<br>Живых рыб: '+state.liveFish.length+'<br>За тап: '+state.tapPower.toFixed(1)+'<br>Авто/мин: '+state.autoPerSec+'<br>Локация: '+li.emoji+' '+li.name+'<br>Настроение: '+mood+'</div></div>'
+    +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>'
+    +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">Весь прогресс будет удалён безвозвратно</div>'
+    +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 Сбросить прогресс</button></div>';
+}
+
+function showInstructions() {
+  document.getElementById('content').innerHTML=
+    '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
     +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
@@ -1505,37 +1520,30 @@ function renderSettings() {
     +'3️⃣ Засоли рыбу 🧂 — занимает 30 минут<br>'
     +'4️⃣ Запусти сушку 🌡 — время зависит от вида рыбы (карась 1ч, редкие до 10ч)<br>'
     +'5️⃣ Вручную собери пакет 📦 — у тебя 6 часов с момента окончания сушки!<br><br>'
-    +'<b style="color:#fff">🧂 Соль</b><br>Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Вместимость = вместимость транспорта. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙<br><br>'
+    +'<b style="color:#fff">🧂 Соль</b><br>Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙<br><br>'
     +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую или сушёную) и отправь транспортом. До рынка 1 км. Цены меняются каждые 30 сек 📈📉<br><br>'
     +'<b style="color:#fff">🚚 Транспорт и амортизация</b><br>'
     +'🚲 Велосипед — бесплатно · 5 рыб · 8 мин<br>'
     +'🛵 Мопед — 5000🪙 · 15 рыб · 3 мин<br>'
     +'🚗 Машина — 50000🪙 · 40 рыб · 1.5 мин<br>'
     +'🚛 Грузовик — 300000🪙 · 100 рыб · 2 мин<br>'
-    +'Каждая доставка -10% прочности. Чем ниже прочность — тем дольше едет. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
+    +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>'
     +'🎣 Удочка — увеличивает монеты за тап и шанс улова<br>'
     +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
     +'⛵ Лодка — +0.3 к автодобычи в минуту (макс 5 ур.)<br>'
     +'📡 Сонар — +0.5 к автодобычи в минуту (макс 5 ур.)<br><br>'
-    +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты — каждая даёт множитель к монетам и новых существ: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
-    +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день и забирай бонус: 10→25→50→100→200→400→1000 монет. Пропустил день — серия сбрасывается!<br><br>'
+    +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
+    +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!<br><br>'
     +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙150 монет. Обновляются в полночь.<br><br>'
     +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars:<br>'
     +'⚡ Двойной улов — ×2 монеты за тап на 1 час<br>'
     +'🚀 Турбо доставка — следующая доставка мгновенно<br>'
     +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
     +'🔧 Авторемонт — мгновенно чинит транспорт<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются вручную в течение 24ч.<br><br>'
-    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — отображаются как 🎣 Рыбак #N.</div></div>'
-    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
-    +'<div style="font-size:12px;color:#90caf9;line-height:2">'
-    +'Монет: '+fmt(state.coins)+'<br>Живых рыб: '+state.liveFish.length+'<br>За тап: '+state.tapPower.toFixed(1)+'<br>Авто/сек: '+state.autoPerSec+'<br>Локация: '+li.emoji+' '+li.name+'<br>Настроение: '+mood+'</div></div>'
-    +'<div class="card" style="margin-bottom:8px"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:6px">📋 История уведомлений</div>'
-    +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0">📋 Открыть историю</button></div>'
-    +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>'
-    +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">Весь прогресс будет удалён безвозвратно</div>'
-    +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 Сбросить прогресс</button></div>';
+    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
+    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — 🎣 Рыбак #N.</div></div>'
+    +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
 }
 
 // ── Действия ──────────────────────────────────────────
