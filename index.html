@@ -218,7 +218,8 @@ var currentTab = 'upgrades';
 var tapped = false;
 var lastAuto = Date.now();
 var autoAccum = 0;
-var notifLog = []; // история уведомлений
+var notifLog = [];
+var settingsSubpage = null; // текущая подстраница настроек // история уведомлений
 var lastTapTime = 0;
 var tapTimes = [];
 var scareFactor = 1.0;
@@ -576,7 +577,12 @@ function renderContent() {
   else if (currentTab==='boosts') renderBoosts();
   else if (currentTab==='leaders') renderLeaders();
   else if (currentTab==='locations') renderLocations();
-  else renderSettings();
+  else {
+    // Настройки — учитываем подстраницу
+    if (settingsSubpage==='instructions') showInstructions();
+    else if (settingsSubpage==='notiflog') showNotifLog();
+    else renderSettings();
+  }
 }
 
 // ── Вкладки ───────────────────────────────────────────
@@ -1465,6 +1471,7 @@ function renderLeaders() {
   });
 }
 function showNotifLog() {
+  settingsSubpage = 'notiflog';
   var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
     +'<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
@@ -1491,6 +1498,7 @@ function showNotifLog() {
 }
 
 function renderSettings() {
+  settingsSubpage = null;
   var li=getLoc();
   var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
   document.getElementById('content').innerHTML=
@@ -1507,6 +1515,7 @@ function renderSettings() {
 }
 
 function showInstructions() {
+  settingsSubpage = 'instructions';
   document.getElementById('content').innerHTML=
     '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
