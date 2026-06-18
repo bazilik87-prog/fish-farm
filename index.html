@@ -957,7 +957,6 @@ function startDrying(name) {
   // Добавляем слот сушки с количеством пакетов
   state.drying.push({name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
   dryPacks[name] = 1;
-  addQuestProgress('dry', packs);
   showNotif((def?def.emoji:'🐟')+' '+packs+' пак. '+name+' отправлено на сушку!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -971,6 +970,7 @@ function collectDried(idx) {
     state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+21600000}); // 6 часов с момента окончания сушки
   }
   state.drying.splice(idx,1);
+  addQuestProgress('dry', packs);
   showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' сушёной готово!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
