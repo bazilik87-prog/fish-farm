@@ -394,7 +394,8 @@ function load() {
 // ── Офлайн ────────────────────────────────────────────
 function processOffline() {
   var now=Date.now(), last=state.lastSeen||now;
-  if (now-last<5000) return;
+  var elapsed=now-last;
+  if (elapsed<5000) return;
   if (state.delivery && now>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     var saltArrived=state.delivery.saltOrder||0;
