@@ -218,6 +218,7 @@ var currentTab = 'upgrades';
 var tapped = false;
 var lastAuto = Date.now();
 var autoAccum = 0;
+var notifLog = []; // история уведомлений
 var lastTapTime = 0;
 var tapTimes = [];
 var scareFactor = 1.0;
@@ -486,7 +487,17 @@ function calcEarnings(count) {
 }
 
 // ── Уведомления и анимации ────────────────────────────
-function showNotif(msg,dead) {
+function showNotif(msg, dead) {
+  // Сохраняем важные уведомления в историю
+  var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
+                  msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
+                  msg.indexOf('🧂') >= 0 || dead;
+  if (important) {
+    var time = new Date();
+    var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
+    notifLog.unshift({msg:msg, time:hm, dead:!!dead});
+    if (notifLog.length > 50) notifLog.pop(); // макс 50 записей
+  }
   var el=document.createElement('div');
   el.className='notif'+(dead?' dead':'');
   el.textContent=msg;
@@ -1453,6 +1464,32 @@ function renderLeaders() {
     document.getElementById('leaders-list').innerHTML = html;
   });
 }
+function showNotifLog() {
+  var html = '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">История уведомлений</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Последние 50 событий</div>'
+    +'</div>';
+
+  if (notifLog.length === 0) {
+    html += '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока ничего нет</div>';
+  } else {
+    html += '<div class="card" style="padding:0">';
+    for (var i=0;i<notifLog.length;i++) {
+      var n=notifLog[i];
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a">'
+        +'<div style="font-size:11px;color:#666;white-space:nowrap">'+n.time+'</div>'
+        +'<div style="font-size:13px;color:'+(n.dead?'#f44336':'#fff')+'">'+n.msg+'</div>'
+        +'</div>';
+    }
+    html += '</div>';
+    html += '<button class="btn btn-full" onclick="notifLog=[];renderSettings()" style="margin-top:8px;background:#3d0f0f">🗑 Очистить историю</button>';
+  }
+
+  html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px">← Назад</button>';
+  document.getElementById('content').innerHTML = html;
+}
+
 function renderSettings() {
   var li=getLoc();
   var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
@@ -1494,6 +1531,8 @@ function renderSettings() {
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
     +'Монет: '+fmt(state.coins)+'<br>Живых рыб: '+state.liveFish.length+'<br>За тап: '+state.tapPower.toFixed(1)+'<br>Авто/сек: '+state.autoPerSec+'<br>Локация: '+li.emoji+' '+li.name+'<br>Настроение: '+mood+'</div></div>'
+    +'<div class="card" style="margin-bottom:8px"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:6px">📋 История уведомлений</div>'
+    +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0">📋 Открыть историю</button></div>'
     +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>'
     +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">Весь прогресс будет удалён безвозвратно</div>'
     +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 Сбросить прогресс</button></div>';
