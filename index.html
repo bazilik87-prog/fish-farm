@@ -402,7 +402,14 @@ function processOffline() {
     showNotif('💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings)+(saltArrived>0?' · 🧂+'+saltArrived:''));
     state.delivery=null;
   }
-  // Готовые слоты сушки — НЕ собираем автоматически, просто помечаем
+  // Авто-доход за время офлайн (сеть/лодка/сонар)
+  if (state.autoPerSec > 0) {
+    var autoEarned = Math.round(state.autoPerSec * elapsed / 1000 / 60 * 100) / 100;
+    if (autoEarned > 0) {
+      state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
+      showNotif('🪙 Авто-доход за офлайн: +' + fmt(autoEarned));
+    }
+  }
   for (var d=0;d<state.drying.length;d++) {
     if (now>=state.drying[d].endsAt) state.drying[d].notified=true;
   }
