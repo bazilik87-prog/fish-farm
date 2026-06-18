@@ -612,7 +612,29 @@ function renderAquarium() {
   var fish=FISH[loc]||[], ul=state.unlockedFish[loc]||[];
   var pool=[]; for (var i=0;i<fish.length;i++) if(ul.indexOf(fish[i].name)>=0) pool.push(fish[i]);
   var tot=0; for (var j=0;j<pool.length;j++) tot+=pool[j].rate;
-  var html='<div class="card" style="font-size:12px;color:#90caf9">'+li.emoji+' <b style="color:#fff">'+li.name+'</b> — рыбы локации</div>';
+
+  // Оптовая продажа
+  var totalLive=state.liveFish.length;
+  var totalDried=state.driedFish.length;
+  var liveEarn=Math.round(totalLive*0.1*100)/100;
+  var driedEarn=Math.round(totalDried*0.1*100)/100;
+
+  var html='';
+  if (totalLive>0 || totalDried>0) {
+    html+='<div class="card" style="background:#0a2a0a">'
+      +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">💰 Оптовая продажа (0.1🪙/шт)</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Продать всё без доставки по фиксированной цене</div>'
+      +'<div style="display:flex;gap:8px">'
+      +(totalLive>0
+        ? '<button class="btn btn-green" onclick="bulkSell(false)" style="flex:1">🐟 '+totalLive+' рыб · 🪙'+liveEarn+'</button>'
+        : '<button class="btn" disabled style="flex:1">🐟 Нет рыбы</button>')
+      +(totalDried>0
+        ? '<button class="btn btn-green" onclick="bulkSell(true)" style="flex:1">📦 '+totalDried+' пак · 🪙'+driedEarn+'</button>'
+        : '<button class="btn" disabled style="flex:1">📦 Нет пакетов</button>')
+      +'</div></div>';
+  }
+
+  html+='<div class="card" style="font-size:12px;color:#90caf9">'+li.emoji+' <b style="color:#fff">'+li.name+'</b> — рыбы локации</div>';
   for (var m=0;m<fish.length;m++) {
     var f=fish[m], isUl=ul.indexOf(f.name)>=0;
     if (!isUl) { html+='<div class="fish-item locked-item"><span class="ico">🔒</span><div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">???</div><div style="font-size:11px;color:#666">'+(f.need>0?'Нужно '+fmt(f.need)+' монет':'Открывается на локации')+'</div></div></div>'; continue; }
@@ -626,6 +648,28 @@ function renderAquarium() {
       +'</div></div>';
   }
   document.getElementById('content').innerHTML=html;
+}
+
+function bulkSell(dried) {
+  if (dried) {
+    var count=state.driedFish.length;
+    if (!count) return;
+    var earn=Math.round(count*0.1*100)/100;
+    state.driedFish=[];
+    state.coins=Math.round((state.coins+earn)*100)/100;
+    addQuestProgress('earn', earn);
+    showNotif('💰 Продано '+count+' пакетов · +🪙'+earn);
+  } else {
+    var count2=state.liveFish.length;
+    if (!count2) return;
+    var earn2=Math.round(count2*0.1*100)/100;
+    state.liveFish=[];
+    state.coins=Math.round((state.coins+earn2)*100)/100;
+    addQuestProgress('earn', earn2);
+    showNotif('💰 Продано '+count2+' рыб · +🪙'+earn2);
+  }
+  updateUI(); save();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function renderMarket() {
   var tr=getTr(), dlv=state.delivery;
