@@ -1464,13 +1464,20 @@ function uploadScore() {
   if (now - lastScoreUpload < 60000) return;
   lastScoreUpload = now;
   var pid = getPlayerId();
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var userId = tgUser ? tgUser.id : 0;
+  var username = tgUser ? (tgUser.username || '') : '';
+  var firstName = tgUser ? (tgUser.first_name || '') : '';
   getPlayerNumber(pid, function(num) {
     firebaseDB.ref('leaderboard/' + pid).set({
-      num:    num,
-      coins:  Math.floor(state.coins),
-      caught: state.caught,
-      loc:    state.currentLoc,
-      ts:     now
+      num:       num,
+      coins:     Math.floor(state.coins),
+      caught:    state.caught,
+      loc:       state.currentLoc,
+      ts:        now,
+      userId:    userId,
+      username:  username,
+      firstName: firstName
     });
   });
 }

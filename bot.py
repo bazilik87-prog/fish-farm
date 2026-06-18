@@ -135,7 +135,18 @@ async def players_command(message: types.Message):
             coins = p.get('coins', 0)
             caught = p.get('caught', 0)
             loc = locs.get(p.get('loc','pond'),'🌿')
-            lines.append(f"{i}. 🎣 Рыбак #{num} {loc} 🪙{coins:,} · 🐟{caught}")
+            username = p.get('username','')
+            first_name = p.get('firstName','')
+            user_id = p.get('userId', 0)
+            if username:
+                identity = f"@{username}"
+            elif first_name:
+                identity = first_name
+            elif user_id:
+                identity = f"ID:{user_id}"
+            else:
+                identity = f"Рыбак #{num}"
+            lines.append(f"{i}. {loc} {identity} 🪙{coins:,} · 🐟{caught}")
         # Разбиваем на сообщения по 50 игроков
         chunk = 50
         for i in range(0, len(lines), chunk):
