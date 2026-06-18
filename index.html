@@ -1782,7 +1782,8 @@ function tick() {
 
 // ── Запуск ────────────────────────────────────────────
 load();
-processOffline();
+calcStats();       // сначала считаем статы чтобы autoPerSec был правильным
+processOffline();  // потом офлайн-доход с правильным autoPerSec
 initFirebase();
 initPrices();
 if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
