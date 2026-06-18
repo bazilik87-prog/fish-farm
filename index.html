@@ -456,7 +456,7 @@ function updateScare() {
   var tps=tapTimes.length;
   if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
   else if (tps<=MAX_TPS) scareFactor=Math.max(0.5,scareFactor-0.03);
-  else scareFactor=Math.max(0.1,scareFactor-0.15);
+  else scareFactor=Math.max(0.05,scareFactor-0.15);
 }
 function unlockFish() {
   var loc=state.currentLoc;
