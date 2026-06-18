@@ -122,7 +122,7 @@ var FISH = {
   pond:   [{emoji:'🐟',name:'Карась',     rate:1.0,need:0,     life:1 },
            {emoji:'🐠',name:'Красноперка',rate:0.5,need:100,    life:1 },
            {emoji:'🐟',name:'Лещ',        rate:0.2,need:500,    life:1 },
-           {emoji:'🐡',name:'Щука',       rate:0.08,need:200000,  life:1}],
+           {emoji:'🐡',name:'Щука',       rate:0.08,need:2000,  life:1}],
   river:  [{emoji:'🐡',name:'Окунь',   rate:1.0, need:0,   life:1 },
            {emoji:'🦦',name:'Выдра',   rate:0.4, need:7000, life:1 },
            {emoji:'🐊',name:'Крокодил',rate:0.15,need:200000,life:1},
@@ -637,7 +637,7 @@ function renderAquarium() {
   html+='<div class="card" style="font-size:12px;color:#90caf9">'+li.emoji+' <b style="color:#fff">'+li.name+'</b> — рыбы локации</div>';
   for (var m=0;m<fish.length;m++) {
     var f=fish[m], isUl=ul.indexOf(f.name)>=0;
-    if (!isUl) { html+='<div class="fish-item locked-item"><span class="ico">🔒</span><div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">???</div><div style="font-size:11px;color:#666">'+(f.need>0?'Нужно '+fmt(f.need)+' монет':'Открывается на локации')+'</div></div></div>'; continue; }
+    if (!isUl) { html+='<div class="fish-item locked-item"><span class="ico">🔒</span><div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">???</div><div style="font-size:11px;color:#666">'+(f.need>0?'Нужно '+f.need+' монет':'Открывается на локации')+'</div></div></div>'; continue; }
     var pct=tot>0?Math.round(f.rate/tot*100):0;
     var alive=0; for (var n=0;n<state.liveFish.length;n++) if(state.liveFish[n].name===f.name) alive++;
     html+='<div class="fish-item"><span class="ico">'+f.emoji+'</span><div class="inf">'
