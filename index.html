@@ -169,7 +169,7 @@ var TRANSPORTS = [
 ];
 
 var UPGRADES = [
-  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'x2 монеты + шанс улова',        costs:[200,800,3000,10000,30000],          bought:0,max:5},
+  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за тап и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
   {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к автодобычи за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
   {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к автодобычи за уровень', costs:[1500,6000,25000,80000,250000],           bought:0,max:5},
   {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к автодобычи за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
@@ -591,7 +591,15 @@ function renderUpgrades() {
   for (var i=0;i<UPGRADES.length;i++) {
     var u=UPGRADES[i], maxed=u.bought>=u.max;
     var cost=maxed?0:u.costs[u.bought], canBuy=!maxed&&state.coins>=cost;
-    var extra=u.id==='rod'?' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+Math.round(catchChance()*100)+'% улов</span>':'';
+    var extra='';
+    if (u.id==='rod') {
+      var cur=ROD_TAP[u.bought]||0.1;
+      var chance=Math.round(Math.min(0.65,0.20+u.bought*0.09)*100);
+      extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% улов · 🪙'+cur+'/тап</span>';
+    }
+    if (u.id==='net')   extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+(Math.round(0.1*u.bought*10)/10)+'/мин</span>';
+    if (u.id==='boat')  extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+(Math.round(0.3*u.bought*10)/10)+'/мин</span>';
+    if (u.id==='sonar') extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+(Math.round(0.5*u.bought*10)/10)+'/мин</span>';
     html+='<div class="upg"><span class="ico">'+u.emoji+'</span>'
       +'<div class="inf"><div class="n">'+u.name+(u.bought>0?' <span class="badge">ур.'+u.bought+'</span>':'')+extra+'</div>'
       +'<div class="d">'+u.desc+'</div></div>'
