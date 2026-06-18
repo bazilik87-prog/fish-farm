@@ -111,6 +111,18 @@ async def start(message: types.Message):
         parse_mode="Markdown",
         reply_markup=keyboard
     )
+    # Уведомляем админа о новом игроке
+    if ADMIN_ID and message.from_user.id != ADMIN_ID:
+        user = message.from_user
+        name = f"@{user.username}" if user.username else f"{user.first_name or 'Без имени'}"
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🆕 *Новый игрок!*\n👤 {name}\n🆔 `{user.id}`",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
 
 @dp.message(Command('players'))
