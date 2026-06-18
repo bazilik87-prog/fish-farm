@@ -73,6 +73,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div id="ocean" ontouchstart="tapOcean(event)" onclick="tapOcean(event)">
   <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
+  <div id="mood-label" style="position:absolute;top:10px;right:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);pointer-events:none"></div>
 </div>
 <div id="bank-banner" onclick="showTab('bank')" style="background:linear-gradient(135deg,#0a2a5a,#1565c0,#0a3d6b);margin:0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
@@ -88,7 +89,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
   <div class="st"><b id="s-live">0</b><span>🐠 живых</span></div>
-  <div class="st"><b id="s-tap">+0.1</b><span>за тап</span></div>
+  <div class="st"><b id="s-tap">+0.1</b><span>за улов</span></div>
   <div class="st"><b id="s-auto">0</b><span>🪙 авто/мин</span></div>
 </div>
 <div id="tabs">
@@ -169,7 +170,7 @@ var TRANSPORTS = [
 ];
 
 var UPGRADES = [
-  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за тап и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
+  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за улов и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
   {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к автодобычи за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
   {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к автодобычи за уровень', costs:[1500,6000,25000,80000,250000],           bought:0,max:5},
   {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к автодобычи за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
@@ -447,7 +448,13 @@ function catchChance() {
   for (var i=0;i<UPGRADES.length;i++) if(UPGRADES[i].id==='rod') rod=UPGRADES[i];
   var base=Math.min(0.65,0.20+(rod?rod.bought:0)*0.09);
   var lucky=(state.boosts.luckyRod>Date.now())?1.5:1;
-  return Math.min(0.95, Math.round(base*scareFactor*lucky*100)/100);
+  // Фиксированные множители по настроению
+  var mult;
+  if (scareFactor>=0.9)      mult=1.0;   // 😊 спокойная
+  else if (scareFactor>=0.6) mult=0.5;   // 😐 насторожена ~50%
+  else if (scareFactor>=0.3) mult=0.17;  // 😨 напугана ~5% от базы
+  else                       mult=0.05;  // 😱 в панике ~1% от базы
+  return Math.min(0.95, Math.round(base*mult*lucky*100)/100);
 }
 function updateScare() {
   var now=Date.now(), ntimes=[];
@@ -555,8 +562,11 @@ function renderLocBar() {
 function updateUI() {
   document.getElementById('s-coins').textContent=fmt(state.coins);
   document.getElementById('s-live').textContent=state.liveFish.length;
-  document.getElementById('s-tap').textContent='+'+state.tapPower.toFixed(1)+' '+moodEmoji();
+  document.getElementById('s-tap').textContent='+'+state.tapPower.toFixed(1);
   document.getElementById('s-auto').textContent=state.autoPerSec;
+  var chance=Math.round(catchChance()*100);
+  var moodEl=document.getElementById('mood-label');
+  if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
   renderContent();
 }
 function showTab(tab) {
@@ -595,7 +605,7 @@ function renderUpgrades() {
     if (u.id==='rod') {
       var cur=ROD_TAP[u.bought]||0.1;
       var chance=Math.round(Math.min(0.65,0.20+u.bought*0.09)*100);
-      extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% улов · 🪙'+cur+'/тап</span>';
+      extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% улов · 🪙'+cur+'/улов</span>';
     }
     if (u.id==='net')   extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+(Math.round(0.1*u.bought*10)/10)+'/мин</span>';
     if (u.id==='boat')  extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+(Math.round(0.3*u.bought*10)/10)+'/мин</span>';
@@ -1590,7 +1600,7 @@ function showInstructions() {
     +'🚛 Грузовик — 300000🪙 · 100 рыб · 2 мин<br>'
     +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>'
-    +'🎣 Удочка — увеличивает монеты за тап и шанс улова<br>'
+    +'🎣 Удочка — увеличивает монеты за улов и шанс улова<br>'
     +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
     +'⛵ Лодка — +0.3 к автодобычи в минуту (макс 5 ур.)<br>'
     +'📡 Сонар — +0.5 к автодобычи в минуту (макс 5 ур.)<br><br>'
@@ -1825,7 +1835,6 @@ function tick() {
     }
   }
   checkDeaths(); checkDelivery(); checkDrying(); checkSalting();
-  uploadScore();
   if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
   var te=document.getElementById('mkt-timer');
   if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
