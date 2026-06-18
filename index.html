@@ -90,7 +90,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
   <div class="st"><b id="s-live">0</b><span>🐠 живых</span></div>
   <div class="st"><b id="s-tap">+0.1</b><span>за тап</span></div>
-  <div class="st"><b id="s-auto">0</b><span>🪙 авто/сек</span></div>
+  <div class="st"><b id="s-auto">0</b><span>🪙 авто/мин</span></div>
 </div>
 <div id="tabs">
   <div class="tab active" onclick="showTab('upgrades')">⬆️</div>
@@ -177,9 +177,9 @@ var TRANSPORTS = [
 
 var UPGRADES = [
   {id:'rod',  name:'Удочка',emoji:'🎣',desc:'x2 монеты + шанс улова',        costs:[200,800,3000,10000,30000],          bought:0,max:5},
-  {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к авто-множителю за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
-  {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к авто-множителю за уровень', costs:[1500,6000,25000,80000,250000],           bought:0,max:5},
-  {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к авто-множителю за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
+  {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к автодобычи за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
+  {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к автодобычи за уровень', costs:[1500,6000,25000,80000,250000],           bought:0,max:5},
+  {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к автодобычи за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
 ];
 
 var ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7];
@@ -1478,9 +1478,9 @@ function renderSettings() {
     +'Каждая доставка -10% прочности. Чем ниже прочность — тем дольше едет. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>'
     +'🎣 Удочка — увеличивает монеты за тап и шанс улова<br>'
-    +'🕸 Сеть — +0.1 к авто-множителю за уровень (макс 5 ур.)<br>'
-    +'⛵ Лодка — +0.3 к авто-множителю за уровень (макс 5 ур.)<br>'
-    +'📡 Сонар — +0.5 к авто-множителю за уровень (макс 5 ур.)<br><br>'
+    +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
+    +'⛵ Лодка — +0.3 к автодобычи в минуту (макс 5 ур.)<br>'
+    +'📡 Сонар — +0.5 к автодобычи в минуту (макс 5 ур.)<br><br>'
     +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты — каждая даёт множитель к монетам и новых существ: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день и забирай бонус: 10→25→50→100→200→400→1000 монет. Пропустил день — серия сбрасывается!<br><br>'
     +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙150 монет. Обновляются в полночь.<br><br>'
@@ -1708,12 +1708,11 @@ function checkDelivery() {
 function tick() {
   var now=Date.now(), dt=(now-lastAuto)/1000; lastAuto=now;
   if (state.autoPerSec>0) {
-    var earned=Math.round(state.autoPerSec*dt*state.tapPower*10)/100;
+    var earned=state.autoPerSec*dt/60; // в минуту
+    earned=Math.round(earned*100)/100;
     if (earned>0) {
       state.coins=Math.round((state.coins+earned)*100)/100;
-      state.caught+=Math.ceil(earned);
-      var af=randFish(); state.caughtFish[af.name]=(state.caughtFish[af.name]||0)+Math.ceil(earned);
-      unlockFish(); updateUI(); save();
+      updateUI(); save();
     }
   }
   checkDeaths(); checkDelivery(); checkDrying(); checkSalting();
