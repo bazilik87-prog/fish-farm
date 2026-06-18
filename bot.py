@@ -113,7 +113,37 @@ async def start(message: types.Message):
     )
 
 
-@dp.message(Command('bank'))
+@dp.message(Command('players'))
+async def players_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю список игроков...")
+    import aiohttp
+    try:
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+        if not data:
+            await message.answer("Пока нет игроков.")
+            return
+        players = sorted(data.values(), key=lambda x: x.get('coins',0), reverse=True)
+        locs = {'pond':'🌿','river':'🏞','tropics':'🌴','deep':'🌊','space':'🚀'}
+        lines = []
+        for i, p in enumerate(players, 1):
+            num = p.get('num','?')
+            coins = p.get('coins', 0)
+            caught = p.get('caught', 0)
+            loc = locs.get(p.get('loc','pond'),'🌿')
+            lines.append(f"{i}. 🎣 Рыбак #{num} {loc} 🪙{coins:,} · 🐟{caught}")
+        # Разбиваем на сообщения по 50 игроков
+        chunk = 50
+        for i in range(0, len(lines), chunk):
+            part = lines[i:i+chunk]
+            header = f"👥 *Игроки {i+1}-{min(i+chunk, len(players))} из {len(players)}*\n\n"
+            await message.answer(header + "\n".join(part), parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 async def bank_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
