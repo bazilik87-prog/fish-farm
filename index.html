@@ -415,6 +415,7 @@ function processOffline() {
   if (elapsed<5000) return;
   if (state.delivery && now>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
+    addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
     if (saltArrived>0) state.salt=(state.salt||0)+saltArrived;
     showNotif('💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings)+(saltArrived>0?' · 🧂+'+saltArrived:''));
