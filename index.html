@@ -108,7 +108,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script>
 var tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) {
+  tg.ready();
+  tg.expand();
+  // Активируем буст при возврате в игру после оплаты через бота
+  tg.onEvent('invoiceClosed', function(data) {
+    if (data && data.status === 'paid' && data.url) {
+      var url = data.url;
+      var boostMatch = url.match(/boost[_=](\w+)/);
+      if (boostMatch) activateBoost(boostMatch[1]);
+    }
+  });
+}
 
 // ── Данные ────────────────────────────────────────────
 var LOCATIONS = [
@@ -1421,6 +1432,20 @@ var FIREBASE_CONFIG = {
 var firebaseApp = null;
 var firebaseDB  = null;
 
+function checkPendingBoosts() {
+  if (!firebaseDB) return;
+  var pid = getPlayerId();
+  firebaseDB.ref('pending_boosts/' + pid).once('value', function(snap) {
+    var data = snap.val();
+    if (!data) return;
+    for (var boostId in data) {
+      activateBoost(boostId);
+      showNotif('⚡ Буст активирован: ' + boostId);
+    }
+    firebaseDB.ref('pending_boosts/' + pid).remove();
+  });
+}
+
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') return;
@@ -1859,9 +1884,10 @@ function tick() {
 
 // ── Запуск ────────────────────────────────────────────
 load();
-calcStats();       // сначала считаем статы чтобы autoPerSec был правильным
-processOffline();  // потом офлайн-доход с правильным autoPerSec
+calcStats();
+processOffline();
 initFirebase();
+setTimeout(checkPendingBoosts, 2000); // проверяем pending бусты через 2 сек после загрузки Firebase
 initPrices();
 if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
 calcStats();
