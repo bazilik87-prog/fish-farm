@@ -570,7 +570,7 @@ function updateUI() {
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
   if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
-  renderContent();
+  if (currentTab!=='leaders') renderContent();
 }
 function showTab(tab) {
   currentTab=tab;
@@ -592,7 +592,6 @@ function renderContent() {
   else if (currentTab==='leaders') { if (!leadersLoaded) renderLeaders(); }
   else if (currentTab==='locations') renderLocations();
   else {
-    // Настройки — учитываем подстраницу
     if (settingsSubpage==='instructions') showInstructions();
     else if (settingsSubpage==='notiflog') showNotifLog();
     else renderSettings();
