@@ -219,9 +219,8 @@ var state = {
   drying:[],driedFish:[],
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0},
   quests:[], questsDate:0, questProgress:{},
-  salt:0,          // запас соли на складе
-  saltOrder:0,     // сколько соли заказано в текущей доставке
-  salting:[]       // [{name, emoji, packets, startedAt, endsAt}] — засолка
+  salt:0, saltOrder:0, salting:[],
+  playerName:''
 };
 
 var marketPrices = {};
@@ -364,7 +363,8 @@ function save() {
       lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
       drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
-      salt:state.salt, saltOrder:state.saltOrder, salting:state.salting
+      salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
+      playerName:state.playerName
     }));
   } catch(e){}
 }
@@ -399,6 +399,7 @@ function load() {
     state.saltOrder         = s.saltOrder    || 0;
     state.salting           = s.salting      || [];
     if (!Array.isArray(state.salting)) state.salting = [];
+    state.playerName        = s.playerName   || '';
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
     if (s.prices)  marketPrices    = s.prices;
@@ -584,6 +585,37 @@ function updateUI() {
   if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
   if (currentTab!=='leaders') renderContent();
 }
+function showNameInput() {
+  var overlay = document.createElement('div');
+  overlay.id = 'name-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,20,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
+  overlay.innerHTML =
+    '<div style="background:#0f3460;border-radius:16px;padding:24px;width:100%;max-width:340px;text-align:center">'
+    +'<div style="font-size:40px;margin-bottom:12px">🎣</div>'
+    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:8px">Добро пожаловать!</div>'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:20px">Придумай имя для таблицы лидеров</div>'
+    +'<input id="name-input" type="text" maxlength="16" placeholder="Твоё имя..." '
+    +'style="width:100%;padding:12px;border-radius:8px;border:1px solid #1565c0;background:#1a1a3a;color:#fff;font-size:15px;text-align:center;box-sizing:border-box;margin-bottom:16px">'
+    +'<button onclick="saveName()" class="btn btn-green btn-full" style="font-size:15px;padding:14px">✅ Начать играть</button>'
+    +'</div>';
+  document.body.appendChild(overlay);
+  setTimeout(function(){ document.getElementById('name-input').focus(); }, 100);
+}
+
+function saveName() {
+  var input = document.getElementById('name-input');
+  var name = input ? input.value.trim() : '';
+  if (!name) { showNotif('Введи имя!'); return; }
+  state.playerName = name;
+  save();
+  var overlay = document.getElementById('name-overlay');
+  if (overlay) overlay.parentNode.removeChild(overlay);
+}
+
+function checkNameInput() {
+  if (!state.playerName) showNameInput();
+}
+
 function showTab(tab) {
   currentTab=tab;
   if (tab==='leaders') leadersLoaded=false; // сбрасываем чтобы перезагрузить
@@ -1503,14 +1535,15 @@ function uploadScore() {
   var firstName = tgUser ? (tgUser.first_name || '') : '';
   getPlayerNumber(pid, function(num) {
     firebaseDB.ref('leaderboard/' + pid).set({
-      num:       num,
-      coins:     Math.floor(state.coins),
-      caught:    state.caught,
-      loc:       state.currentLoc,
-      ts:        now,
-      userId:    userId,
-      username:  username,
-      firstName: firstName
+      num:        num,
+      coins:      Math.floor(state.coins),
+      caught:     state.caught,
+      loc:        state.currentLoc,
+      ts:         now,
+      userId:     userId,
+      username:   username,
+      firstName:  firstName,
+      playerName: state.playerName || ''
     });
   });
 }
@@ -1554,7 +1587,7 @@ function renderLeaders() {
       var isMe = e.id === myPid;
       if (isMe) myRank = i+1;
       var rank = i<3 ? medals[i] : '#'+(i+1);
-      var name = '🎣 Рыбак #'+(e.data.num||'?');
+      var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 Рыбак #'+(e.data.num||'?'));
       var loc = locEmoji[e.data.loc]||'🌿';
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
         +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
@@ -1621,6 +1654,7 @@ function renderSettings() {
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
     +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
+    +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px">✏️ Сменить имя <span style="color:#FFD700;font-size:11px">'+(state.playerName||'не задано')+'</span></button>'
     +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
@@ -1667,7 +1701,7 @@ function showInstructions() {
     +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
     +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
-    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — 🎣 Рыбак #N.</div></div>'
+    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
 }
 
@@ -1902,7 +1936,8 @@ load();
 calcStats();
 processOffline();
 initFirebase();
-setTimeout(checkPendingBoosts, 2000); // проверяем pending бусты через 2 сек после загрузки Firebase
+setTimeout(checkPendingBoosts, 2000);
+setTimeout(checkNameInput, 500); // проверяем pending бусты через 2 сек после загрузки Firebase
 initPrices();
 if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
 calcStats();
