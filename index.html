@@ -1228,8 +1228,8 @@ function renderBoosts() {
     {
       id:'turboSpeed', name:'Турбо скорость', emoji:'🏎',
       desc:'×2 скорость транспорта на 1 час',
-      active: false,
-      timeLeft: 0
+      active: b.turboSpeed > now,
+      timeLeft: b.turboSpeed > now ? Math.ceil((b.turboSpeed-now)/60000) : 0
     }
   ];
 
