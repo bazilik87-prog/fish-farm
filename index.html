@@ -205,7 +205,7 @@ var state = {
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,
   drying:[],driedFish:[],
-  boosts:{doubleTap:0, turboDlv:false, luckyRod:0, autoRepair:false},
+  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0},
   quests:[], questsDate:0, questProgress:{},
   salt:0,          // запас соли на складе
   saltOrder:0,     // сколько соли заказано в текущей доставке
@@ -255,7 +255,8 @@ function durColor(d) { return d>=75?'#6ddc6d':d>=50?'#FFD700':d>=25?'#ff9944':'#
 function delivTime(tr) {
   var d=getDur(tr.id);
   var m=d>=75?1:d>=50?1.2:d>=25?1.5:2;
-  return Math.round(tr.time*m);
+  var speedBoost=(state.boosts.turboSpeed>Date.now())?0.5:1; // ×2 скорость = ×0.5 время
+  return Math.round(tr.time*m*speedBoost);
 }
 
 // ── Цены ─────────────────────────────────────────────
@@ -377,7 +378,7 @@ function load() {
     state.lastSeen          = s.lastSeen  || Date.now();
     state.drying            = s.drying    || [];
     state.driedFish         = s.driedFish || [];
-    state.boosts            = s.boosts    || {doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false};
+    state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0};
     state.quests            = s.quests       || [];
     state.questsDate        = s.questsDate   || 0;
     state.questProgress     = s.questProgress|| {};
@@ -1193,15 +1194,15 @@ function renderBoosts() {
   var b = state.boosts;
   var boostList = [
     {
-      id:'doubleTap', name:'Двойной улов', emoji:'⚡',
-      desc:'×2 монеты за тап на 1 час',
+      id:'doubleTap', name:'Авто-буст', emoji:'⚡',
+      desc:'+2 к автодобыче в минуту на 1 час',
       active: b.doubleTap > now,
       timeLeft: b.doubleTap > now ? Math.ceil((b.doubleTap-now)/60000) : 0
     },
     {
-      id:'turboDlv', name:'Турбо доставка', emoji:'🚀',
-      desc:'Следующая доставка мгновенная',
-      active: !!b.turboDlv,
+      id:'turboDry', name:'Мгновенная сушка', emoji:'🌡',
+      desc:'Вся текущая сушка завершается мгновенно',
+      active: false,
       timeLeft: 0
     },
     {
@@ -1211,8 +1212,8 @@ function renderBoosts() {
       timeLeft: b.luckyRod > now ? Math.ceil((b.luckyRod-now)/60000) : 0
     },
     {
-      id:'autoRepair', name:'Авторемонт', emoji:'🔧',
-      desc:'Мгновенно чинит транспорт',
+      id:'turboSpeed', name:'Турбо скорость', emoji:'🏎',
+      desc:'×2 скорость транспорта на 1 час',
       active: false,
       timeLeft: 0
     }
@@ -1275,14 +1276,13 @@ function buyBoost(id) {
 
 function activateBoost(id) {
   var now = Date.now();
-  if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000; // 1 час
-  if (id==='turboDlv')   state.boosts.turboDlv   = true;
-  if (id==='luckyRod')   state.boosts.luckyRod   = now + 1800000; // 30 мин
-  if (id==='autoRepair') {
-    // Чиним текущий транспорт
-    state.durability[state.transport] = 100;
-    showNotif('🔧 Транспорт мгновенно отремонтирован!');
+  if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
+  if (id==='turboDry') {
+    for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
+    showNotif('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.');
   }
+  if (id==='luckyRod')   state.boosts.luckyRod   = now + 1800000;
+  if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1615,10 +1615,10 @@ function showInstructions() {
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!<br><br>'
     +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙150 монет. Обновляются в полночь.<br><br>'
     +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars:<br>'
-    +'⚡ Двойной улов — ×2 монеты за тап на 1 час<br>'
-    +'🚀 Турбо доставка — следующая доставка мгновенно<br>'
+    +'⚡ Авто-буст — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
+    +'🌡 Мгновенная сушка — все текущие пакеты досушиваются мгновенно<br>'
     +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
-    +'🔧 Авторемонт — мгновенно чинит транспорт<br><br>'
+    +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Все анонимны — 🎣 Рыбак #N.</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
@@ -1713,7 +1713,7 @@ function sendDelivery() {
   }
   earn=Math.round(earn*100)/100;
   var secs=delivTime(tr);
-  if (state.boosts.turboDlv) { secs=1; state.boosts.turboDlv=false; showNotif('🚀 Турбо доставка активирована!'); }
+  
   var saltOrder=state.saltOrder||0;
   var saltPrice=SALT_PRICE[state.currentLoc]||1;
   var saltCost=saltOrder*saltPrice;
@@ -1792,7 +1792,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDlv:false,luckyRod:0,autoRepair:false},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[]};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[]};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
@@ -1832,8 +1832,9 @@ function checkDelivery() {
 }
 function tick() {
   var now=Date.now(), dt=(now-lastAuto)/1000; lastAuto=now;
-  if (state.autoPerSec>0) {
-    autoAccum += state.autoPerSec * dt / 60;
+  if (state.autoPerSec>0 || state.boosts.doubleTap>Date.now()) {
+    var autoBase = state.autoPerSec + (state.boosts.doubleTap>Date.now() ? 2 : 0);
+    autoAccum += autoBase * dt / 60;
     if (autoAccum >= 0.01) {
       var pay = Math.floor(autoAccum * 100) / 100;
       state.coins = Math.round((state.coins + pay) * 100) / 100;

@@ -24,16 +24,16 @@ CORS = {
 }
 
 BOOST_NAMES = {
-    'doubleTap':  'Double Catch x2 for 1 hour',
-    'turboDlv':   'Turbo Delivery instant',
-    'luckyRod':   'Lucky Rod +50pct for 30min',
-    'autoRepair': 'Auto Repair vehicle',
+    'doubleTap':   'Auto Boost +2 auto income per minute for 1 hour',
+    'turboDry':    'Instant Dry - all drying packets finish instantly',
+    'luckyRod':    'Lucky Rod +50pct for 30min',
+    'turboSpeed':  'Turbo Speed x2 transport speed for 1 hour',
 }
 BOOST_LABELS = {
-    'doubleTap':  '⚡ Двойной улов',
-    'turboDlv':   '🚀 Турбо доставка',
+    'doubleTap':  '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
+    'turboDry':   '🌡 Мгновенная сушка',
     'luckyRod':   '🎣 Удачная рыбалка',
-    'autoRepair': '🔧 Авторемонт',
+    'turboSpeed': '🏎 Турбо скорость',
 }
 
 # Хранилище pending обменов: user_id -> {coins, wallet}
