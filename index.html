@@ -1876,6 +1876,7 @@ function tick() {
     }
   }
   checkDeaths(); checkDelivery(); checkDrying(); checkSalting();
+  uploadScore();
   if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
   var te=document.getElementById('mkt-timer');
   if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
