@@ -1604,8 +1604,21 @@ function renderSettings() {
   settingsSubpage = null;
   var li=getLoc();
   var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var isAdmin = tgUser && tgUser.id === 145841941;
+  var adminHtml = isAdmin
+    ? '<div class="card" style="background:#1a0a3a;margin-bottom:8px">'
+      +'<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🔧 Админ-панель</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<button class="btn" onclick="state.coins+=1000;updateUI();save();showNotif(\'✅ +1000\')" style="background:#1565c0">+1к</button>'
+      +'<button class="btn" onclick="state.coins+=10000;updateUI();save();showNotif(\'✅ +10к\')" style="background:#1565c0">+10к</button>'
+      +'<button class="btn" onclick="state.coins+=100000;updateUI();save();showNotif(\'✅ +100к\')" style="background:#1565c0">+100к</button>'
+      +'<button class="btn" onclick="state.coins+=1000000;updateUI();save();showNotif(\'✅ +1М\')" style="background:#6a1565">+1М</button>'
+      +'</div></div>'
+    : '';
   document.getElementById('content').innerHTML=
-    '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
+    adminHtml
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
     +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
     +'</div>'
