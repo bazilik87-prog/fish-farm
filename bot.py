@@ -249,7 +249,17 @@ async def successful_payment(message: types.Message):
     if payload.startswith('bo:'):
         parts    = payload.split(':')
         boost_id = parts[1] if len(parts) > 1 else ''
+        user_id  = parts[2] if len(parts) > 2 else str(message.from_user.id)
         label    = BOOST_LABELS.get(boost_id, 'Бустер')
+        # Записываем буст в Firebase чтобы игра подхватила при входе
+        import aiohttp
+        try:
+            pid = f"tg_{user_id}"
+            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json"
+            async with aiohttp.ClientSession() as session:
+                await session.put(url, json=True)
+        except Exception:
+            pass
         await message.answer(
             f"✅ *{label} активирован!*\n\nВернись в игру 👇",
             parse_mode="Markdown",
