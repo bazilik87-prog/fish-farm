@@ -185,15 +185,16 @@ var QUEST_TEMPLATES = [
   {id:'catch50',    text:'Поймай 50 рыб',          type:'catch',    goal:50,   reward:30  },
   {id:'catch100',   text:'Поймай 100 рыб',         type:'catch',    goal:100,  reward:60  },
   {id:'catch200',   text:'Поймай 200 рыб',         type:'catch',    goal:200,  reward:120 },
-  {id:'sell1',      text:'Отправь 1 доставку',     type:'deliver',  goal:1,    reward:50  },
-  {id:'sell3',      text:'Отправь 3 доставки',     type:'deliver',  goal:3,    reward:150 },
-  {id:'dry1',       text:'Высуши 1 пакет',         type:'dry',      goal:1,    reward:80  },
-  {id:'dry3',       text:'Высуши 3 пакета',        type:'dry',      goal:3,    reward:250 },
-  {id:'earn500',    text:'Заработай 500 монет',    type:'earn',     goal:500,  reward:100 },
-  {id:'earn1000',   text:'Заработай 1000 монет',   type:'earn',     goal:1000, reward:200 },
+  {id:'sell1',      text:'Отправь 10 доставок',    type:'deliver',  goal:10,   reward:50  },
+  {id:'sell3',      text:'Отправь 20 доставок',    type:'deliver',  goal:20,   reward:150 },
+  {id:'dry1',       text:'Высуши 10 пакетов',      type:'dry',      goal:10,   reward:80  },
+  {id:'dry3',       text:'Высуши 20 пакетов',      type:'dry',      goal:20,   reward:250 },
+  {id:'earn500',    text:'Заработай 250 монет',    type:'earn',     goal:250,  reward:80  },
+  {id:'earn1000',   text:'Заработай 100 монет',    type:'earn',     goal:100,  reward:50  },
   {id:'catch_rare', text:'Поймай 10 редких рыб',  type:'rare',     goal:10,   reward:200 },
   {id:'repair1',    text:'Почини транспорт',       type:'repair',   goal:1,    reward:70  },
   {id:'catch20loc', text:'Поймай 20 рыб в локации',type:'catch', goal:20, reward:80  },
+  {id:'bulk100',    text:'Продай 100 рыб оптом',   type:'bulk',     goal:100,  reward:120 },
 ];
 
 // ── Состояние ─────────────────────────────────────────
@@ -677,6 +678,7 @@ function bulkSell(dried) {
     state.liveFish=[];
     state.coins=Math.round((state.coins+earn2)*100)/100;
     addQuestProgress('earn', earn2);
+    addQuestProgress('bulk', count2);
     showNotif('💰 Продано '+count2+' рыб · +🪙'+earn2);
   }
   updateUI(); save();
