@@ -832,7 +832,7 @@ function renderMarket() {
         var diff=Math.round((mp.cur-bp)/bp*100);
         var sendCnt=Math.min(cnt,tr.capacity);
         var earn=Math.round(mp.cur*sendCnt*100)/100;
-        var isSelected=state.selectedFish===name&&!state.selectedDried;
+        var isSelected=state.selectedFish===name&&!state.selectedDried&&!state.selectedFilet;
         html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
