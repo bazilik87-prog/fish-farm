@@ -685,21 +685,27 @@ function renderAquarium() {
   // Оптовая продажа
   var totalLive=state.liveFish.length;
   var totalDried=state.driedFish.length;
+  var totalFilet=0;
+  for (var bfi=0;bfi<(state.filets||[]).length;bfi++) if(!state.filets[bfi].packingEndsAt) totalFilet+=(state.filets[bfi].packets||1);
   var liveEarn=Math.round(totalLive*0.01*100)/100;
   var driedEarn=Math.round(totalDried*0.012*100)/100;
+  var filetEarn=Math.round(totalFilet*0.02*100)/100;
 
   var html='';
-  if (totalLive>0 || totalDried>0) {
+  if (totalLive>0 || totalDried>0 || totalFilet>0) {
     html+='<div class="card" style="background:#0a2a0a">'
       +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">💰 Оптовая продажа (0.01🪙/шт)</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Продать всё без доставки по фиксированной цене</div>'
-      +'<div style="display:flex;gap:8px">'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
       +(totalLive>0
-        ? '<button class="btn btn-green" onclick="bulkSell(false)" style="flex:1">🐟 '+totalLive+' рыб · 🪙'+liveEarn+'</button>'
-        : '<button class="btn" disabled style="flex:1">🐟 Нет рыбы</button>')
+        ? '<button class="btn btn-green" onclick="bulkSell(\'live\')" style="flex:1">🐟 '+totalLive+' · 🪙'+liveEarn+'</button>'
+        : '<button class="btn" disabled style="flex:1">🐟 Нет</button>')
       +(totalDried>0
-        ? '<button class="btn btn-green" onclick="bulkSell(true)" style="flex:1">📦 '+totalDried+' пак · 🪙'+driedEarn+'</button>'
-        : '<button class="btn" disabled style="flex:1">📦 Нет пакетов</button>')
+        ? '<button class="btn btn-green" onclick="bulkSell(\'dried\')" style="flex:1">📦 '+totalDried+' · 🪙'+driedEarn+'</button>'
+        : '<button class="btn" disabled style="flex:1">📦 Нет</button>')
+      +(totalFilet>0
+        ? '<button class="btn btn-green" onclick="bulkSell(\'filet\')" style="flex:1">🍱 '+totalFilet+' · 🪙'+filetEarn+'</button>'
+        : '<button class="btn" disabled style="flex:1">🍱 Нет</button>')
       +'</div></div>';
   }
 
@@ -719,8 +725,8 @@ function renderAquarium() {
   document.getElementById('content').innerHTML=html;
 }
 
-function bulkSell(dried) {
-  if (dried) {
+function bulkSell(type) {
+  if (type==='dried') {
     var count=state.driedFish.length;
     if (!count) return;
     var earn=Math.round(count*0.012*100)/100;
@@ -728,6 +734,19 @@ function bulkSell(dried) {
     state.coins=Math.round((state.coins+earn)*100)/100;
     addQuestProgress('earn', earn);
     showNotif('💰 Продано '+count+' пакетов · +🪙'+earn);
+  } else if (type==='filet') {
+    var countF=0;
+    var restFilets=[];
+    for (var i=0;i<(state.filets||[]).length;i++) {
+      if (!state.filets[i].packingEndsAt) countF+=(state.filets[i].packets||1);
+      else restFilets.push(state.filets[i]);
+    }
+    if (!countF) return;
+    var earnF=Math.round(countF*0.02*100)/100;
+    state.filets=restFilets;
+    state.coins=Math.round((state.coins+earnF)*100)/100;
+    addQuestProgress('earn', earnF);
+    showNotif('💰 Продано '+countF+' пакетов филе · +🪙'+earnF);
   } else {
     var count2=state.liveFish.length;
     if (!count2) return;
@@ -789,8 +808,14 @@ function renderMarket() {
   // Список рыб с выбором вида
   var hasFresh = Object.keys(grouped).length > 0;
   var hasDried = Object.keys(driedGrouped).length > 0;
+  var filetGrouped2={};
+  for (var fgi2=0;fgi2<(state.filets||[]).length;fgi2++) {
+    var ffg2=state.filets[fgi2];
+    if (!ffg2.packingEndsAt) filetGrouped2[ffg2.name]=(filetGrouped2[ffg2.name]||0)+(ffg2.packets||1);
+  }
+  var hasFilets = Object.keys(filetGrouped2).length > 0;
 
-  if (!hasFresh && !hasDried) {
+  if (!hasFresh && !hasDried && !hasFilets) {
     html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
   } else {
     html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Выбери что отправить:</div>';
@@ -835,12 +860,6 @@ function renderMarket() {
     }
 
     // Филе рыбы
-    var filetGrouped2={};
-    for (var ffi=0;ffi<(state.filets||[]).length;ffi++) {
-      var ff=state.filets[ffi];
-      if (!ff.packingEndsAt) filetGrouped2[ff.name]=(filetGrouped2[ff.name]||0)+(ff.packets||1);
-    }
-    var hasFilets=Object.keys(filetGrouped2).length>0;
     if (hasFilets) {
       html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 Филе рыбы:</div>';
       for (var fname in filetGrouped2) {
