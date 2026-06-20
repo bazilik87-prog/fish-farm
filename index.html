@@ -1033,9 +1033,12 @@ function renderKitchen() {
         html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🍱 Филе на складе:</div>';
         for (var fn3 in filetGrouped) {
           var def3=null; for (var fii=0;fii<ALL_FISH.length;fii++) if(ALL_FISH[fii].name===fn3) def3=ALL_FISH[fii];
-          // Найдём ближайший срок годности
           var nearDieF=0;
-          for (var dfi=0;dfi<state.filets.length;dfi++) if(state.filets[dfi].name===fn3&&!state.filets[dfi].packingEndsAt){nearDieF=state.filets[dfi].dieAt;break;}
+          for (var dfi=0;dfi<state.filets.length;dfi++) {
+            if (state.filets[dfi].name===fn3 && state.filets[dfi].dieAt) {
+              nearDieF=state.filets[dfi].dieAt; break;
+            }
+          }
           var tLeftF=nearDieF?Math.max(0,Math.round((nearDieF-now)/3600000*10)/10):0;
           html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
             +'<span style="font-size:20px">'+(def3?def3.emoji:'🍱')+'</span>'
@@ -1199,7 +1202,6 @@ function startPacking(idx) {
 function collectFilet(idx) {
   var slot=state.filets[idx];
   if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
-  // Убираем packingEndsAt — теперь это готовое филе на складе, срок годности 3 часа
   var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
   state.filets[idx]={name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
   showNotif('🍱 Филе '+slot.name+' готово! Продай на рынке.');
@@ -1333,13 +1335,19 @@ function checkCutting() {
       changed=true;
     }
   }
-  // Проверяем упаковку — готовые пакеты
+  // Проверяем упаковку — когда заканчивается, сразу запускаем таймер срока годности
   for (var j=0;j<(state.filets||[]).length;j++) {
     var fl=state.filets[j];
-    if (fl.packingEndsAt && now>=fl.packingEndsAt && !fl.packNotified) {
-      fl.packNotified=true;
-      showNotif('🍱 '+fl.emoji+' '+fl.name+' филе готово — можно продавать!');
-      changed=true;
+    if (fl.packingEndsAt && now>=fl.packingEndsAt) {
+      if (!fl.dieAt) {
+        fl.dieAt = fl.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
+        changed=true;
+      }
+      if (!fl.packNotified) {
+        fl.packNotified=true;
+        showNotif('🍱 '+fl.emoji+' '+fl.name+' филе готово — продай за 3 часа!');
+        changed=true;
+      }
     }
   }
   // Проверяем истёкшее филе
@@ -1393,9 +1401,9 @@ function generateQuests() {
   for (var i=0;i<5&&i<pool.length;i++) picked.push(pool[i].id);
   state.quests=picked;
   state.questsDate=today;
-  // Сбрасываем прогресс только для новых квестов
+  // Сбрасываем весь прогресс на новый день
   var newProgress={};
-  for (var j=0;j<picked.length;j++) newProgress[picked[j]]=state.questProgress[picked[j]]||0;
+  for (var j=0;j<picked.length;j++) newProgress[picked[j]]=0;
   state.questProgress=newProgress;
   save();
 }
