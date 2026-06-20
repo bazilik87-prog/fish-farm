@@ -1554,7 +1554,7 @@ function renderLeaders() {
     '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🏆</div>'
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">Таблица лидеров</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Топ рыбаков по монетам</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Топ рыбаков по улову</div>'
     +'</div>'
     +'<div id="leaders-list"><div style="text-align:center;padding:20px;color:#666">⏳ Загрузка...</div></div>';
 
@@ -1566,7 +1566,7 @@ function renderLeaders() {
   }
 
   var myPid = getPlayerId();
-  firebaseDB.ref('leaderboard').orderByChild('coins').limitToLast(50).once('value', function(snap) {
+  firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
     var entries = [];
     snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
     entries.sort(function(a,b){ return b.data.coins - a.data.coins; });
@@ -1593,9 +1593,9 @@ function renderLeaders() {
         +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
         +'<div style="flex:1">'
         +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+'">'+name+(isMe?' (ты)':'')+'</div>'
-        +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🐟 '+e.data.caught+' поймано</div>'
+        +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
         +'</div>'
-        +'<div style="font-size:14px;font-weight:700;color:#FFD700">🪙'+fmt(e.data.coins)+'</div>'
+        +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
         +'</div>';
     }
 
@@ -1701,7 +1701,7 @@ function showInstructions() {
     +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
     +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
-    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по монетам. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
+    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
 }
 

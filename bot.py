@@ -139,7 +139,7 @@ async def players_command(message: types.Message):
         if not data:
             await message.answer("Пока нет игроков.")
             return
-        players = sorted(data.values(), key=lambda x: x.get('coins',0), reverse=True)
+        players = sorted(data.values(), key=lambda x: x.get('caught',0), reverse=True)
         locs = {'pond':'🌿','river':'🏞','tropics':'🌴','deep':'🌊','space':'🚀'}
         lines = []
         for i, p in enumerate(players, 1):
