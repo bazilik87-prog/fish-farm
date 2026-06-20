@@ -9,7 +9,8 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;max-width:100vw;box-sizing:border-box}
+*{box-sizing:border-box}
 #ocean{width:100%;height:180px;position:relative;overflow:hidden;cursor:pointer;border-bottom:3px solid #1565c0;-webkit-tap-highlight-color:transparent;transition:background 0.6s}
 .bubble{position:absolute;border-radius:50%;animation:rise 3s infinite ease-in}
 @keyframes rise{0%{transform:translateY(0) scale(1);opacity:.6}100%{transform:translateY(-180px) scale(.3);opacity:0}}
@@ -188,7 +189,8 @@ var UPGRADES = [
 ];
 
 var ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7];
-var SALT_PRICE = {pond:1, river:2, tropics:5, deep:15, space:50};
+var SALT_PRICE  = {pond:1,  river:2,  tropics:5,  deep:15,  space:50};
+var KNIFE_PRICE = {pond:3,  river:6,  tropics:15, deep:45,  space:150};
 
 var DAILY = [10,25,50,100,200,400,1000];
 
@@ -215,11 +217,12 @@ var state = {
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
-  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,
+  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedFilet:false,
   drying:[],driedFish:[],
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0},
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
+  knife:0, knifeOrder:0, cutting:[], filets:[],
   playerName:''
 };
 
@@ -364,6 +367,7 @@ function save() {
       drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
       salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
+      knife:state.knife, knifeOrder:state.knifeOrder, cutting:state.cutting, filets:state.filets,
       playerName:state.playerName
     }));
   } catch(e){}
@@ -399,6 +403,10 @@ function load() {
     state.saltOrder         = s.saltOrder    || 0;
     state.salting           = s.salting      || [];
     if (!Array.isArray(state.salting)) state.salting = [];
+    state.knife             = s.knife        || 0;
+    state.knifeOrder        = s.knifeOrder   || 0;
+    state.cutting           = s.cutting      || [];
+    state.filets            = s.filets       || [];
     state.playerName        = s.playerName   || '';
     for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
@@ -432,6 +440,9 @@ function processOffline() {
   }
   for (var d=0;d<state.drying.length;d++) {
     if (now>=state.drying[d].endsAt) state.drying[d].notified=true;
+  }
+  for (var c=0;c<(state.cutting||[]).length;c++) {
+    if (now>=state.cutting[c].endsAt) state.cutting[c].notified=true;
   }
   // Убираем просроченную сушёную рыбу (6ч с момента endsAt)
   state.driedFish=state.driedFish.filter(function(f){ return f.dieAt>now; });
@@ -821,6 +832,30 @@ function renderMarket() {
           +(isDrySelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')+'</div>';
       }
     }
+
+    // Филе рыбы
+    var filetGrouped2={};
+    for (var ffi=0;ffi<(state.filets||[]).length;ffi++) {
+      var ff=state.filets[ffi];
+      if (!ff.packingEndsAt) filetGrouped2[ff.name]=(filetGrouped2[ff.name]||0)+(ff.packets||1);
+    }
+    var hasFilets=Object.keys(filetGrouped2).length>0;
+    if (hasFilets) {
+      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 Филе рыбы:</div>';
+      for (var fname in filetGrouped2) {
+        var fcnt2=filetGrouped2[fname], fdef2=null;
+        for (var fffi=0;fffi<ALL_FISH.length;fffi++) if(ALL_FISH[fffi].name===fname) fdef2=ALL_FISH[fffi];
+        var fbp=BASE_PRICES[fname]||1, fmp=marketPrices[fname]||{cur:fbp};
+        var fsendCnt=Math.min(fcnt2,tr.capacity);
+        var fearn=Math.round(fmp.cur*fsendCnt*2*100)/100;
+        var isFiletSelected=state.selectedFish===fname&&state.selectedFilet;
+        html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#1a1a3a')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
+          +'<span style="font-size:22px">'+(fdef2?fdef2.emoji:'🍱')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fname+' филе <span class="badge">x'+fcnt2+'</span></div>'
+          +'<div style="font-size:11px;color:#90caf9;margin-top:2px">🪙'+fmt(fmp.cur*2)+'/пак · 🪙'+fmt(fearn)+' итого</div></div>'
+          +(isFiletSelected?'<span style="color:#6ddc6d;font-size:18px">✓</span>':'')+'</div>';
+      }
+    }
     html+='</div>';
 
     // Кнопка отправки
@@ -841,21 +876,33 @@ function renderMarket() {
       html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">'+(isDried?'📦':'🐟')+' '+sel+(isDried?' сушёная':'')+': '+selCnt+' шт · 🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
       var saltPrice = SALT_PRICE[state.currentLoc]||1;
-      var maxSalt = tr.capacity; // обратный путь — полная вместимость
+      var maxSalt = tr.capacity;
       var curSaltOrder = Math.min(state.saltOrder||0, maxSalt);
       var saltCost = curSaltOrder * saltPrice;
-      var canAffordSalt = state.coins >= saltCost;
+      var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+      var maxKnife = tr.capacity;
+      var curKnifeOrder = Math.min(state.knifeOrder||0, maxKnife);
+      var knifeCost = curKnifeOrder * knifePrice;
       html+='<div style="background:#0a1a2a;border-radius:8px;padding:10px;margin-bottom:10px">'
-        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 Заказать соль на обратный путь:</div>'
-        +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 Соль на обратный путь:</div>'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         +'<button class="btn" onclick="changeSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
         +'<div style="flex:1;text-align:center">'
         +'<span style="font-size:16px;font-weight:700;color:#FFD700">'+curSaltOrder+'</span>'
         +' <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(saltCost)+'</span>'
         +'</div>'
-        +'<button class="btn" onclick="changeSaltOrder(1)" style="padding:5px 12px;font-size:16px" '+(maxSalt<=0?'disabled':'')+'>+</button>'
+        +'<button class="btn" onclick="changeSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
         +'</div>'
-        +(curSaltOrder>0?'<div style="font-size:11px;color:#90caf9;margin-top:5px">На складе соли: '+state.salt+' · Цена: 🪙'+saltPrice+'/шт</div>':'')
+        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 Ножи на обратный путь:</div>'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<button class="btn" onclick="changeKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
+        +'<div style="flex:1;text-align:center">'
+        +'<span style="font-size:16px;font-weight:700;color:#FFD700">'+curKnifeOrder+'</span>'
+        +' <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(knifeCost)+'</span>'
+        +'</div>'
+        +'<button class="btn" onclick="changeKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+        +'</div>'
+        +(curSaltOrder>0||curKnifeOrder>0?'<div style="font-size:11px;color:#90caf9;margin-top:5px">🧂'+state.salt+' соли · 🔪'+state.knife+' ножей на складе</div>':'')
         +'</div>';
     }
     html+='<button class="btn btn-full '+((!busy&&!broken&&sel&&selCnt)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel||!selCnt)?'disabled':'')+'>'
@@ -878,8 +925,9 @@ function renderKitchen() {
       +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
       +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб + 🧂1 соль → 30мин засолка → сушка → пакет</div>'
-      +'<div style="margin-top:8px;font-size:14px;color:'+(state.salt>0?'#6ddc6d':'#f44336')+'">🧂 Соли на складе: <b>'+(state.salt||0)+'</b></div>'
-      +'<div style="font-size:11px;color:#666;margin-top:2px">Купи соль на рынке при отправке доставки</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">10 рыб + 🔪1 нож → 2ч разделка → 1ч упаковка → филе</div>'
+      +'<div style="margin-top:8px;font-size:14px;color:'+(state.salt>0?'#6ddc6d':'#f44336')+'">🧂 Соль: <b>'+(state.salt||0)+'</b> · 🔪 Ножи: <b style="color:'+(state.knife>0?'#6ddc6d':'#f44336')+'">'+(state.knife||0)+'</b></div>'
+      +'<div style="font-size:11px;color:#666;margin-top:2px">Купи соль и ножи на рынке при отправке доставки</div>'
       +'</div>';
 
     // Засолка
@@ -907,7 +955,65 @@ function renderKitchen() {
       html += '</div>';
     }
 
-    // Сушка
+    // Разделка
+    if (state.cutting && state.cutting.length > 0) {
+      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🔪 Разделывается:</div>';
+      for (var ci=0;ci<state.cutting.length;ci++) {
+        var cs=state.cutting[ci];
+        var cleft=Math.max(0,Math.ceil((cs.endsAt-now)/1000));
+        var cdur=cs.endsAt-cs.startedAt;
+        var cpct=cdur>0?Math.min(100,Math.round((now-cs.startedAt)/cdur*100)):100;
+        var cdone=now>=cs.endsAt;
+        html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+(cs.name||'')+' <span class="badge">'+(cs.packets||1)+' пак.</span></span>'
+          +(cdone
+            ? '<button class="btn btn-green" onclick="startPacking('+ci+')" style="font-size:11px;padding:4px 10px">Упаковать 📦</button>'
+            : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(cleft)+'</span>')
+          +'</div>'
+          +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
+          +'<div style="background:'+(cdone?'#FFD700':'#e91e63')+';height:6px;border-radius:4px;width:'+cpct+'%"></div>'
+          +'</div>'
+          +(cdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ Готово к упаковке!</div>':'')
+          +'</div>';
+      }
+      html += '</div>';
+    }
+
+    // Упаковка (финальная)
+    if (state.filets && state.filets.length > 0) {
+      var filetGrouped={};
+      for (var fi=0;fi<state.filets.length;fi++) {
+        var fn2=state.filets[fi];
+        if (fn2.packingEndsAt) {
+          // В процессе упаковки
+          var pleft=Math.max(0,Math.ceil((fn2.packingEndsAt-now)/1000));
+          var pdone=now>=fn2.packingEndsAt;
+          html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">📦 Упаковывается:</div>'
+            +'<div style="background:#1a1a3a;border-radius:10px;padding:10px">'
+            +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+            +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fn2.name+' филе <span class="badge">'+(fn2.packets||1)+' пак.</span></span>'
+            +(pdone
+              ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">Забрать 🍱</button>'
+              : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(pleft)+'</span>')
+            +'</div></div></div>';
+        } else if (!fn2.packingEndsAt) {
+          if (!filetGrouped[fn2.name]) filetGrouped[fn2.name]=0;
+          filetGrouped[fn2.name]++;
+        }
+      }
+      if (Object.keys(filetGrouped).length>0) {
+        html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🍱 Филе на складе:</div>';
+        for (var fn3 in filetGrouped) {
+          var def3=null; for (var fii=0;fii<ALL_FISH.length;fii++) if(ALL_FISH[fii].name===fn3) def3=ALL_FISH[fii];
+          html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
+            +'<span style="font-size:20px">'+(def3?def3.emoji:'🍱')+'</span>'
+            +'<div style="flex:1;font-size:13px;font-weight:600;color:#fff">'+fn3+' филе <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
+            +'</div>';
+        }
+        html+='</div>';
+      }
+    }
     if (state.drying.length > 0) {
       html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🌡 Сушится:</div>';
       for (var d=0;d<state.drying.length;d++) {
@@ -951,13 +1057,14 @@ function renderKitchen() {
       html += '</div>';
     }
 
-    // Список рыб для засолки
+    // Список рыб — два блока: засолка и разделка
     var grouped2={};
     for (var i2=0;i2<state.liveFish.length;i2++){var n2=state.liveFish[i2].name;grouped2[n2]=(grouped2[n2]||0)+1;}
     if (Object.keys(grouped2).length===0) {
       html+='<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 Нет рыбы на складе</div>';
     } else {
-      html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🐟 Выбери рыбу для засолки:</div>';
+      // Блок 1 — Засолка и сушка
+      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:10px">🧂 Засолка и сушка</div>';
       for (var fn in grouped2) {
         var fcnt=grouped2[fn];
         var fdef=null; for (var ffi=0;ffi<ALL_FISH.length;ffi++) if(ALL_FISH[ffi].name===fn) fdef=ALL_FISH[ffi];
@@ -972,20 +1079,47 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef?fdef.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9">⏱ засолка 30мин + сушка '+fmtTime(dtime)+' · макс '+maxPacks+' пак.</div>'
+          +'<div style="font-size:11px;color:#90caf9">⏱ засолка 30мин + сушка '+fmtTime(dtime)+'</div>'
           +'</div></div>'
           +(canSalt
-            ? '<div style="display:flex;align-items:center;gap:8px">'
-              +'<button class="btn" onclick="changePacks(\''+fn+'\',-1)" style="padding:5px 12px;font-size:16px">−</button>'
-              +'<div style="flex:1;text-align:center">'
-              +'<span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span>'
-              +' <span style="font-size:11px;color:#90caf9">пак. = '+(curPacks*10)+' рыб · 🧂'+saltNeeded+'</span>'
+            ? '<div style="display:flex;align-items:center;gap:6px">'
+              +'<button class="btn" onclick="changePacks(\''+fn+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
+              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span> <span style="font-size:10px;color:#90caf9">пак.</span></div>'
+              +'<button class="btn" onclick="changePacks(\''+fn+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
+              +'<button class="btn '+(hasSalt?'btn-green':'')+'" onclick="startSalting(\''+fn+'\')" style="padding:5px 12px;font-size:12px" '+(hasSalt?'':'disabled')+'>'
+              +(hasSalt?'🧂 Засолить':'🧂 '+state.salt+'/'+saltNeeded)+'</button>'
               +'</div>'
-              +'<button class="btn" onclick="changePacks(\''+fn+'\',1)" style="padding:5px 12px;font-size:16px">+</button>'
-              +'<button class="btn '+(hasSalt?'btn-green':'')+'" onclick="startSalting(\''+fn+'\')" style="padding:5px 12px" '+(hasSalt?'':'disabled')+'>'
-              +(hasSalt?'🧂 Засолить':'🧂 '+state.salt+'/'+saltNeeded)
-              +'</button></div>'
-            : '<div style="font-size:11px;color:#666;text-align:center">Нужно минимум 10 шт (есть '+fcnt+')</div>')
+            : '<div style="font-size:11px;color:#666">Нужно минимум 10 шт</div>')
+          +'</div>';
+      }
+      html+='</div>';
+
+      // Блок 2 — Разделка на филе
+      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:10px">🔪 Разделка на филе</div>';
+      for (var fn2 in grouped2) {
+        var fcnt2=grouped2[fn2];
+        var fdef2=null; for (var ffi2=0;ffi2<ALL_FISH.length;ffi2++) if(ALL_FISH[ffi2].name===fn2) fdef2=ALL_FISH[ffi2];
+        var maxPacks2=Math.floor(fcnt2/10);
+        var canCut=maxPacks2>=1;
+        var curPacks2=dryPacks[fn2]||1;
+        if(curPacks2>maxPacks2) curPacks2=Math.max(1,maxPacks2);
+        var knifeNeeded=curPacks2;
+        var hasKnife=(state.knife||0)>=knifeNeeded;
+        html+='<div style="padding:10px 0;border-bottom:1px solid #1a2a5a">'
+          +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+          +'<span style="font-size:20px">'+(fdef2?fdef2.emoji:'🐟')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn2+' <span class="badge">x'+fcnt2+'</span></div>'
+          +'<div style="font-size:11px;color:#90caf9">⏱ разделка 2ч + упаковка 1ч</div>'
+          +'</div></div>'
+          +(canCut
+            ? '<div style="display:flex;align-items:center;gap:6px">'
+              +'<button class="btn" onclick="changePacks(\''+fn2+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
+              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks2+'</span> <span style="font-size:10px;color:#90caf9">пак.</span></div>'
+              +'<button class="btn" onclick="changePacks(\''+fn2+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
+              +'<button class="btn '+(hasKnife?'btn-green':'')+'" onclick="startCutting(\''+fn2+'\')" style="padding:5px 12px;font-size:12px" '+(hasKnife?'':'disabled')+'>'
+              +(hasKnife?'🔪 Разделать':'🔪 '+(state.knife||0)+'/'+knifeNeeded)+'</button>'
+              +'</div>'
+            : '<div style="font-size:11px;color:#666">Нужно минимум 10 шт</div>')
           +'</div>';
       }
       html+='</div>';
@@ -997,6 +1131,48 @@ function renderKitchen() {
   }
 }
 
+
+function startCutting(name) {
+  var grouped={};
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  var packs=dryPacks[name]||1, needed=packs*10;
+  if ((grouped[name]||0)<needed) { showNotif('Нужно '+needed+' рыб!'); return; }
+  if ((state.knife||0)<packs) { showNotif('🔪 Не хватает ножей! Нужно '+packs+', есть '+(state.knife||0)); return; }
+  var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
+  var taken=0, rest=[];
+  for (var j=0;j<state.liveFish.length;j++) {
+    if (state.liveFish[j].name===name && taken<needed) taken++;
+    else rest.push(state.liveFish[j]);
+  }
+  state.liveFish=rest;
+  state.knife-=packs;
+  state.cutting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
+  dryPacks[name]=1;
+  showNotif('🔪 '+packs+' пак. '+name+' отправлено на разделку!');
+  updateUI(); save();
+  if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+}
+
+function startPacking(idx) {
+  var slot=state.cutting[idx];
+  if (!slot||Date.now()<slot.endsAt) return;
+  // Начинаем упаковку (1 час)
+  state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+3600000});
+  state.cutting.splice(idx,1);
+  showNotif('📦 '+slot.name+' отправлена на упаковку — 1 час!');
+  updateUI(); save();
+}
+
+function collectFilet(idx) {
+  var slot=state.filets[idx];
+  if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
+  // Убираем packingEndsAt — теперь это готовое филе на складе, срок годности 3 часа
+  var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
+  state.filets[idx]={name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
+  showNotif('🍱 Филе '+slot.name+' готово! Продай на рынке.');
+  updateUI(); save();
+  if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
 
 function startSalting(name) {
   var grouped={};
@@ -1090,9 +1266,39 @@ function checkSalting() {
   if (changed) { save(); }
   if (currentTab==='kitchen') renderKitchen();
 }
-function checkDrying() {
+function checkCutting() {
+  var now=Date.now(), changed=false;
+  // Проверяем разделку — готовые переводим в упаковку
+  for (var i=0;i<(state.cutting||[]).length;i++) {
+    var slot=state.cutting[i];
+    if (now>=slot.endsAt && !slot.notified) {
+      slot.notified=true;
+      showNotif('🔪 '+slot.emoji+' '+slot.name+' разделана — зайди на кухню!');
+      changed=true;
+    }
+  }
+  // Проверяем упаковку — готовые пакеты
+  for (var j=0;j<(state.filets||[]).length;j++) {
+    var fl=state.filets[j];
+    if (fl.packingEndsAt && now>=fl.packingEndsAt && !fl.packNotified) {
+      fl.packNotified=true;
+      showNotif('🍱 '+fl.emoji+' '+fl.name+' филе готово — можно продавать!');
+      changed=true;
+    }
+  }
+  // Проверяем истёкшее филе
+  var liveFilets=[], deadFilets=[];
+  for (var k=0;k<(state.filets||[]).length;k++) {
+    var fl2=state.filets[k];
+    if (!fl2.packingEndsAt && fl2.dieAt && now>=fl2.dieAt) deadFilets.push(fl2);
+    else liveFilets.push(fl2);
+  }
+  if (deadFilets.length) {
+    state.filets=liveFilets;
+    showNotif('🍱 Истёк срок годности: '+deadFilets.length+' филе выброшено!', true);
+    changed=true;
+  }
   var now=Date.now();
-  // НЕ собираем автоматически — только уведомляем что готово
   for (var i=0;i<state.drying.length;i++) {
     var slot=state.drying[i];
     if (now>=slot.endsAt && !slot.notified) {
@@ -1481,6 +1687,7 @@ function checkPendingBoosts() {
 
 function initFirebase() {
   try {
+    if (window.location.protocol === 'file:') return; // не грузим Firebase локально
     if (typeof firebase === 'undefined') return;
     if (!firebaseApp) {
       firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
@@ -1673,14 +1880,22 @@ function showInstructions() {
     +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
     +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
-    +'<b style="color:#fff">🍳 Кухня — засолка и сушка</b><br>'
+    +'<b style="color:#fff">🍳 Кухня — засолка, сушка и филе</b><br>'
+    +'<u>Засолка и сушка:</u><br>'
     +'1️⃣ Накопи 10 рыб одного вида<br>'
-    +'2️⃣ Купи соль на рынке (при отправке доставки выбери количество соли на обратный путь)<br>'
+    +'2️⃣ Купи соль на рынке (при отправке доставки выбери соль на обратный путь)<br>'
     +'3️⃣ Засоли рыбу 🧂 — занимает 30 минут<br>'
-    +'4️⃣ Запусти сушку 🌡 — время зависит от вида рыбы (карась 1ч, редкие до 10ч)<br>'
-    +'5️⃣ Вручную собери пакет 📦 — у тебя 6 часов с момента окончания сушки!<br><br>'
+    +'4️⃣ Запусти сушку 🌡 — время зависит от вида рыбы<br>'
+    +'5️⃣ Собери пакет 📦 — 6 часов с момента окончания сушки<br><br>'
+    +'<u>Филе:</u><br>'
+    +'1️⃣ Накопи 10 рыб одного вида<br>'
+    +'2️⃣ Купи нож 🔪 на рынке (обратный путь, как соль)<br>'
+    +'3️⃣ Разделай рыбу — 2 часа<br>'
+    +'4️⃣ Упакуй вручную — 1 час<br>'
+    +'5️⃣ Продай на рынке — срок годности 3 часа! Филе стоит в 2 раза дороже свежей рыбы.<br><br>'
     +'<b style="color:#fff">🧂 Соль</b><br>Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙<br><br>'
-    +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую или сушёную) и отправь транспортом. До рынка 1 км. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике! 📦 Сушёная рыба стоит на 50% дороже свежей на рынке!<br><br>'
+    +'<b style="color:#fff">🔪 Нож</b><br>Покупается так же как соль — при отправке доставки на рынке, на обратном пути. Нужен для разделки рыбы на филе. Цена зависит от локации: Пруд 3🪙 · Река 6🪙 · Тропики 15🪙 · Глубины 45🪙 · Космос 150🪙<br><br>'
+    +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. До рынка 1 км. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике!<br>📦 Сушёная рыба — на 50% дороже свежей<br>🍱 Филе рыбы — в 2 раза дороже свежей (срок годности 3 часа!)<br><br>'
     +'<b style="color:#fff">🚚 Транспорт и амортизация</b><br>'
     +'🚲 Велосипед — бесплатно · 5 рыб · 8 мин<br>'
     +'🛵 Мопед — 5000🪙 · 15 рыб · 3 мин<br>'
@@ -1741,6 +1956,11 @@ function buyUpgrade(id) {
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
+function changeKnifeOrder(delta) {
+  var tr=getTr();
+  state.knifeOrder=Math.max(0,Math.min(tr.capacity,(state.knifeOrder||0)+delta));
+  renderMarket();
+}
 function changeSaltOrder(delta) {
   var tr=getTr();
   var sel=state.selectedFish;
@@ -1754,11 +1974,11 @@ function changeSaltOrder(delta) {
   state.saltOrder=Math.max(0,Math.min(maxSalt,(state.saltOrder||0)+delta));
   renderMarket();
 }
-function selectFish(name, dried) {
-  if (state.selectedFish===name && !!state.selectedDried===!!dried) {
-    state.selectedFish=null; state.selectedDried=false;
+function selectFish(name, dried, filet) {
+  if (state.selectedFish===name && !!state.selectedDried===!!dried && !!state.selectedFilet===!!filet) {
+    state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   } else {
-    state.selectedFish=name; state.selectedDried=!!dried;
+    state.selectedFish=name; state.selectedDried=!!dried; state.selectedFilet=!!filet;
   }
   renderMarket();
 }
@@ -1766,10 +1986,23 @@ function sendDelivery() {
   if (state.delivery) return;
   var tr=getTr(), dur=getDur(tr.id);
   if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
-  var sel=state.selectedFish, isDried=!!state.selectedDried;
+  var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
   if (!sel) { showNotif('Выбери что отправить!'); return; }
   var toSend=[], rest=[], earn=0;
-  if (isDried) {
+  if (isFilet) {
+    // Отправляем филе
+    var takenF=0;
+    var restFilets=[];
+    for (var f=0;f<(state.filets||[]).length;f++) {
+      var ff=state.filets[f];
+      if (ff.name===sel && !ff.packingEndsAt && takenF<tr.capacity) {
+        var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mpF.cur*2*(ff.packets||1); takenF+=(ff.packets||1);
+      } else restFilets.push(ff);
+    }
+    if (!takenF) { showNotif('Нет филе этого вида!'); return; }
+    state.filets=restFilets;
+  } else if (isDried) {
     // Отправляем сушёные пакеты
     var taken=0;
     for (var i=0;i<state.driedFish.length;i++) {
@@ -1798,11 +2031,15 @@ function sendDelivery() {
   var saltOrder=state.saltOrder||0;
   var saltPrice=SALT_PRICE[state.currentLoc]||1;
   var saltCost=saltOrder*saltPrice;
-  if (saltOrder>0 && state.coins<saltCost) { showNotif('Не хватает монет на соль!'); return; }
+  var knifeOrder=state.knifeOrder||0;
+  var knifePrice=KNIFE_PRICE[state.currentLoc]||3;
+  var knifeCost=knifeOrder*knifePrice;
+  if ((saltCost+knifeCost)>state.coins) { showNotif('Не хватает монет на заказ!'); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
+  if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   state.durability[tr.id]=Math.max(0,dur-10);
-  state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder};
-  state.saltOrder=0;
+  state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
+  state.saltOrder=0; state.knifeOrder=0;
   state.selectedFish=null; state.selectedDried=false;
   addQuestProgress('deliver', 1);
   updateUI(); save();
@@ -1901,11 +2138,10 @@ function checkDelivery() {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
+    var knifeArrived=state.delivery.knifeOrder||0;
     var msg='💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings);
-    if (saltArrived>0) {
-      state.salt=(state.salt||0)+saltArrived;
-      msg+=' · 🧂+'+saltArrived+' соли';
-    }
+    if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; msg+=' · 🧂+'+saltArrived; }
+    if (knifeArrived>0) { state.knife=(state.knife||0)+knifeArrived; msg+=' · 🔪+'+knifeArrived; }
     showNotif(msg);
     state.delivery=null; updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -1923,7 +2159,7 @@ function tick() {
       updateUI(); save();
     }
   }
-  checkDeaths(); checkDelivery(); checkDrying(); checkSalting();
+  checkDeaths(); checkDelivery(); checkDrying(); checkSalting(); checkCutting();
   uploadScore();
   if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
   var te=document.getElementById('mkt-timer');
