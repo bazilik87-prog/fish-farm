@@ -9,8 +9,9 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;max-width:100vw;box-sizing:border-box}
-*{box-sizing:border-box;max-width:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box}
+*{box-sizing:border-box}
+html{overflow-x:hidden;width:100%}
 #ocean{width:100%;height:180px;position:relative;overflow:hidden;cursor:pointer;border-bottom:3px solid #1565c0;-webkit-tap-highlight-color:transparent;transition:background 0.6s}
 .bubble{position:absolute;border-radius:50%;animation:rise 3s infinite ease-in}
 @keyframes rise{0%{transform:translateY(0) scale(1);opacity:.6}100%{transform:translateY(-180px) scale(.3);opacity:0}}
@@ -924,8 +925,8 @@ function renderKitchen() {
     var html = '<div class="card" style="text-align:center;padding:16px">'
       +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
       +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-top:4px">10 рыб + 🧂1 соль → 30мин засолка → сушка → пакет</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">10 рыб + 🔪1 нож → 2ч разделка → упаковка → филе</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-top:4px;word-break:break-word">10 рыб + 🧂1 соль → 30мин засолка → сушка → пакет</div>'
+    +'<div style="font-size:11px;color:#90caf9;margin-top:2px;word-break:break-word">10 рыб + 🔪1 нож → 2ч разделка → упаковка → филе</div>'
       +'<div style="margin-top:8px;font-size:14px;color:'+(state.salt>0?'#6ddc6d':'#f44336')+'">🧂 Соль: <b>'+(state.salt||0)+'</b> · 🔪 Ножи: <b style="color:'+(state.knife>0?'#6ddc6d':'#f44336')+'">'+(state.knife||0)+'</b></div>'
       +'<div style="font-size:11px;color:#666;margin-top:2px">Купи соль и ножи на рынке при отправке доставки</div>'
       +'</div>';
@@ -1157,7 +1158,8 @@ function startPacking(idx) {
   var slot=state.cutting[idx];
   if (!slot||Date.now()<slot.endsAt) return;
   // Начинаем упаковку (1 час)
-  state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+3600000});
+  var packTime = (DRY_TIME[slot.name] || 3600) * 1000;
+  state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+packTime});
   state.cutting.splice(idx,1);
   showNotif('📦 '+slot.name+' отправлена на упаковку — 1 час!');
   updateUI(); save();
