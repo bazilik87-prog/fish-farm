@@ -812,7 +812,7 @@ function renderMarket() {
         for (var ddfi=0;ddfi<ALL_FISH.length;ddfi++) if(ALL_FISH[ddfi].name===dname) ddef=ALL_FISH[ddfi];
         var dbp=BASE_PRICES[dname]||1, dmp=marketPrices[dname]||{cur:dbp};
         var dsendCnt=Math.min(dcnt,tr.capacity);
-        var dearn=Math.round(dmp.cur*dsendCnt*1.2*100)/100;
+        var dearn=Math.round(dmp.cur*dsendCnt*1.5*100)/100;
         var isDrySelected=state.selectedFish===dname&&state.selectedDried;
         html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#1a1a3a')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(ddef?ddef.emoji:'📦')+'</span>'
@@ -1592,7 +1592,7 @@ function renderLeaders() {
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
         +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
         +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+'">'+name+(isMe?' (ты)':'')+'</div>'
+        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+'";overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
         +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
         +'</div>'
         +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
@@ -1654,7 +1654,7 @@ function renderSettings() {
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
     +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
-    +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px">✏️ Сменить имя <span style="color:#FFD700;font-size:11px">'+(state.playerName||'не задано')+'</span></button>'
+    +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ Сменить имя <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||'не задано')+'</span></button>'
     +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
@@ -1680,7 +1680,7 @@ function showInstructions() {
     +'4️⃣ Запусти сушку 🌡 — время зависит от вида рыбы (карась 1ч, редкие до 10ч)<br>'
     +'5️⃣ Вручную собери пакет 📦 — у тебя 6 часов с момента окончания сушки!<br><br>'
     +'<b style="color:#fff">🧂 Соль</b><br>Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙<br><br>'
-    +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую или сушёную) и отправь транспортом. До рынка 1 км. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике! 📦 Сушёная рыба стоит на 20% дороже свежей на рынке!<br><br>'
+    +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую или сушёную) и отправь транспортом. До рынка 1 км. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике! 📦 Сушёная рыба стоит на 50% дороже свежей на рынке!<br><br>'
     +'<b style="color:#fff">🚚 Транспорт и амортизация</b><br>'
     +'🚲 Велосипед — бесплатно · 5 рыб · 8 мин<br>'
     +'🛵 Мопед — 5000🪙 · 15 рыб · 3 мин<br>'
@@ -1775,7 +1775,7 @@ function sendDelivery() {
     for (var i=0;i<state.driedFish.length;i++) {
       if (state.driedFish[i].name===sel && taken<tr.capacity) {
         var mp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mp.cur*1.2; toSend.push(state.driedFish[i]); taken++;
+        earn+=mp.cur*1.5; toSend.push(state.driedFish[i]); taken++;
       } else rest.push(state.driedFish[i]);
     }
     if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
