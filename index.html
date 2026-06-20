@@ -863,18 +863,25 @@ function renderMarket() {
     var busy=!!dlv;
     var sel=state.selectedFish;
     var isDried=!!state.selectedDried;
-    var selPool=isDried?driedGrouped:grouped;
+    var isFilet=!!state.selectedFilet;
+    var filetGrouped3={};
+    for (var fgi=0;fgi<(state.filets||[]).length;fgi++) {
+      var ffg=state.filets[fgi];
+      if (!ffg.packingEndsAt) filetGrouped3[ffg.name]=(filetGrouped3[ffg.name]||0)+(ffg.packets||1);
+    }
+    var selPool=isDried?driedGrouped:isFilet?filetGrouped3:grouped;
     var selCnt=sel&&selPool[sel]?Math.min(selPool[sel],tr.capacity):0;
     var selEarn=0;
     if (sel&&selCnt) {
       var smp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-      selEarn=Math.round(smp.cur*selCnt*100)/100;
+      var priceMult=isDried?1.5:isFilet?2:1;
+      selEarn=Math.round(smp.cur*selCnt*priceMult*100)/100;
     }
     html+='<div class="card" style="background:#0a2a0a">';
     if (!sel||!selCnt) {
       html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 Выбери что отправить</div>';
     } else {
-      html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">'+(isDried?'📦':'🐟')+' '+sel+(isDried?' сушёная':'')+': '+selCnt+' шт · 🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
+      html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:8px">'+(isFilet?'🍱':isDried?'📦':'🐟')+' '+sel+(isFilet?' филе':isDried?' сушёная':'')+': '+selCnt+' шт · 🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
       var saltPrice = SALT_PRICE[state.currentLoc]||1;
       var maxSalt = tr.capacity;
@@ -1007,10 +1014,15 @@ function renderKitchen() {
         html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🍱 Филе на складе:</div>';
         for (var fn3 in filetGrouped) {
           var def3=null; for (var fii=0;fii<ALL_FISH.length;fii++) if(ALL_FISH[fii].name===fn3) def3=ALL_FISH[fii];
+          // Найдём ближайший срок годности
+          var nearDieF=0;
+          for (var dfi=0;dfi<state.filets.length;dfi++) if(state.filets[dfi].name===fn3&&!state.filets[dfi].packingEndsAt){nearDieF=state.filets[dfi].dieAt;break;}
+          var tLeftF=nearDieF?Math.max(0,Math.round((nearDieF-now)/3600000*10)/10):0;
           html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
             +'<span style="font-size:20px">'+(def3?def3.emoji:'🍱')+'</span>'
-            +'<div style="flex:1;font-size:13px;font-weight:600;color:#fff">'+fn3+' филе <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
-            +'</div>';
+            +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn3+' филе <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
+            +(nearDieF?'<div style="font-size:11px;color:#ff9944">⏳ '+tLeftF+'ч до истечения</div>':'')
+            +'</div></div>';
         }
         html+='</div>';
       }
