@@ -1569,7 +1569,7 @@ function renderLeaders() {
   firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
     var entries = [];
     snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
-    entries.sort(function(a,b){ return b.data.coins - a.data.coins; });
+    entries.sort(function(a,b){ return b.data.caught - a.data.caught; });
 
     if (entries.length === 0) {
       document.getElementById('leaders-list').innerHTML =
