@@ -163,8 +163,8 @@ async def players_command(message: types.Message):
         chunk = 50
         for i in range(0, len(lines), chunk):
             part = lines[i:i+chunk]
-            header = f"👥 *Игроки {i+1}-{min(i+chunk, len(players))} из {len(players)}*\n\n"
-            await message.answer(header + "\n".join(part), parse_mode="Markdown")
+            header = f"👥 Игроки {i+1}-{min(i+chunk, len(players))} из {len(players)}\n\n"
+            await message.answer(header + "\n".join(part))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 async def bank_command(message: types.Message):
