@@ -1254,6 +1254,29 @@ function collectDried(idx) {
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 
+function checkDrying() {
+  var now=Date.now();
+  for (var i=0;i<state.drying.length;i++) {
+    var slot=state.drying[i];
+    if (now>=slot.endsAt && !slot.notified) {
+      slot.notified=true;
+      showNotif('📦 '+slot.emoji+' '+slot.name+' сушёная готова — зайди на кухню!');
+      save();
+    }
+  }
+  var deadDried=[], liveDried=[];
+  for (var j=0;j<state.driedFish.length;j++) {
+    if (state.driedFish[j].dieAt<=now) deadDried.push(state.driedFish[j]);
+    else liveDried.push(state.driedFish[j]);
+  }
+  if (deadDried.length) {
+    state.driedFish=liveDried;
+    showNotif('📦 Истёк срок годности: '+deadDried.length+' пакетов выброшено!',true);
+    save();
+  }
+  if (currentTab==='kitchen') renderKitchen();
+}
+
 function checkSalting() {
   var now=Date.now(), changed=false;
   for (var i=0;i<state.salting.length;i++) {
@@ -1799,7 +1822,7 @@ function renderLeaders() {
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
         +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
         +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+'";overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
+        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
         +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
         +'</div>'
         +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
@@ -2148,22 +2171,24 @@ function checkDelivery() {
   } else if (currentTab==='market') renderMarket();
 }
 function tick() {
-  var now=Date.now(), dt=(now-lastAuto)/1000; lastAuto=now;
-  if (state.autoPerSec>0 || state.boosts.doubleTap>Date.now()) {
-    var autoBase = state.autoPerSec + (state.boosts.doubleTap>Date.now() ? 2 : 0);
-    autoAccum += autoBase * dt / 60;
-    if (autoAccum >= 0.01) {
-      var pay = Math.floor(autoAccum * 100) / 100;
-      state.coins = Math.round((state.coins + pay) * 100) / 100;
-      autoAccum -= pay;
-      updateUI(); save();
+  try {
+    var now=Date.now(), dt=(now-lastAuto)/1000; lastAuto=now;
+    if (state.autoPerSec>0 || state.boosts.doubleTap>Date.now()) {
+      var autoBase = state.autoPerSec + (state.boosts.doubleTap>Date.now() ? 2 : 0);
+      autoAccum += autoBase * dt / 60;
+      if (autoAccum >= 0.01) {
+        var pay = Math.floor(autoAccum * 100) / 100;
+        state.coins = Math.round((state.coins + pay) * 100) / 100;
+        autoAccum -= pay;
+        updateUI(); save();
+      }
     }
-  }
-  checkDeaths(); checkDelivery(); checkDrying(); checkSalting(); checkCutting();
-  uploadScore();
-  if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
-  var te=document.getElementById('mkt-timer');
-  if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
+    checkDeaths(); checkDelivery(); checkDrying(); checkSalting(); checkCutting();
+    uploadScore();
+    if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
+    var te=document.getElementById('mkt-timer');
+    if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
+  } catch(e) { console.error('tick error:', e); }
   setTimeout(tick,500);
 }
 
