@@ -1044,7 +1044,7 @@ function renderKitchen() {
             +'</div></div></div>';
         } else if (!fn2.packingEndsAt) {
           if (!filetGrouped[fn2.name]) filetGrouped[fn2.name]=0;
-          filetGrouped[fn2.name]++;
+          filetGrouped[fn2.name]+=(fn2.packets||1);
         }
       }
       if (Object.keys(filetGrouped).length>0) {
