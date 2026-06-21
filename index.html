@@ -246,7 +246,7 @@ var MAX_TPS = 5;
 function fmt(c) {
   if (typeof c !== 'number' || isNaN(c)) return '0';
   if (c >= 1000000) return (c/1000000).toFixed(2)+'M';
-  if (c >= 1000) return (c/1000).toFixed(1)+'k';
+  if (c >= 10000) return (c/1000).toFixed(1)+'k';
   return c.toFixed(1);
 }
 function fmtTime(s) {
