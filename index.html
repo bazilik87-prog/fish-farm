@@ -1878,7 +1878,7 @@ function renderLeaders() {
       var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 Рыбак #'+(e.data.num||'?'));
       var loc = locEmoji[e.data.loc]||'🌿';
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
-        +'<div style="font-size:18px;width:32px;text-align:center">'+rank+'</div>'
+        +'<div style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:#90caf9">'+rank+'</div>'
         +'<div style="flex:1">'
         +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
         +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
