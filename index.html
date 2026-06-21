@@ -592,7 +592,20 @@ function updateUI() {
   document.getElementById('s-coins').textContent=fmt(state.coins);
   document.getElementById('s-live').textContent=state.liveFish.length;
   document.getElementById('s-tap').textContent='+'+state.tapPower.toFixed(1);
-  document.getElementById('s-auto').textContent=state.autoPerSec;
+  var autoBoostActive = state.boosts.doubleTap > Date.now();
+  var autoEl = document.getElementById('s-auto');
+  if (autoEl) {
+    autoEl.textContent = state.autoPerSec;
+    var bonus = autoEl.nextSibling;
+    var bonusEl = document.getElementById('s-auto-bonus');
+    if (!bonusEl) {
+      bonusEl = document.createElement('span');
+      bonusEl.id = 's-auto-bonus';
+      bonusEl.style.cssText = 'color:#6ddc6d;font-size:11px;font-weight:700;margin-left:4px';
+      autoEl.parentNode.insertBefore(bonusEl, autoEl.nextSibling);
+    }
+    bonusEl.textContent = autoBoostActive ? '+2' : '';
+  }
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
   if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
@@ -2261,7 +2274,7 @@ load();
 calcStats();
 processOffline();
 initFirebase();
-setTimeout(checkPendingBoosts, 2000);
+setTimeout(checkPendingBoosts, 500);
 setTimeout(checkNameInput, 500); // проверяем pending бусты через 2 сек после загрузки Firebase
 initPrices();
 if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
