@@ -2033,7 +2033,7 @@ function tapOcean(e) {
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
   if (Math.random()>catchChance()) { spawnAnim(x,y,'💨','Мимо!'); if(currentTab==='upgrades') renderUpgrades(); return; }
   var f=randFish();
-  var boostMult=(state.boosts.doubleTap>Date.now())?2:1;
+  var boostMult=1;
   var earned=Math.round(state.tapPower*boostMult*10)/10;
   state.coins=Math.round((state.coins+earned)*100)/100;
   state.caught++;
