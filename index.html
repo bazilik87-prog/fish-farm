@@ -907,7 +907,7 @@ function renderMarket() {
     var selEarn=0;
     if (sel&&selCnt) {
       var smp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-      var priceMult=isDried?1.5:isFilet?2:1;
+      var priceMult=isDried?3:isFilet?5:1;
       selEarn=Math.round(smp.cur*selCnt*priceMult*100)/100;
     }
     html+='<div class="card" style="background:#0a2a0a">';
@@ -2097,7 +2097,7 @@ function sendDelivery() {
       var ff=state.filets[f];
       if (ff.name===sel && !ff.packingEndsAt && takenF<tr.capacity) {
         var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mpF.cur*2*(ff.packets||1); takenF+=(ff.packets||1);
+        earn+=mpF.cur*5*(ff.packets||1); takenF+=(ff.packets||1);
       } else restFilets.push(ff);
     }
     if (!takenF) { showNotif('Нет филе этого вида!'); return; }
