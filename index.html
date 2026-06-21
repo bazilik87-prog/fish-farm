@@ -1771,12 +1771,38 @@ function checkPendingBoosts() {
   firebaseDB.ref('pending_boosts/' + pid).once('value', function(snap) {
     var data = snap.val();
     if (!data) return;
+    var now = Date.now();
     for (var boostId in data) {
-      activateBoost(boostId);
-      showNotif('⚡ Буст активирован: ' + boostId);
+      var purchaseTime = typeof data[boostId] === 'number' ? data[boostId] : now;
+      var elapsed = now - purchaseTime;
+      activateBoostWithTime(boostId, elapsed);
     }
     firebaseDB.ref('pending_boosts/' + pid).remove();
   });
+}
+
+function activateBoostWithTime(id, elapsed) {
+  var now = Date.now();
+  var remaining = 3600000 - elapsed; // вычитаем уже прошедшее время
+  if (remaining <= 0) return; // буст уже истёк
+  if (id==='doubleTap')  state.boosts.doubleTap  = now + remaining;
+  if (id==='luckyRod')   state.boosts.luckyRod   = now + Math.min(remaining, 1800000);
+  if (id==='turboSpeed') state.boosts.turboSpeed  = now + remaining;
+  if (id==='turboDry') {
+    for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
+    showNotif('🌡 Вся сушка завершена мгновенно!');
+  }
+  if (id==='turboPack') {
+    for (var pi=0;pi<(state.filets||[]).length;pi++) {
+      if (state.filets[pi].packingEndsAt) {
+        state.filets[pi].dieAt = state.filets[pi].packingEndsAt + 10800000;
+        state.filets[pi].packingEndsAt = now;
+      }
+    }
+    showNotif('📦 Вся упаковка завершена мгновенно!');
+  }
+  save(); updateUI();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 
 function initFirebase() {

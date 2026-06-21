@@ -258,8 +258,9 @@ async def successful_payment(message: types.Message):
         try:
             pid = f"tg_{user_id}"
             url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json"
+            import time
             async with aiohttp.ClientSession() as session:
-                await session.put(url, json=True)
+                await session.put(url, json=int(time.time() * 1000))  # timestamp оплаты
         except Exception:
             pass
         await message.answer(
