@@ -427,8 +427,13 @@ function processOffline() {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
+    var knifeArrived=state.delivery.knifeOrder||0;
     if (saltArrived>0) state.salt=(state.salt||0)+saltArrived;
-    showNotif('💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings)+(saltArrived>0?' · 🧂+'+saltArrived:''));
+    if (knifeArrived>0) state.knife=(state.knife||0)+knifeArrived;
+    var offMsg='💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings);
+    if (saltArrived>0) offMsg+=' · 🧂+'+saltArrived;
+    if (knifeArrived>0) offMsg+=' · 🔪+'+knifeArrived;
+    showNotif(offMsg);
     state.delivery=null;
   }
   // Авто-доход за время офлайн (сеть/лодка/сонар)
