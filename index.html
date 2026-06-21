@@ -220,7 +220,7 @@ var state = {
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedFilet:false,
   drying:[],driedFish:[],
-  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0},
+  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false},
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
   knife:0, knifeOrder:0, cutting:[], filets:[],
@@ -1534,6 +1534,12 @@ function renderBoosts() {
       desc:'×2 скорость транспорта на 1 час',
       active: b.turboSpeed > now,
       timeLeft: b.turboSpeed > now ? Math.ceil((b.turboSpeed-now)/60000) : 0
+    },
+    {
+      id:'turboPack', name:'Мгновенная упаковка', emoji:'📦',
+      desc:'Вся текущая упаковка завершается мгновенно',
+      active: false,
+      timeLeft: 0
     }
   ];
 
@@ -1595,6 +1601,16 @@ function buyBoost(id) {
 function activateBoost(id) {
   var now = Date.now();
   if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
+  if (id==='turboPack') {
+    var now2=Date.now();
+    for (var pi=0;pi<(state.filets||[]).length;pi++) {
+      if (state.filets[pi].packingEndsAt) {
+        state.filets[pi].dieAt = state.filets[pi].packingEndsAt + 10800000;
+        state.filets[pi].packingEndsAt = now2;
+      }
+    }
+    showNotif('📦 Вся упаковка завершена мгновенно! Зайди на кухню.');
+  }
   if (id==='turboDry') {
     for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
     showNotif('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.');
@@ -1984,7 +2000,8 @@ function showInstructions() {
     +'⚡ Авто-буст — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
     +'🌡 Мгновенная сушка — все текущие пакеты досушиваются мгновенно<br>'
     +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
-    +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br><br>'
+    +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br>'
+    +'📦 Мгновенная упаковка — вся текущая упаковка филе завершается мгновенно<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';

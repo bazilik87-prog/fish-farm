@@ -28,12 +28,14 @@ BOOST_NAMES = {
     'turboDry':    'Instant Dry - all drying packets finish instantly',
     'luckyRod':    'Lucky Rod +50pct for 30min',
     'turboSpeed':  'Turbo Speed x2 transport speed for 1 hour',
+    'turboPack':   'Instant Packing - all packing finishes instantly',
 }
 BOOST_LABELS = {
     'doubleTap':  '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
     'turboDry':   '🌡 Мгновенная сушка',
     'luckyRod':   '🎣 Удачная рыбалка',
     'turboSpeed': '🏎 Турбо скорость',
+    'turboPack':  '📦 Мгновенная упаковка',
 }
 
 # Хранилище pending обменов: user_id -> {coins, wallet}
