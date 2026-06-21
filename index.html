@@ -234,7 +234,7 @@ var currentTab = 'upgrades';
 var tapped = false;
 var lastAuto = Date.now();
 var autoAccum = 0;
-var notifLog = [];
+var notifLog = JSON.parse(localStorage.getItem('ff_notiflog')||'[]');
 var settingsSubpage = null;
 var leadersLoaded = false; // текущая подстраница настроек // история уведомлений
 var lastTapTime = 0;
@@ -532,7 +532,8 @@ function showNotif(msg, dead) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
     notifLog.unshift({msg:msg, time:hm, dead:!!dead});
-    if (notifLog.length > 50) notifLog.pop(); // макс 50 записей
+    if (notifLog.length > 50) notifLog.pop();
+    try { localStorage.setItem('ff_notiflog', JSON.stringify(notifLog)); } catch(e) {} // макс 50 записей
   }
   var el=document.createElement('div');
   el.className='notif'+(dead?' dead':'');
@@ -1877,6 +1878,11 @@ function renderLeaders() {
     document.getElementById('leaders-list').innerHTML = html;
   });
 }
+function clearNotifLog() {
+  notifLog=[];
+  try { localStorage.removeItem('ff_notiflog'); } catch(e) {}
+  renderSettings();
+}
 function showNotifLog() {
   settingsSubpage = 'notiflog';
   var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
@@ -1898,7 +1904,7 @@ function showNotifLog() {
         +'</div>';
     }
     html += '</div>';
-    html += '<button class="btn btn-full" onclick="notifLog=[];renderSettings()" style="margin-top:8px;background:#3d0f0f">🗑 Очистить историю</button>';
+    html += '<button class="btn btn-full" onclick="clearNotifLog()" style="margin-top:8px;background:#3d0f0f">🗑 Очистить историю</button>';
   }
   html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
   document.getElementById('content').innerHTML = html;
