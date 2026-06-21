@@ -127,6 +127,35 @@ async def start(message: types.Message):
             pass
 
 
+@dp.message(Command('pay'))
+async def pay_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 3:
+        await message.answer(
+            "Использование:\n`/pay @username СУММА`\n\nПример:\n`/pay @Metelegram12 127`",
+            parse_mode="Markdown"
+        )
+        return
+    username = text[1].lstrip('@')
+    amount = text[2]
+    try:
+        await bot.send_message(
+            f"@{username}",
+            f"✅ *Выплата выполнена!*\n\n"
+            f"🐟 {amount} TON Fish отправлены на твой кошелёк.\n\n"
+            f"Спасибо что играешь в FishFarm! 🎣",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
+            ]])
+        )
+        await message.answer(f"✅ Уведомление отправлено @{username} о выплате {amount} TON Fish")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}\n\nВозможно игрок не писал боту напрямую.")
+
+
 @dp.message(Command('players'))
 async def players_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
