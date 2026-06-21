@@ -609,7 +609,7 @@ function updateUI() {
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
   if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
-  if (currentTab!=='leaders') renderContent();
+  if (currentTab!=='leaders' && currentTab!=='bank') renderContent();
 }
 function showNameInput() {
   var overlay = document.createElement('div');
