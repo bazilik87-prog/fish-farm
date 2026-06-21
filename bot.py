@@ -138,11 +138,28 @@ async def pay_command(message: types.Message):
             parse_mode="Markdown"
         )
         return
-    username = text[1].lstrip('@')
+    username = text[1].lstrip('@').lower()
     amount = text[2]
+    # Ищем user_id в Firebase
+    import aiohttp
     try:
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+        user_id = None
+        if data:
+            for v in data.values():
+                if str(v.get('username','')).lower() == username:
+                    user_id = v.get('userId')
+                    break
+        if not user_id:
+            # Покажем что есть в базе для отладки
+            found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
+            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
+            return
         await bot.send_message(
-            f"@{username}",
+            user_id,
             f"✅ *Выплата выполнена!*\n\n"
             f"🐟 {amount} TON Fish отправлены на твой кошелёк.\n\n"
             f"Спасибо что играешь в FishFarm! 🎣",
@@ -151,9 +168,9 @@ async def pay_command(message: types.Message):
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-        await message.answer(f"✅ Уведомление отправлено @{username} о выплате {amount} TON Fish")
+        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount} TON Fish")
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}\n\nВозможно игрок не писал боту напрямую.")
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('players'))
