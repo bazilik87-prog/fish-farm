@@ -179,6 +179,8 @@ async def players_command(message: types.Message):
         return
     await message.answer("⏳ Загружаю список игроков...")
     import aiohttp
+    from io import BytesIO
+    from datetime import datetime
     try:
         url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
         async with aiohttp.ClientSession() as session:
@@ -206,12 +208,16 @@ async def players_command(message: types.Message):
                 identity = f"ID:{user_id}"
             else:
                 identity = f"Рыбак #{num}"
-            lines.append(f"{i}. {loc} {identity} 🪙{coins:,} · 🐟{caught}")
-        chunk = 50
-        for i in range(0, len(lines), chunk):
-            part = lines[i:i+chunk]
-            header = f"👥 Игроки {i+1}-{min(i+chunk, len(players))} из {len(players)}\n\n"
-            await message.answer(header + "\n".join(part))
+            lines.append(f"{i}. {loc} {identity} | coins:{coins:,} | caught:{caught}")
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+        header = f"FishFarm — Список игроков\nДата: {now}\nВсего: {len(players)}\n{'='*40}\n\n"
+        content = header + "\n".join(lines)
+        filename = f"fishfarm_players_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.txt"
+        file_bytes = content.encode('utf-8')
+        await message.answer_document(
+            types.BufferedInputFile(file_bytes, filename=filename),
+            caption=f"👥 Игроков: {len(players)}"
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
