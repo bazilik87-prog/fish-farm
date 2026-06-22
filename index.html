@@ -865,14 +865,17 @@ function renderMarket() {
       for (var dname in driedGrouped) {
         var dcnt=driedGrouped[dname], ddef=null;
         for (var ddfi=0;ddfi<ALL_FISH.length;ddfi++) if(ALL_FISH[ddfi].name===dname) ddef=ALL_FISH[ddfi];
-        var dbp=BASE_PRICES[dname]||1, dmp=marketPrices[dname]||{cur:dbp};
+        var dbp=BASE_PRICES[dname]||1, dmp=marketPrices[dname]||{cur:dbp,trend:0};
+        var dti=dmp.trend>0?'📈':dmp.trend<0?'📉':'➡️';
+        var dtc=dmp.trend>0?'price-up':dmp.trend<0?'price-down':'price-flat';
+        var ddiff=Math.round((dmp.cur-dbp)/dbp*100);
         var dsendCnt=Math.min(dcnt,tr.capacity);
         var dearn=Math.round(dmp.cur*dsendCnt*3*100)/100;
         var isDrySelected=state.selectedFish===dname&&state.selectedDried;
         html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#1a1a3a')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(ddef?ddef.emoji:'📦')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dname+' сушёная <span class="badge">x'+dcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9;margin-top:2px">🪙'+fmt(dmp.cur)+'/пакет · 🪙'+fmt(dearn)+' итого</div></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+dtc+'">'+dti+' '+fmt(dmp.cur)+'/пакет</span> <span style="color:#555">'+(ddiff>0?'+':'')+ddiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(dearn)+' итого</span></div></div>'
           +(isDrySelected?'<span style="color:#FFD700;font-size:18px">✓</span>':'')+'</div>';
       }
     }
@@ -883,14 +886,17 @@ function renderMarket() {
       for (var fname in filetGrouped2) {
         var fcnt2=filetGrouped2[fname], fdef2=null;
         for (var fffi=0;fffi<ALL_FISH.length;fffi++) if(ALL_FISH[fffi].name===fname) fdef2=ALL_FISH[fffi];
-        var fbp=BASE_PRICES[fname]||1, fmp=marketPrices[fname]||{cur:fbp};
+        var fbp=BASE_PRICES[fname]||1, fmp=marketPrices[fname]||{cur:fbp,trend:0};
+        var fti=fmp.trend>0?'📈':fmp.trend<0?'📉':'➡️';
+        var ftc=fmp.trend>0?'price-up':fmp.trend<0?'price-down':'price-flat';
+        var fdiff=Math.round((fmp.cur-fbp)/fbp*100);
         var fsendCnt=Math.min(fcnt2,tr.capacity);
         var fearn=Math.round(fmp.cur*fsendCnt*5*100)/100;
         var isFiletSelected=state.selectedFish===fname&&state.selectedFilet;
         html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#1a1a3a')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef2?fdef2.emoji:'🍱')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fname+' филе <span class="badge">x'+fcnt2+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9;margin-top:2px">🪙'+fmt(fmp.cur*2)+'/пак · 🪙'+fmt(fearn)+' итого</div></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+ftc+'">'+fti+' '+fmt(fmp.cur*2)+'/пак</span> <span style="color:#555">'+(fdiff>0?'+':'')+fdiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(fearn)+' итого</span></div></div>'
           +(isFiletSelected?'<span style="color:#6ddc6d;font-size:18px">✓</span>':'')+'</div>';
       }
     }
