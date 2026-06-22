@@ -107,8 +107,9 @@ async def start(message: types.Message):
     await message.answer(
         "🐟 *Добро пожаловать на Рыбную ферму!*\n\n"
         "Лови рыбу, улучшай снаряжение, открывай локации.\n"
-        "💡 Банк — обмен монет на TON Fish за ⭐\n"
-        "⚡ Бустеры — усиления за ⭐\n\n"
+        "💡 Банк — обмен монет на TON Fish за ⭐️\n"
+        "⚡️ Бустеры — усиления за ⭐️\n"
+        "🛟 Поддержка — @elbanderass\n\n"
         "Нажми кнопку чтобы начать 👇",
         parse_mode="Markdown",
         reply_markup=keyboard
@@ -154,7 +155,6 @@ async def pay_command(message: types.Message):
                     user_id = v.get('userId')
                     break
         if not user_id:
-            # Покажем что есть в базе для отладки
             found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
             await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
             return
@@ -207,7 +207,6 @@ async def players_command(message: types.Message):
             else:
                 identity = f"Рыбак #{num}"
             lines.append(f"{i}. {loc} {identity} 🪙{coins:,} · 🐟{caught}")
-        # Разбиваем на сообщения по 50 игроков
         chunk = 50
         for i in range(0, len(lines), chunk):
             part = lines[i:i+chunk]
@@ -215,6 +214,8 @@ async def players_command(message: types.Message):
             await message.answer(header + "\n".join(part))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
 async def bank_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
@@ -306,7 +307,7 @@ async def successful_payment(message: types.Message):
             url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json"
             import time
             async with aiohttp.ClientSession() as session:
-                await session.put(url, json=int(time.time() * 1000))  # timestamp оплаты
+                await session.put(url, json=int(time.time() * 1000))
         except Exception:
             pass
         await message.answer(
