@@ -1,6 +1,5 @@
 import asyncio
 import os
-import json
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -38,7 +37,6 @@ BOOST_LABELS = {
     'turboPack':  '📦 Мгновенная упаковка',
 }
 
-# Хранилище pending обменов: user_id -> {coins, wallet}
 pending = {}
 
 
@@ -59,10 +57,8 @@ async def create_invoice(request):
             user_id = int(data.get('user_id', 0))
             if coins < 1 or not wallet:
                 return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
-            # Сохраняем данные обмена
             pending[str(user_id)] = {'coins': coins, 'wallet': wallet,
                                      'username': str(data.get('username', ''))}
-            # Короткий payload: тип:user_id
             payload = f"ex:{user_id}"
             link = await bot.create_invoice_link(
                 title="TON Fish Exchange",
@@ -114,7 +110,6 @@ async def start(message: types.Message):
         parse_mode="Markdown",
         reply_markup=keyboard
     )
-    # Уведомляем админа о новом игроке
     if ADMIN_ID and message.from_user.id != ADMIN_ID:
         user = message.from_user
         name = f"@{user.username}" if user.username else f"{user.first_name or 'Без имени'}"
@@ -126,6 +121,23 @@ async def start(message: types.Message):
             )
         except Exception:
             pass
+
+
+@dp.message(Command('comm'))
+async def comm_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "🛠 *Команды администратора:*\n\n"
+        "/players — список всех игроков (файл .txt)\n"
+        "/pay @username СУММА — уведомить игрока о выплате\n"
+        "/broadcast ТЕКСТ — рассылка всем игрокам\n"
+        "/comm — список команд\n\n"
+        "🎮 *Команды для всех:*\n\n"
+        "/start — запустить игру\n"
+        "/boost — купить бустер за ⭐",
+        parse_mode="Markdown"
+    )
 
 
 @dp.message(Command('pay'))
@@ -141,7 +153,6 @@ async def pay_command(message: types.Message):
         return
     username = text[1].lstrip('@').lower()
     amount = text[2]
-    # Ищем user_id в Firebase
     import aiohttp
     try:
         url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
@@ -180,7 +191,7 @@ async def players_command(message: types.Message):
     await message.answer("⏳ Загружаю список игроков...")
     import aiohttp
     from io import BytesIO
-    from datetime import datetime
+    from datetime import datetime, timezone
     try:
         url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
         async with aiohttp.ClientSession() as session:
@@ -210,15 +221,14 @@ async def players_command(message: types.Message):
                 identity = f"Рыбак #{num}"
             ts = p.get('ts', 0)
             if ts:
-                from datetime import datetime, timezone
                 last_seen = datetime.fromtimestamp(ts/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
             else:
                 last_seen = 'неизвестно'
             lines.append(f"{i}. {loc} {identity} | coins:{coins:,} | caught:{caught} | last:{last_seen}")
-        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+        now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
         header = f"FishFarm — Список игроков\nДата: {now}\nВсего: {len(players)}\n{'='*40}\n\n"
         content = header + "\n".join(lines)
-        filename = f"fishfarm_players_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.txt"
+        filename = f"fishfarm_players_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.txt"
         file_bytes = content.encode('utf-8')
         await message.answer_document(
             types.BufferedInputFile(file_bytes, filename=filename),
@@ -226,41 +236,6 @@ async def players_command(message: types.Message):
         )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
-
-
-async def bank_command(message: types.Message):
-    text = message.text.strip().split()
-    if len(text) < 3:
-        await message.answer(
-            "💱 Использование:\n`/bank СУММА КОШЕЛЁК`\n\nПример:\n`/bank 100 UQD...`",
-            parse_mode="Markdown"
-        )
-        return
-    try:
-        coins  = int(text[1])
-        wallet = text[2]
-    except Exception:
-        await message.answer("❌ Пример: `/bank 100 UQD...`", parse_mode="Markdown")
-        return
-
-    user_id = message.from_user.id
-    pending[str(user_id)] = {'coins': coins, 'wallet': wallet,
-                             'username': message.from_user.username or ''}
-    link = await bot.create_invoice_link(
-        title="TON Fish Exchange",
-        description=f"{coins} coins to TON Fish",
-        payload=f"ex:{user_id}",
-        currency="XTR",
-        prices=[LabeledPrice(label="Fee", amount=1)],
-        provider_token="",
-    )
-    await message.answer(
-        f"💱 *Обмен {coins} монет → {coins} TON Fish*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="⭐ Оплатить 1 звезду", url=link)
-        ]])
-    )
 
 
 @dp.message(Command('broadcast'))
@@ -300,7 +275,7 @@ async def broadcast_command(message: types.Message):
                 success += 1
             except Exception:
                 failed += 1
-            await asyncio.sleep(0.05)  # защита от flood
+            await asyncio.sleep(0.05)
         await message.answer(
             f"✅ *Рассылка завершена*\n\n"
             f"📨 Отправлено: {success}\n"
@@ -312,7 +287,8 @@ async def broadcast_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
-
+@dp.message(Command('boost'))
+async def boost_command(message: types.Message):
     buttons = [[InlineKeyboardButton(text=label, callback_data=f"boost:{bid}")]
                for bid, label in BOOST_LABELS.items()]
     buttons.append([InlineKeyboardButton(text="🎣 В игру", web_app=WebAppInfo(url=GAME_URL))])
@@ -360,7 +336,6 @@ async def successful_payment(message: types.Message):
         boost_id = parts[1] if len(parts) > 1 else ''
         user_id  = parts[2] if len(parts) > 2 else str(message.from_user.id)
         label    = BOOST_LABELS.get(boost_id, 'Бустер')
-        # Записываем буст в Firebase чтобы игра подхватила при входе
         import aiohttp
         try:
             pid = f"tg_{user_id}"
