@@ -1170,7 +1170,7 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef2?fdef2.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn2+' <span class="badge">x'+fcnt2+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9">⏱ разделка 2ч + упаковка 1ч</div>'
+          +'<div style="font-size:11px;color:#90caf9">⏱ разделка 2ч + упаковка '+fmtTime(DRY_TIME[fn2]||3600)+'</div>'
           +'</div></div>'
           +(canCut
             ? '<div style="display:flex;align-items:center;gap:6px">'
