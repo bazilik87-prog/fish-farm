@@ -1041,7 +1041,9 @@ function renderKitchen() {
             +(pdone
               ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">Забрать 🍱</button>'
               : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(pleft)+'</span>')
-            +'</div></div></div>';
+            +'</div>'
+            +(pdone && fn2.dieAt ? '<div style="font-size:11px;color:#ff9944">⏳ Истекает через '+Math.max(0,Math.round((fn2.dieAt-now)/3600000*10)/10)+'ч — забери скорее!</div>' : '')
+            +'</div></div>';
         } else if (!fn2.packingEndsAt) {
           if (!filetGrouped[fn2.name]) filetGrouped[fn2.name]=0;
           filetGrouped[fn2.name]+=(fn2.packets||1);
