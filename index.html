@@ -532,7 +532,7 @@ function showNotif(msg, dead) {
   // Сохраняем важные уведомления в историю
   var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
                   msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
-                  msg.indexOf('🧂') >= 0 || dead;
+                  msg.indexOf('🧂') >= 0 || msg.indexOf('🎉') >= 0 || dead;
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
