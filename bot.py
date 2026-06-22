@@ -251,8 +251,56 @@ async def bank_command(message: types.Message):
     )
 
 
-@dp.message(Command('boost'))
-async def boost_command(message: types.Message):
+@dp.message(Command('broadcast'))
+async def broadcast_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip()[len('/broadcast'):].strip()
+    if not text:
+        await message.answer(
+            "Использование:\n`/broadcast Текст сообщения`\n\nПример:\n`/broadcast 🎉 Новое обновление! Заходи в игру!`",
+            parse_mode="Markdown"
+        )
+        return
+    await message.answer("⏳ Рассылка начата...")
+    import aiohttp
+    try:
+        url = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+        if not data:
+            await message.answer("❌ Игроков не найдено.")
+            return
+        total = 0
+        success = 0
+        failed = 0
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        for v in data.values():
+            user_id = v.get('userId')
+            if not user_id:
+                continue
+            total += 1
+            try:
+                await bot.send_message(user_id, text, reply_markup=keyboard)
+                success += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(0.05)  # защита от flood
+        await message.answer(
+            f"✅ *Рассылка завершена*\n\n"
+            f"📨 Отправлено: {success}\n"
+            f"❌ Не доставлено: {failed}\n"
+            f"👥 Всего: {total}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+
     buttons = [[InlineKeyboardButton(text=label, callback_data=f"boost:{bid}")]
                for bid, label in BOOST_LABELS.items()]
     buttons.append([InlineKeyboardButton(text="🎣 В игру", web_app=WebAppInfo(url=GAME_URL))])
