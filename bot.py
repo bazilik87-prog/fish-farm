@@ -91,6 +91,10 @@ async def create_invoice(request):
     return web.json_response({'error': 'unknown'}, status=400, headers=CORS)
 
 
+async def health(request):
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def referral_notify(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
