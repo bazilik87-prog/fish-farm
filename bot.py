@@ -215,6 +215,69 @@ async def start(message: types.Message):
         pass
 
 
+@dp.message(Command('referrals'))
+async def referrals_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю данные реферальной системы...")
+    import aiohttp
+    from io import BytesIO
+    from datetime import datetime, timezone
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            # Получаем структуру referrals/by
+            async with session.get(f"{base}/referrals/by.json") as resp:
+                by_data = await resp.json()
+            # Получаем leaderboard для имён
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                lb_data = await resp.json()
+
+        # Строим словарь userId -> username
+        id_to_name = {}
+        if lb_data:
+            for v in lb_data.values():
+                uid = str(v.get('userId', ''))
+                username = v.get('username', '')
+                first_name = v.get('firstName', '')
+                if username:
+                    id_to_name[uid] = f"@{username}"
+                elif first_name:
+                    id_to_name[uid] = first_name
+                else:
+                    id_to_name[uid] = f"ID:{uid}"
+
+        lines = []
+        total_refs = 0
+        if by_data:
+            # Сортируем по количеству рефералов
+            sorted_refs = sorted(by_data.items(), key=lambda x: len(x[1]) if isinstance(x[1], dict) else 0, reverse=True)
+            for referrer_id, referrals in sorted_refs:
+                if not isinstance(referrals, dict):
+                    continue
+                referrer_name = id_to_name.get(referrer_id, f"ID:{referrer_id}")
+                ref_list = []
+                for ref_id in referrals.keys():
+                    ref_name = id_to_name.get(ref_id, f"ID:{ref_id}")
+                    ref_list.append(ref_name)
+                total_refs += len(ref_list)
+                lines.append(f"{referrer_name} ({len(ref_list)} реф.):")
+                for r in ref_list:
+                    lines.append(f"  └ {r}")
+                lines.append("")
+
+        now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+        header = f"FishFarm — Реферальная система\nДата: {now}\nВсего приглашений: {total_refs}\n{'='*40}\n\n"
+        content = header + ("\n".join(lines) if lines else "Рефералов пока нет.")
+        filename = f"fishfarm_referrals_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.txt"
+        await message.answer_document(
+            types.BufferedInputFile(content.encode('utf-8'), filename=filename),
+            caption=f"👥 Всего приглашений: {total_refs}"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('comm'))
 async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -222,6 +285,7 @@ async def comm_command(message: types.Message):
     await message.answer(
         "🛠 *Команды администратора:*\n\n"
         "/players — список всех игроков (файл .txt)\n"
+        "/referrals — реферальная система (файл .txt)\n"
         "/pay @username СУММА — уведомить игрока о выплате\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/comm — список команд\n\n"
