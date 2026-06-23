@@ -224,7 +224,8 @@ async def players_command(message: types.Message):
                 last_seen = datetime.fromtimestamp(ts/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
             else:
                 last_seen = 'неизвестно'
-            lines.append(f"{i}. {loc} {identity} | coins:{coins:,} | caught:{caught} | last:{last_seen}")
+            total_earned = p.get('totalEarned', 0)
+            lines.append(f"{i}. {loc} {identity} | total_earned:{total_earned:,} | coins:{coins:,} | caught:{caught} | last:{last_seen}")
         now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
         header = f"FishFarm — Список игроков\nДата: {now}\nВсего: {len(players)}\n{'='*40}\n\n"
         content = header + "\n".join(lines)

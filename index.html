@@ -218,7 +218,7 @@ var state = {
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
-  dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedFilet:false,
+  dailyDay:0,dailyLastClaim:0,lastSeen:0,totalEarned:0,selectedFish:null,selectedDried:false,selectedFilet:false,
   drying:[],driedFish:[],
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false},
   quests:[], questsDate:0, questProgress:{},
@@ -364,7 +364,7 @@ function save() {
       transport:state.transport, delivery:state.delivery,
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
-      lastSeen:Date.now(), upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
+      lastSeen:Date.now(), totalEarned:state.totalEarned, upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
       drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
       salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
@@ -394,6 +394,7 @@ function load() {
     state.dailyDay          = s.dailyDay  || 0;
     state.dailyLastClaim    = s.dailyLast || 0;
     state.lastSeen          = s.lastSeen  || Date.now();
+    state.totalEarned       = s.totalEarned || 0;
     state.drying            = s.drying    || [];
     state.driedFish         = s.driedFish || [];
     state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0};
@@ -425,6 +426,7 @@ function processOffline() {
   if (elapsed<5000) return;
   if (state.delivery && now>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
+    state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
@@ -441,6 +443,7 @@ function processOffline() {
     var autoEarned = Math.round(state.autoPerSec * elapsed / 1000 / 60 * 100) / 100;
     if (autoEarned > 0) {
       state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
+      state.totalEarned = Math.round((state.totalEarned + autoEarned) * 100) / 100;
       showNotif('🪙 Авто-доход за офлайн: +' + fmt(autoEarned));
     }
   }
@@ -1501,6 +1504,7 @@ function addQuestProgress(type, amount) {
     }
     if (allDone) {
       state.coins=Math.round((state.coins+150)*100)/100;
+      state.totalEarned=Math.round((state.totalEarned+150)*100)/100;
       showNotif('🎉 Все квесты выполнены! +🪙150');
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
@@ -1906,15 +1910,16 @@ function uploadScore() {
   var firstName = tgUser ? (tgUser.first_name || '') : '';
   getPlayerNumber(pid, function(num) {
     firebaseDB.ref('leaderboard/' + pid).set({
-      num:        num,
-      coins:      Math.floor(state.coins),
-      caught:     state.caught,
-      loc:        state.currentLoc,
-      ts:         now,
-      userId:     userId,
-      username:   username,
-      firstName:  firstName,
-      playerName: state.playerName || ''
+      num:         num,
+      coins:       Math.floor(state.coins),
+      caught:      state.caught,
+      totalEarned: Math.floor(state.totalEarned || 0),
+      loc:         state.currentLoc,
+      ts:          now,
+      userId:      userId,
+      username:    username,
+      firstName:   firstName,
+      playerName:  state.playerName || ''
     });
   });
 }
@@ -2048,7 +2053,7 @@ function showInstructions() {
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
     +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
-    +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или заготавливай вовремя — иначе погибнет!<br><br>'
+    +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
     +'<b style="color:#fff">🍳 Кухня — засолка, сушка и филе</b><br>'
     +'<u>Засолка и сушка:</u><br>'
     +'1️⃣ Накопи 10 рыб одного вида<br>'
@@ -2106,6 +2111,7 @@ function tapOcean(e) {
   var boostMult=1;
   var earned=Math.round(state.tapPower*boostMult*10)/10;
   state.coins=Math.round((state.coins+earned)*100)/100;
+  state.totalEarned=Math.round((state.totalEarned+earned)*100)/100;
   state.caught++;
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
   state.liveFish.push({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000});
@@ -2267,6 +2273,7 @@ function claimDaily() {
   if (st.missed) state.dailyDay=0;
   var reward=DAILY[state.dailyDay];
   state.coins=Math.round((state.coins+reward)*100)/100;
+  state.totalEarned=Math.round((state.totalEarned+reward)*100)/100;
   state.dailyLastClaim=Date.now();
   state.dailyDay=state.dailyDay>=6?0:state.dailyDay+1;
   showNotif('🎁 День '+state.dailyDay+' — получено 🪙'+fmt(reward)+'!');
@@ -2306,6 +2313,7 @@ function checkDelivery() {
   if (!state.delivery) return;
   if (Date.now()>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
+    state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
@@ -2326,6 +2334,7 @@ function tick() {
       if (autoAccum >= 0.01) {
         var pay = Math.floor(autoAccum * 100) / 100;
         state.coins = Math.round((state.coins + pay) * 100) / 100;
+        state.totalEarned = Math.round((state.totalEarned + pay) * 100) / 100;
         autoAccum -= pay;
         updateUI(); save();
       }
