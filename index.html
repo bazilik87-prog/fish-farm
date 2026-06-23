@@ -1798,6 +1798,7 @@ function renderLocations() {
 }
 // URL API бота на Railway (замени на свой после деплоя)
 var BOT_API_URL = 'https://fish-farm-production-436a.up.railway.app';
+var BOT_USERNAME = 'fish_farmings_bot';
 // Вставь свои данные из Firebase Console
 var FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCIWhrRP6VfZMxYNJsBQPWPLEuW6D-d3rw",
@@ -1827,6 +1828,74 @@ function checkPendingBoosts() {
     }
     firebaseDB.ref('pending_boosts/' + pid).remove();
   });
+
+  // Проверяем реферальные награды
+  checkAndApplyRefRewards(false);
+}
+
+function checkAndApplyRefRewards(isRod2) {
+  if (!userId || !firebaseDB) return;
+  var pid = 'tg_' + userId;
+
+  // Получаем pending_rewards для текущего игрока
+  firebaseDB.ref('pending_rewards/' + userId).once('value', function(snap) {
+    var rewards = snap.val();
+    if (rewards) {
+      var total = 0;
+      for (var key in rewards) total += rewards[key];
+      if (total > 0) {
+        state.coins = Math.round((state.coins + total) * 100) / 100;
+        state.totalEarned = Math.round((state.totalEarned + total) * 100) / 100;
+        showNotif('🎁 Реферальный бонус: +🪙' + total);
+        firebaseDB.ref('pending_rewards/' + userId).remove();
+        updateUI(); save();
+      }
+    }
+  });
+
+  // Если купил удочку ур.2 — начисляем рефереру 1000 монет
+  if (isRod2) {
+    firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
+      var referrerId = snap.val();
+      if (!referrerId) return;
+      // Проверяем не начислили ли уже
+      firebaseDB.ref('referrals/rod2_rewarded/' + userId).once('value', function(snap2) {
+        if (snap2.val()) return;
+        firebaseDB.ref('pending_rewards/' + referrerId + '/rod2_' + userId).set(1000);
+        firebaseDB.ref('referrals/rod2_rewarded/' + userId).set(true);
+        // Уведомляем реферера через бота
+        fetch(BOT_API_URL + '/referral_notify', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({referrer_id: referrerId, type: 'rod2'})
+        }).catch(function(){});
+      });
+    });
+  }
+}
+
+function copyRefLink() {
+  var link = getRefLink();
+  if (!link) { showNotif('❌ Войди через Telegram'); return; }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(link).then(function() { showNotif('✅ Ссылка скопирована!'); });
+  } else {
+    showNotif('🔗 ' + link);
+  }
+}
+function shareRefLink() {
+  var link = getRefLink();
+  if (!link) { showNotif('❌ Войди через Telegram'); return; }
+  var text = '🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.\n\n' + link;
+  if (tg && tg.openTelegramLink) {
+    tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + encodeURIComponent('🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.'));
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { showNotif('✅ Скопировано для отправки!'); });
+  }
+}
+function getRefLink() {
+  if (!userId) return '';
+  return 'https://t.me/' + BOT_USERNAME + '?start=ref_' + userId;
 }
 
 function activateBoostWithTime(id, elapsed) {
@@ -2037,6 +2106,12 @@ function renderSettings() {
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
     +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ Сменить имя <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||'не задано')+'</span></button>'
     +'</div>'
+    +'<div class="card" style="background:#0a2a1a">'
+    +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 Пригласить друга</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Ты и друг получите по 🪙100 монет.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!</div>'
+    +'<button class="btn btn-full" onclick="copyRefLink()" style="background:#1a5c2a;margin-bottom:6px">🔗 Скопировать ссылку</button>'
+    +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a">📤 Поделиться</button>'
+    +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
     +'Монет: '+fmt(state.coins)+'<br>Живых рыб: '+state.liveFish.length+'<br>За тап: '+state.tapPower.toFixed(1)+'<br>Авто/мин: '+state.autoPerSec+'<br>Локация: '+li.emoji+' '+li.name+'<br>Настроение: '+mood+'</div></div>'
@@ -2129,6 +2204,10 @@ function buyUpgrade(id) {
   if (!u||u.bought>=u.max) return;
   var cost=u.costs[u.bought]; if (state.coins<cost) return;
   state.coins=Math.round((state.coins-cost)*100)/100; u.bought++;
+  // Реферальная награда: реферер получает 1000 монет когда реферал купил удочку ур.2
+  if (id==='rod' && u.bought===2) {
+    checkAndApplyRefRewards(true);
+  }
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }

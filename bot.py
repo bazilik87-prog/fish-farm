@@ -91,7 +91,38 @@ async def create_invoice(request):
     return web.json_response({'error': 'unknown'}, status=400, headers=CORS)
 
 
-async def health(request):
+async def referral_notify(request):
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    referrer_id = data.get('referrer_id')
+    notify_type = data.get('type')
+
+    if not referrer_id:
+        return web.json_response({'error': 'no referrer_id'}, status=400, headers=CORS)
+
+    try:
+        if notify_type == 'rod2':
+            await bot.send_message(
+                int(referrer_id),
+                "🎣 *Твой реферал купил удочку 2-го уровня!*\n\n"
+                "🪙 +1000 монет уже ждут тебя в игре!",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+                ]])
+            )
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True}, headers=CORS)
+
+
+
     return web.json_response({'ok': True}, headers=CORS)
 
 
@@ -110,8 +141,12 @@ async def start(message: types.Message):
         parse_mode="Markdown",
         reply_markup=keyboard
     )
-    if ADMIN_ID and message.from_user.id != ADMIN_ID:
-        user = message.from_user
+
+    user = message.from_user
+    user_id = str(user.id)
+
+    # Уведомляем админа о новом игроке
+    if ADMIN_ID and user.id != ADMIN_ID:
         name = f"@{user.username}" if user.username else f"{user.first_name or 'Без имени'}"
         try:
             await bot.send_message(
@@ -121,6 +156,59 @@ async def start(message: types.Message):
             )
         except Exception:
             pass
+
+    # Обрабатываем реферальную ссылку
+    args = message.text.split() if message.text else []
+    ref_arg = args[1] if len(args) > 1 else ''
+    if not ref_arg.startswith('ref_'):
+        return
+
+    referrer_id = ref_arg[4:]  # ID того кто пригласил
+    if referrer_id == user_id:
+        return  # нельзя пригласить самого себя
+
+    import aiohttp
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+
+        async with aiohttp.ClientSession() as session:
+            # Проверяем что игрок новый (не использовал реферал раньше)
+            async with session.get(f"{base}/referrals/used/{user_id}.json") as resp:
+                already_used = await resp.json()
+            if already_used:
+                return  # реферал уже был использован
+
+            # Сохраняем связь реферал → реферер
+            await session.put(f"{base}/referrals/used/{user_id}.json",
+                              json=referrer_id)
+            await session.put(f"{base}/referrals/by/{referrer_id}/{user_id}.json",
+                              json=True)
+
+            # Начисляем +100 монет новому игроку
+            await session.put(f"{base}/pending_rewards/{user_id}/ref_bonus.json",
+                              json=100)
+
+            # Начисляем +100 монет рефереру
+            await session.put(f"{base}/pending_rewards/{referrer_id}/ref_invite_{user_id}.json",
+                              json=100)
+
+        # Уведомляем реферера
+        ref_name = f"@{user.username}" if user.username else user.first_name or 'Новый игрок'
+        try:
+            await bot.send_message(
+                int(referrer_id),
+                f"🎉 *По твоей ссылке пришёл {ref_name}!*\n\n"
+                f"🪙 +100 монет уже ждут тебя в игре!",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+                ]])
+            )
+        except Exception:
+            pass
+
+    except Exception:
+        pass
 
 
 @dp.message(Command('comm'))
@@ -390,6 +478,8 @@ async def main():
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
     app.router.add_options('/invoice', create_invoice)
+    app.router.add_post('/referral_notify', referral_notify)
+    app.router.add_options('/referral_notify', referral_notify)
     app.router.add_get('/health', health)
     runner = web.AppRunner(app)
     await runner.setup()
