@@ -1875,8 +1875,10 @@ function checkAndApplyRefRewards(isRod2) {
 }
 
 function copyRefLink() {
-  var link = getRefLink();
-  if (!link) { showNotif('❌ Войди через Telegram'); return; }
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var uid = tgUser ? tgUser.id : 0;
+  if (!uid) { showNotif('❌ Войди через Telegram'); return; }
+  var link = 'https://t.me/fish_farmings_bot?start=ref_' + uid;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(link).then(function() { showNotif('✅ Ссылка скопирована!'); });
   } else {
@@ -1884,18 +1886,22 @@ function copyRefLink() {
   }
 }
 function shareRefLink() {
-  var link = getRefLink();
-  if (!link) { showNotif('❌ Войди через Telegram'); return; }
-  var text = '🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.\n\n' + link;
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var uid = tgUser ? tgUser.id : 0;
+  if (!uid) { showNotif('❌ Войди через Telegram'); return; }
+  var link = 'https://t.me/fish_farmings_bot?start=ref_' + uid;
+  var text = '🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.';
   if (tg && tg.openTelegramLink) {
-    tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + encodeURIComponent('🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.'));
+    tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + encodeURIComponent(text));
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(function() { showNotif('✅ Скопировано для отправки!'); });
+    navigator.clipboard.writeText(text + '\n' + link).then(function() { showNotif('✅ Скопировано для отправки!'); });
   }
 }
 function getRefLink() {
-  if (!userId) return '';
-  return 'https://t.me/' + BOT_USERNAME + '?start=ref_' + userId;
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var uid = tgUser ? tgUser.id : 0;
+  if (!uid) return '';
+  return 'https://t.me/fish_farmings_bot?start=ref_' + uid;
 }
 
 function activateBoostWithTime(id, elapsed) {
