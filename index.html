@@ -196,19 +196,27 @@ var KNIFE_PRICE = {pond:3,  river:6,  tropics:15, deep:45,  space:150};
 var DAILY = [10,25,50,100,200,400,1000];
 
 var QUEST_TEMPLATES = [
-  {id:'catch50',    text:'Поймай 50 рыб',          type:'catch',    goal:50,   reward:30  },
-  {id:'catch100',   text:'Поймай 100 рыб',         type:'catch',    goal:100,  reward:60  },
-  {id:'catch200',   text:'Поймай 200 рыб',         type:'catch',    goal:200,  reward:120 },
-  {id:'sell1',      text:'Отправь 10 доставок',    type:'deliver',  goal:10,   reward:50  },
-  {id:'sell3',      text:'Отправь 20 доставок',    type:'deliver',  goal:20,   reward:150 },
-  {id:'dry1',       text:'Высуши 10 пакетов',      type:'dry',      goal:10,   reward:80  },
-  {id:'dry3',       text:'Высуши 20 пакетов',      type:'dry',      goal:20,   reward:250 },
-  {id:'earn500',    text:'Заработай 250 монет',    type:'earn',     goal:250,  reward:80  },
-  {id:'earn1000',   text:'Заработай 100 монет',    type:'earn',     goal:100,  reward:50  },
-  {id:'catch_rare', text:'Поймай 10 редких рыб',  type:'rare',     goal:10,   reward:200 },
-  {id:'repair1',    text:'Почини транспорт',       type:'repair',   goal:1,    reward:70  },
-  {id:'catch20loc', text:'Поймай 20 рыб в локации',type:'catch', goal:20, reward:80  },
-  {id:'bulk100',    text:'Продай 100 рыб оптом',   type:'bulk',     goal:100,  reward:120 },
+  {id:'catch50',    text:'Поймай 50 рыб',           type:'catch',    goal:50,   reward:30  },
+  {id:'catch100',   text:'Поймай 100 рыб',          type:'catch',    goal:100,  reward:60  },
+  {id:'catch200',   text:'Поймай 200 рыб',          type:'catch',    goal:200,  reward:120 },
+  {id:'sell1',      text:'Отправь 10 доставок',     type:'deliver',  goal:10,   reward:50  },
+  {id:'sell3',      text:'Отправь 20 доставок',     type:'deliver',  goal:20,   reward:150 },
+  {id:'dry1',       text:'Высуши 10 пакетов',       type:'dry',      goal:10,   reward:80  },
+  {id:'dry3',       text:'Высуши 20 пакетов',       type:'dry',      goal:20,   reward:250 },
+  {id:'earn500',    text:'Заработай 250 монет',     type:'earn',     goal:250,  reward:80  },
+  {id:'earn1000',   text:'Заработай 100 монет',     type:'earn',     goal:100,  reward:50  },
+  {id:'catch_rare', text:'Поймай 10 редких рыб',   type:'rare',     goal:10,   reward:200 },
+  {id:'repair1',    text:'Почини транспорт',        type:'repair',   goal:1,    reward:70  },
+  {id:'repair3',    text:'Почини транспорт 3 раза', type:'repair',   goal:3,    reward:70  },
+  {id:'catch20loc', text:'Поймай 20 рыб в локации',type:'catch',    goal:20,   reward:80  },
+  {id:'bulk100',    text:'Продай 100 рыб оптом',    type:'bulk',     goal:100,  reward:120 },
+  {id:'bulk200',    text:'Продай 200 рыб оптом',    type:'bulk',     goal:200,  reward:120 },
+  {id:'filet10',    text:'Разделай 10 коробок филе',type:'filet',    goal:10,   reward:150 },
+  {id:'filet20',    text:'Разделай 20 коробок филе',type:'filet',    goal:20,   reward:250 },
+  {id:'buyknife5',  text:'Купи 5 ножей на рынке',   type:'buyknife', goal:5,    reward:50  },
+  {id:'buyknife10', text:'Купи 10 ножей на рынке',  type:'buyknife', goal:10,   reward:80  },
+  {id:'buysalt15',  text:'Купи 15 соли на рынке',   type:'buysalt',  goal:15,   reward:80  },
+  {id:'boost1',     text:'Активируй любой бустер',   type:'boost',    goal:1,    reward:100 },
 ];
 
 // ── Состояние ─────────────────────────────────────────
@@ -430,8 +438,8 @@ function processOffline() {
     addQuestProgress('earn', state.delivery.earnings);
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
-    if (saltArrived>0) state.salt=(state.salt||0)+saltArrived;
-    if (knifeArrived>0) state.knife=(state.knife||0)+knifeArrived;
+    if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; addQuestProgress('buysalt', saltArrived); }
+    if (knifeArrived>0) { state.knife=(state.knife||0)+knifeArrived; addQuestProgress('buyknife', knifeArrived); }
     var offMsg='💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings);
     if (saltArrived>0) offMsg+=' · 🧂+'+saltArrived;
     if (knifeArrived>0) offMsg+=' · 🔪+'+knifeArrived;
@@ -1243,6 +1251,7 @@ function startCutting(name) {
   state.liveFish=rest;
   state.knife-=packs;
   state.cutting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
+  addQuestProgress('filet', packs);
   dryPacks[name]=1;
   showNotif('🔪 '+packs+' пак. '+name+' отправлено на разделку!');
   updateUI(); save();
@@ -1496,16 +1505,14 @@ function addQuestProgress(type, amount) {
   // Проверяем — все ли выполнены теперь
   if (changed) {
     var allDone=true;
-    var totalReward=0;
     for (var j=0;j<state.quests.length;j++) {
       var qq=getQuest(state.quests[j]); if(!qq) continue;
       if ((state.questProgress[qq.id]||0)<qq.goal) { allDone=false; break; }
-      totalReward+=qq.reward;
     }
     if (allDone) {
-      state.coins=Math.round((state.coins+150)*100)/100;
-      state.totalEarned=Math.round((state.totalEarned+150)*100)/100;
-      showNotif('🎉 Все квесты выполнены! +🪙150');
+      state.coins=Math.round((state.coins+300)*100)/100;
+      state.totalEarned=Math.round((state.totalEarned+300)*100)/100;
+      showNotif('🎉 Все квесты выполнены! +🪙300');
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
     updateUI(); save();
@@ -1526,13 +1533,11 @@ function renderQuests() {
     +'</div>';
 
   var completed=0;
-  var totalReward=0;
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
     var prog=state.questProgress[q.id]||0;
     var done=prog>=q.goal;
     if(done) completed++;
-    totalReward+=q.reward;
     var pct=Math.min(100,Math.round(prog/q.goal*100));
     html+='<div class="card" style="'+(done?'background:#0a2a0a;border:1px solid #2d6a4f':'background:#0f3460')+'">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
@@ -1557,7 +1562,7 @@ function renderQuests() {
   } else {
     html+='<div class="card" style="background:#0a1a2e;text-align:center">'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:4px">Выполни все 5 квестов и получи</div>'
-      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 150 монет</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 300 монет</div>'
       +'<div style="font-size:11px;color:#666;margin-top:4px">Выполнено: '+completed+'/5</div>'
       +'</div>';
   }
@@ -1661,6 +1666,7 @@ function buyBoost(id) {
 
 function activateBoost(id) {
   var now = Date.now();
+  addQuestProgress('boost', 1);
   if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
   if (id==='turboPack') {
     var now2=Date.now();
@@ -2156,7 +2162,7 @@ function showInstructions() {
     +'🛵 Мопед — 5000🪙 · 15 рыб · 15 мин<br>'
     +'🚗 Машина — 50000🪙 · 40 рыб · 25 мин<br>'
     +'🚛 Грузовик — 300000🪙 · 100 рыб · 40 мин<br>'
-    +'Каждая доставка -10% прочности. С потерей прощности увеличивается время доставки!!! 0% = сломан, нужен ручной ремонт 🔧<br><br>'
+    +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>'
     +'🎣 Удочка — увеличивает монеты за улов и шанс улова<br>'
     +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
@@ -2403,8 +2409,8 @@ function checkDelivery() {
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
     var msg='💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings);
-    if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; msg+=' · 🧂+'+saltArrived; }
-    if (knifeArrived>0) { state.knife=(state.knife||0)+knifeArrived; msg+=' · 🔪+'+knifeArrived; }
+    if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; addQuestProgress('buysalt', saltArrived); msg+=' · 🧂+'+saltArrived; }
+    if (knifeArrived>0) { state.knife=(state.knife||0)+knifeArrived; addQuestProgress('buyknife', knifeArrived); msg+=' · 🔪+'+knifeArrived; }
     showNotif(msg);
     state.delivery=null; updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
