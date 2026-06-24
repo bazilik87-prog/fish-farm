@@ -592,11 +592,15 @@ async def successful_payment(message: types.Message):
         )
         if ADMIN_ID:
             ul = f"@{username}" if username else f"ID: {user_id}"
-            await bot.send_message(
+            sent = await bot.send_message(
                 ADMIN_ID,
                 f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Отправь токены!",
                 parse_mode="Markdown"
             )
+            try:
+                await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
+            except Exception:
+                pass
 
 
 @dp.message()
