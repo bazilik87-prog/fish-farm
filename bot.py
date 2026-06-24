@@ -189,11 +189,11 @@ async def start(message: types.Message):
                               json=True)
 
             # Начисляем +100 монет новому игроку
-            await session.put(f"{base}/pending_rewards/{user_id}/ref_bonus.json",
+            await session.put(f"{base}/pending_rewards/tg_{user_id}/ref_bonus.json",
                               json=100)
 
             # Начисляем +100 монет рефереру
-            await session.put(f"{base}/pending_rewards/{referrer_id}/ref_invite_{user_id}.json",
+            await session.put(f"{base}/pending_rewards/tg_{referrer_id}/ref_invite_{user_id}.json",
                               json=100)
 
         # Уведомляем реферера
@@ -255,7 +255,7 @@ async def addcoins_command(message: types.Message):
         # Записываем в pending_rewards — игра заберёт при следующем входе
         async with aiohttp.ClientSession() as session:
             await session.put(
-                f"{base}/pending_rewards/{user_id}/admin_compensation.json",
+                f"{base}/pending_rewards/tg_{user_id}/admin_compensation.json",
                 json=amount
             )
 

@@ -1850,7 +1850,7 @@ function checkAndApplyRefRewards(isRod2) {
   var pid = 'tg_' + userId;
 
   // Получаем pending_rewards для текущего игрока
-  firebaseDB.ref('pending_rewards/' + userId).once('value', function(snap) {
+  firebaseDB.ref('pending_rewards/' + pid).once('value', function(snap) {
     var rewards = snap.val();
     if (rewards) {
       var total = 0;
@@ -1858,8 +1858,8 @@ function checkAndApplyRefRewards(isRod2) {
       if (total > 0) {
         state.coins = Math.round((state.coins + total) * 100) / 100;
         state.totalEarned = Math.round((state.totalEarned + total) * 100) / 100;
-        showNotif('🎁 Реферальный бонус: +🪙' + total);
-        firebaseDB.ref('pending_rewards/' + userId).remove();
+        showNotif('🎁 Бонус: +🪙' + total);
+        firebaseDB.ref('pending_rewards/' + pid).remove();
         updateUI(); save();
       }
     }
@@ -1873,7 +1873,7 @@ function checkAndApplyRefRewards(isRod2) {
       // Проверяем не начислили ли уже
       firebaseDB.ref('referrals/rod2_rewarded/' + userId).once('value', function(snap2) {
         if (snap2.val()) return;
-        firebaseDB.ref('pending_rewards/' + referrerId + '/rod2_' + userId).set(1000);
+        firebaseDB.ref('pending_rewards/tg_' + referrerId + '/rod2_' + userId).set(1000);
         firebaseDB.ref('referrals/rod2_rewarded/' + userId).set(true);
         // Уведомляем реферера через бота
         fetch(BOT_API_URL + '/referral_notify', {
