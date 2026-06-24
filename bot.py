@@ -215,6 +215,70 @@ async def start(message: types.Message):
         pass
 
 
+@dp.message(Command('addcoins'))
+async def addcoins_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 3:
+        await message.answer(
+            "Использование:\n`/addcoins @username СУММА`\n\nПример:\n`/addcoins @nikolanaz 500`",
+            parse_mode="Markdown"
+        )
+        return
+    username = text[1].lstrip('@').lower()
+    try:
+        amount = int(text[2])
+    except ValueError:
+        await message.answer("❌ Сумма должна быть числом")
+        return
+
+    import aiohttp
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                data = await resp.json()
+
+        user_id = None
+        if data:
+            for v in data.values():
+                if str(v.get('username', '')).lower() == username:
+                    user_id = str(v.get('userId'))
+                    break
+
+        if not user_id:
+            found_names = [str(v.get('username', '')) for v in data.values() if v.get('username')] if data else []
+            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
+            return
+
+        # Записываем в pending_rewards — игра заберёт при следующем входе
+        async with aiohttp.ClientSession() as session:
+            await session.put(
+                f"{base}/pending_rewards/{user_id}/admin_compensation.json",
+                json=amount
+            )
+
+        # Уведомляем игрока
+        try:
+            await bot.send_message(
+                int(user_id),
+                f"🎁 *Администратор начислил тебе {amount} монет!*\n\n"
+                f"Зайди в игру чтобы получить их 👇",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+                ]])
+            )
+        except Exception:
+            pass
+
+        await message.answer(f"✅ @{username} (ID: {user_id}) получит 🪙{amount} монет при следующем входе в игру")
+
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('referrals'))
 async def referrals_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -286,6 +350,7 @@ async def comm_command(message: types.Message):
         "🛠 *Команды администратора:*\n\n"
         "/players — список всех игроков (файл .txt)\n"
         "/referrals — реферальная система (файл .txt)\n"
+        "/addcoins @username СУММА — начислить монеты игроку\n"
         "/pay @username СУММА — уведомить игрока о выплате\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/comm — список команд\n\n"
