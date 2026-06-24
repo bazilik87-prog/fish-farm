@@ -37,7 +37,9 @@ BOOST_LABELS = {
     'turboPack':  '📦 Мгновенная упаковка',
 }
 
-pending = {}
+SUPPORT_GROUP_ID = -5478312122
+
+
 
 
 async def create_invoice(request):
@@ -599,6 +601,14 @@ async def successful_payment(message: types.Message):
             )
             try:
                 await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
+            except Exception:
+                pass
+            try:
+                await bot.send_message(
+                    SUPPORT_GROUP_ID,
+                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Требует выплаты!",
+                    parse_mode="Markdown"
+                )
             except Exception:
                 pass
 
