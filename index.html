@@ -110,6 +110,7 @@ html{overflow-x:hidden;width:100%}
 
 <script>
 var tg = window.Telegram && window.Telegram.WebApp;
+var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
 if (tg) {
   tg.ready();
   tg.expand();
