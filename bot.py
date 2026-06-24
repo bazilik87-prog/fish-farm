@@ -39,6 +39,9 @@ BOOST_LABELS = {
 
 SUPPORT_GROUP_ID = -5478312122
 
+# Хранилище pending обменов: user_id -> {coins, wallet}
+pending = {}
+
 
 
 
