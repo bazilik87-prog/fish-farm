@@ -1764,7 +1764,7 @@ function exchangeCoins() {
       tg.openInvoice(data.link, function(status){
         if(status==='paid') {
           state.coins=Math.round((state.coins-amount)*100)/100;
-          showNotif('✅ Оплата прошла! TON Fish будут отправлены в течение 24ч');
+          showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! TON Fish придут в течение 24ч', true);
           updateUI(); save();
         }
       });
