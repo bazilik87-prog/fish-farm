@@ -347,6 +347,52 @@ async def referrals_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('refcontest'))
+async def refcontest_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю рейтинг реферального конкурса...")
+    import aiohttp
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/ref_contest/scores.json") as resp:
+                scores = await resp.json()
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                lb = await resp.json()
+
+        if not scores:
+            await message.answer("Пока нет результатов.")
+            return
+
+        # Строим словарь userId -> username
+        id_to_name = {}
+        if lb:
+            for v in lb.values():
+                uid = str(v.get('userId', ''))
+                username = v.get('username', '')
+                first_name = v.get('firstName', '')
+                if username:
+                    id_to_name[uid] = f"@{username}"
+                elif first_name:
+                    id_to_name[uid] = first_name
+                else:
+                    id_to_name[uid] = f"ID:{uid}"
+
+        results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        lines = []
+        medals = ['🥇', '🥈', '🥉']
+        for i, (uid, count) in enumerate(results):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            name = id_to_name.get(uid, f"ID:{uid}")
+            lines.append(f"{medal} {name} — {count} активных рефералов")
+
+        text = "🏆 *Реферальный конкурс — текущий рейтинг:*\n\n" + "\n".join(lines)
+        await message.answer(text, parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('comm'))
 async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -355,6 +401,7 @@ async def comm_command(message: types.Message):
         "🛠 *Команды администратора:*\n\n"
         "/players — список всех игроков (файл .txt)\n"
         "/referrals — реферальная система (файл .txt)\n"
+        "/refcontest — рейтинг реферального конкурса\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/pay @username СУММА — уведомить игрока о выплате\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"

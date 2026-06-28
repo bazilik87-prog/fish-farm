@@ -2229,8 +2229,31 @@ function buyUpgrade(id) {
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
   }
+  // Реферальный конкурс: фиксируем покупку сети ур.1
+  if (id==='net' && u.bought===1) {
+    notifyRefContestNetPurchase();
+  }
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
+
+function notifyRefContestNetPurchase() {
+  if (!userId || !firebaseDB) return;
+  // Проверяем есть ли реферер
+  firebaseDB.ref('referrals/used/tg_' + userId).once('value', function(snap) {
+    var referrerId = snap.val();
+    if (!referrerId) return;
+    // Проверяем не засчитали ли уже
+    firebaseDB.ref('ref_contest/net1_done/' + userId).once('value', function(snap2) {
+      if (snap2.val()) return;
+      // Фиксируем что реферал купил сеть
+      firebaseDB.ref('ref_contest/net1_done/' + userId).set(true);
+      // Увеличиваем счётчик реферера
+      firebaseDB.ref('ref_contest/scores/' + referrerId).transaction(function(current) {
+        return (current || 0) + 1;
+      });
+    });
+  });
 }
 function changeKnifeOrder(delta) {
   var tr=getTr();
