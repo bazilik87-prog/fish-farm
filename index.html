@@ -687,6 +687,7 @@ function renderContent() {
   else {
     if (settingsSubpage==='instructions') showInstructions();
     else if (settingsSubpage==='notiflog') showNotifLog();
+    else if (settingsSubpage==='news') showNews();
     else renderSettings();
   }
 }
@@ -1890,6 +1891,7 @@ function checkAndApplyRefRewards(isRod2) {
 }
 
 function showNews() {
+  settingsSubpage = 'news';
   if (!firebaseDB) {
     document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">Нет соединения</div></div>';
     return;
