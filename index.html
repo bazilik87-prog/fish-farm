@@ -1952,6 +1952,56 @@ function checkDailyNews() {
   });
 }
 
+function showMyFriends() {
+  if (!firebaseDB || !userId) { showNotif('❌ Войди через Telegram'); return; }
+  var modal = document.createElement('div');
+  modal.id = 'friends-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">'
+    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 Мои друзья</div>'
+    + '<div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+
+  firebaseDB.ref('referrals/by/' + userId).once('value', function(snap) {
+    var refs = snap.val();
+    var inner = modal.querySelector('div');
+    var html = '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 Мои друзья</div>';
+
+    if (!refs || Object.keys(refs).length === 0) {
+      html += '<div style="color:#90caf9;text-align:center;padding:20px">Ты ещё никого не пригласил 🎣<br><br>Поделись ссылкой и получи бонус!</div>';
+      html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px">Закрыть</button>';
+      inner.innerHTML = html;
+      return;
+    }
+
+    var refIds = Object.keys(refs);
+    var loaded = 0;
+    var names = [];
+
+    refIds.forEach(function(rid) {
+      firebaseDB.ref('leaderboard/tg_' + rid).once('value', function(s) {
+        var p = s.val();
+        if (p) {
+          var name = p.username ? '@' + p.username : (p.firstName || 'Игрок #' + rid);
+          names.push(name);
+        } else {
+          names.push('ID:' + rid);
+        }
+        loaded++;
+        if (loaded === refIds.length) {
+          html += '<div style="font-size:12px;color:#666;margin-bottom:10px">Приглашено: ' + names.length + '</div>';
+          names.forEach(function(n) {
+            html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">🎣 ' + n + '</div>';
+          });
+          html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">Закрыть</button>';
+          inner.innerHTML = html;
+        }
+      });
+    });
+  });
+}
+
 function copyRefLink() {
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var uid = tgUser ? tgUser.id : 0;
@@ -2195,7 +2245,8 @@ function renderSettings() {
     +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 Пригласить друга</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Ты и друг получите по 🪙100 монет.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!</div>'
     +'<button class="btn btn-full" onclick="copyRefLink()" style="background:#1a5c2a;margin-bottom:6px">🔗 Скопировать ссылку</button>'
-    +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a">📤 Поделиться</button>'
+    +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a;margin-bottom:6px">📤 Поделиться</button>'
+    +'<button class="btn btn-full" onclick="showMyFriends()" style="background:#0a3a1a">👥 Мои друзья</button>'
     +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
