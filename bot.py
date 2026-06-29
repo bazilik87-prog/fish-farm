@@ -525,8 +525,30 @@ async def broadcast_command(message: types.Message):
         return
     await message.answer("⏳ Рассылка начата...")
     import aiohttp
+    from datetime import datetime, timezone
     try:
-        url = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+
+        # Сохраняем новость в Firebase
+        now = datetime.now(timezone.utc)
+        news_key = now.strftime('%Y%m%d_%H%M%S')
+        news_entry = {
+            'text': text,
+            'ts': int(now.timestamp() * 1000),
+            'date': now.strftime('%d.%m.%Y %H:%M')
+        }
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/news/{news_key}.json", json=news_entry)
+
+            # Оставляем только последние 5 новостей
+            async with session.get(f"{base}/news.json?orderBy=\"ts\"") as resp:
+                all_news = await resp.json()
+            if all_news and len(all_news) > 5:
+                sorted_keys = sorted(all_news.keys())
+                for old_key in sorted_keys[:-5]:
+                    await session.delete(f"{base}/news/{old_key}.json")
+
+        url = f"{base}/leaderboard.json"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()

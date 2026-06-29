@@ -127,7 +127,7 @@ if (tg) {
 // ── Данные ────────────────────────────────────────────
 var LOCATIONS = [
   {id:'pond',    name:'Пруд',    emoji:'🌿',bg:'#1a3a2a',border:'#2d6a4f',bubble:'rgba(80,200,120,.15)',cost:0,       unlocked:true, tapMult:1 },
-  {id:'river',   name:'Река',    emoji:'🏞',bg:'#0d2b45',border:'#1a6b8a',bubble:'rgba(80,160,220,.15)',cost:50000,   unlocked:false,tapMult:2 },
+  {id:'river',   name:'Река',    emoji:'🏞',bg:'#0d2b45',border:'#1a6b8a',bubble:'rgba(80,160,220,.15)',cost:100000,  unlocked:false,tapMult:2 },
   {id:'tropics', name:'Тропики', emoji:'🌴',bg:'#1a2a0a',border:'#4a8a1a',bubble:'rgba(150,220,80,.15)',cost:300000,  unlocked:false,tapMult:5 },
   {id:'deep',    name:'Глубины', emoji:'🌊',bg:'#050a2a',border:'#1a1a8a',bubble:'rgba(50,50,200,.15)', cost:1500000, unlocked:false,tapMult:15},
   {id:'space',   name:'Космос',  emoji:'🚀',bg:'#05050f',border:'#4a1a8a',bubble:'rgba(150,50,220,.15)',cost:10000000,unlocked:false,tapMult:50}
@@ -1889,6 +1889,57 @@ function checkAndApplyRefRewards(isRod2) {
   }
 }
 
+function showNews() {
+  if (!firebaseDB) {
+    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">Нет соединения</div></div>';
+    return;
+  }
+  document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div></div>';
+  firebaseDB.ref('news').orderByKey().limitToLast(5).once('value', function(snap) {
+    var data = snap.val();
+    var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+      + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📰 Новости</div>';
+    if (!data) {
+      html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
+    } else {
+      var items = Object.values(data).reverse();
+      for (var i = 0; i < items.length; i++) {
+        var n = items[i];
+        html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
+          + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
+          + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
+          + '</div>';
+      }
+    }
+    html += '</div>';
+    document.getElementById('content').innerHTML = html;
+  });
+}
+
+function checkDailyNews() {
+  if (!firebaseDB) return;
+  var today = new Date().toDateString();
+  var lastSeen = localStorage.getItem('ff_news_seen');
+  if (lastSeen === today) return;
+  firebaseDB.ref('news').orderByKey().limitToLast(1).once('value', function(snap) {
+    var data = snap.val();
+    if (!data) return;
+    var latest = Object.values(data)[0];
+    if (!latest) return;
+    localStorage.setItem('ff_news_seen', today);
+    // Показываем модальное окно
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #FFD700">'
+      + '<div style="font-size:15px;font-weight:700;color:#FFD700;margin-bottom:8px">📰 Последние новости</div>'
+      + '<div style="font-size:11px;color:#666;margin-bottom:10px">📅 ' + (latest.date||'') + '</div>'
+      + '<div style="font-size:13px;color:#fff;line-height:1.6;margin-bottom:16px">' + (latest.text||'').replace(/\n/g,'<br>') + '</div>'
+      + '<button onclick="this.parentElement.parentElement.remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Понятно 👍</button>'
+      + '</div>';
+    document.body.appendChild(modal);
+  });
+}
+
 function copyRefLink() {
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var uid = tgUser ? tgUser.id : 0;
@@ -2123,6 +2174,7 @@ function renderSettings() {
   document.getElementById('content').innerHTML=
     adminHtml
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
+    +'<button class="btn btn-full" onclick="showNews()" style="background:#1a3a5c;margin-bottom:8px;text-align:left;padding:14px">📰 Новости</button>'
     +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
     +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ Сменить имя <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||'не задано')+'</span></button>'
@@ -2544,6 +2596,7 @@ setTimeout(function() {
   loadFromFirebase(function() {
     checkPendingBoosts();
     checkNameInput();
+    setTimeout(checkDailyNews, 1500);
   });
 }, 800);
 
