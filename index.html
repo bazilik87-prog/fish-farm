@@ -1896,26 +1896,36 @@ function showNews() {
     document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">Нет соединения</div></div>';
     return;
   }
-  document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div></div>';
+  // Показываем загрузку только первый раз
+  if (!window._newsCache) {
+    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div></div>';
+  } else {
+    renderNewsHtml(window._newsCache);
+    return;
+  }
   firebaseDB.ref('news').orderByKey().limitToLast(5).once('value', function(snap) {
-    var data = snap.val();
-    var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
-      + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📰 Новости</div>';
-    if (!data) {
-      html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
-    } else {
-      var items = Object.values(data).reverse();
-      for (var i = 0; i < items.length; i++) {
-        var n = items[i];
-        html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
-          + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
-          + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
-          + '</div>';
-      }
-    }
-    html += '</div>';
-    document.getElementById('content').innerHTML = html;
+    window._newsCache = snap.val();
+    renderNewsHtml(window._newsCache);
   });
+}
+
+function renderNewsHtml(data) {
+  var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📰 Новости</div>';
+  if (!data) {
+    html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
+  } else {
+    var items = Object.values(data).reverse();
+    for (var i = 0; i < items.length; i++) {
+      var n = items[i];
+      html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
+        + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
+        + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
+        + '</div>';
+    }
+  }
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
 }
 
 function checkDailyNews() {
