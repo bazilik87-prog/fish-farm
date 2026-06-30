@@ -908,7 +908,8 @@ function renderMarket() {
   var hasFilets = Object.keys(filetGrouped2).length > 0;
 
   // Кнопка найма водителя (если есть второй разблокированный транспорт и он свободен)
-  var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== state.transport; });
+  var busyTransportId = dlv ? dlv.transportId : state.transport;
+  var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== busyTransportId; });
   if (!dlv2 && hireCandidates.length > 0 && (hasFresh||hasDried||hasFilets)) {
     html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
       +'<div style="font-size:12px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
@@ -993,7 +994,7 @@ function renderMarket() {
     html+='</div>';
 
     // Кнопка отправки
-    var busy=!!dlv;
+    var busy=!!dlv || (dlv2 && dlv2.transportId===tr.id);
     var sel=state.selectedFish;
     var isDried=!!state.selectedDried;
     var isFilet=!!state.selectedFilet;
@@ -2439,6 +2440,7 @@ function selectFish(name, dried, filet) {
 function sendDelivery() {
   if (state.delivery) return;
   var tr=getTr(), dur=getDur(tr.id);
+  if (state.delivery2 && state.delivery2.transportId === tr.id) { showNotif('🚫 Этот транспорт занят водителем!'); return; }
   if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
   var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
   if (!sel) { showNotif('Выбери что отправить!'); return; }
@@ -2501,6 +2503,7 @@ function sendDelivery() {
 }
 function hireDriver(transportId) {
   if (state.delivery2) return;
+  if (state.delivery && state.delivery.transportId === transportId) { showNotif('🚫 Этот транспорт уже занят твоей доставкой!'); return; }
   var tr2 = getTr(transportId);
   var dur2 = getDur(transportId);
   if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
