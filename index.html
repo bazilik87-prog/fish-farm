@@ -854,9 +854,10 @@ function renderMarket() {
 
   // Доставка
   if (dlv) {
+    var trD = getTr(dlv.transportId || tr.id);
     var left=Math.max(0,Math.ceil((dlv.endsAt-Date.now())/1000));
     var pct=Math.min(100,Math.round((Date.now()-dlv.startedAt)/(dlv.endsAt-dlv.startedAt)*100));
-    html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+tr.emoji+' Доставка в пути...</div>'
+    html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+trD.emoji+' Доставка в пути...</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv.count+' · Выручка: 🪙'+fmt(dlv.earnings)+'</div>'
       +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#1565c0;height:8px;border-radius:6px;width:'+pct+'%"></div></div>'
       +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left+'с</div></div>';
@@ -2491,7 +2492,7 @@ function sendDelivery() {
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   state.durability[tr.id]=Math.max(0,dur-10);
-  state.delivery={count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
+  state.delivery={transportId:tr.id,count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   state.saltOrder=0; state.knifeOrder=0;
   state.selectedFish=null; state.selectedDried=false;
   addQuestProgress('deliver', 1);
