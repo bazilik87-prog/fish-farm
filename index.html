@@ -2447,14 +2447,21 @@ function sendDelivery() {
   if (!sel) { showNotif('Выбери что отправить!'); return; }
   var toSend=[], rest=[], earn=0;
   if (isFilet) {
-    // Отправляем филе
+    // Отправляем филе (с учётом частичного забора пакетов при превышении вместимости)
     var takenF=0;
     var restFilets=[];
     for (var f=0;f<(state.filets||[]).length;f++) {
       var ff=state.filets[f];
-      if (ff.name===sel && !ff.packingEndsAt && takenF<tr.capacity) {
+      var room=tr.capacity-takenF;
+      if (ff.name===sel && !ff.packingEndsAt && room>0) {
+        var pk=ff.packets||1;
         var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mpF.cur*5*(ff.packets||1); takenF+=(ff.packets||1);
+        if (pk<=room) {
+          earn+=mpF.cur*5*pk; takenF+=pk;
+        } else {
+          earn+=mpF.cur*5*room; takenF+=room;
+          restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt});
+        }
       } else restFilets.push(ff);
     }
     if (!takenF) { showNotif('Нет филе этого вида!'); return; }
@@ -2515,9 +2522,16 @@ function hireDriver(transportId) {
     var takenF=0, restFilets=[];
     for (var f=0;f<(state.filets||[]).length;f++) {
       var ff=state.filets[f];
-      if (ff.name===sel && !ff.packingEndsAt && takenF<tr2.capacity) {
+      var room=tr2.capacity-takenF;
+      if (ff.name===sel && !ff.packingEndsAt && room>0) {
+        var pk=ff.packets||1;
         var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mpF.cur*5*(ff.packets||1); takenF+=(ff.packets||1);
+        if (pk<=room) {
+          earn+=mpF.cur*5*pk; takenF+=pk;
+        } else {
+          earn+=mpF.cur*5*room; takenF+=room;
+          restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt});
+        }
       } else restFilets.push(ff);
     }
     if (!takenF) { showNotif('Нет филе этого вида!'); return; }
