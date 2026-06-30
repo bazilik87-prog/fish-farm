@@ -2445,7 +2445,7 @@ function sendDelivery() {
   if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
   var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
   if (!sel) { showNotif('Выбери что отправить!'); return; }
-  var toSend=[], rest=[], earn=0;
+  var toSend=[], rest=[], earn=0, sentCount=0;
   if (isFilet) {
     // Отправляем филе (с учётом частичного забора пакетов при превышении вместимости)
     var takenF=0;
@@ -2466,6 +2466,7 @@ function sendDelivery() {
     }
     if (!takenF) { showNotif('Нет филе этого вида!'); return; }
     state.filets=restFilets;
+    sentCount=takenF;
   } else if (isDried) {
     // Отправляем сушёные пакеты
     var taken=0;
@@ -2477,6 +2478,7 @@ function sendDelivery() {
     }
     if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
     state.driedFish=rest;
+    sentCount=toSend.length;
   } else {
     // Отправляем свежую
     var taken2=0;
@@ -2488,6 +2490,7 @@ function sendDelivery() {
     }
     if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
     state.liveFish=rest;
+    sentCount=toSend.length;
   }
   earn=Math.round(earn*100)/100;
   var secs=delivTime(tr);
@@ -2502,7 +2505,7 @@ function sendDelivery() {
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   state.durability[tr.id]=Math.max(0,dur-10);
-  state.delivery={transportId:tr.id,count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
+  state.delivery={transportId:tr.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   state.saltOrder=0; state.knifeOrder=0;
   state.selectedFish=null; state.selectedDried=false;
   addQuestProgress('deliver', 1);
@@ -2517,7 +2520,7 @@ function hireDriver(transportId) {
   if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
   var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
   if (!sel) { showNotif('Выбери что отправить!'); return; }
-  var toSend=[], rest=[], earn=0;
+  var toSend=[], rest=[], earn=0, sentCount=0;
   if (isFilet) {
     var takenF=0, restFilets=[];
     for (var f=0;f<(state.filets||[]).length;f++) {
@@ -2536,6 +2539,7 @@ function hireDriver(transportId) {
     }
     if (!takenF) { showNotif('Нет филе этого вида!'); return; }
     state.filets=restFilets;
+    sentCount=takenF;
   } else if (isDried) {
     var taken=0;
     for (var i=0;i<state.driedFish.length;i++) {
@@ -2546,6 +2550,7 @@ function hireDriver(transportId) {
     }
     if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
     state.driedFish=rest;
+    sentCount=toSend.length;
   } else {
     var taken2=0;
     for (var j=0;j<state.liveFish.length;j++) {
@@ -2556,11 +2561,12 @@ function hireDriver(transportId) {
     }
     if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
     state.liveFish=rest;
+    sentCount=toSend.length;
   }
   earn=Math.round(earn*0.5*100)/100; // водитель забирает 50%
   var secs=delivTime(tr2);
   state.durability[tr2.id]=Math.max(0,dur2-10);
-  state.delivery2={transportId:tr2.id,count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
+  state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   showNotif('🧑‍✈️ Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   updateUI(); save();
