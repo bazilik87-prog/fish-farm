@@ -871,7 +871,7 @@ function renderMarket() {
     var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
     var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
     html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' Водитель в пути...</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−50% водителю)</span></div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−30% водителю)</span></div>'
       +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
       +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left2+'с</div></div>';
   }
@@ -914,7 +914,7 @@ function renderMarket() {
   if (!dlv2 && hireCandidates.length > 0 && (hasFresh||hasDried||hasFilets)) {
     html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
       +'<div style="font-size:12px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
-      +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">Отправь второй транспорт одновременно! Водитель забирает 50% выручки.</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">Отправь второй транспорт одновременно! Водитель забирает 30% выручки.</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap">';
     for (var hci=0;hci<hireCandidates.length;hci++) {
       var hcid = hireCandidates[hci];
@@ -2563,7 +2563,7 @@ function hireDriver(transportId) {
     state.liveFish=rest;
     sentCount=toSend.length;
   }
-  earn=Math.round(earn*0.5*100)/100; // водитель забирает 50%
+  earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
   var secs=delivTime(tr2);
   state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
