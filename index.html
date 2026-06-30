@@ -225,7 +225,7 @@ var state = {
   coins:0,caught:0,tapPower:0.1,autoPerSec:0,
   currentLoc:'pond',unlockedLocs:['pond'],
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
-  transport:'bike',delivery:null,unlockedTransports:['bike'],
+  transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,totalEarned:0,selectedFish:null,selectedDried:false,selectedFilet:false,
   drying:[],driedFish:[],
@@ -370,7 +370,7 @@ function save() {
       coins:state.coins, caught:state.caught,
       loc:state.currentLoc, ulocs:state.unlockedLocs,
       ufish:state.unlockedFish, cfish:state.caughtFish, live:state.liveFish,
-      transport:state.transport, delivery:state.delivery,
+      transport:state.transport, delivery:state.delivery, delivery2:state.delivery2,
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
       lastSeen:Date.now(), totalEarned:state.totalEarned, upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
@@ -404,6 +404,7 @@ function load() {
     state.liveFish          = s.live  || [];
     state.transport         = s.transport || 'bike';
     state.delivery          = s.delivery  || null;
+    state.delivery2         = s.delivery2 || null;
     state.unlockedTransports= s.utrans    || ['bike'];
     state.durability        = s.dur || {bike:100,moped:100,car:100,truck:100};
     state.dailyDay          = s.dailyDay  || 0;
@@ -452,6 +453,13 @@ function processOffline() {
     if (knifeArrived>0) offMsg+=' · 🔪+'+knifeArrived;
     showNotif(offMsg);
     state.delivery=null;
+  }
+  if (state.delivery2 && now>=state.delivery2.endsAt) {
+    state.coins=Math.round((state.coins+state.delivery2.earnings)*100)/100;
+    state.totalEarned=Math.round((state.totalEarned+state.delivery2.earnings)*100)/100;
+    addQuestProgress('earn', state.delivery2.earnings);
+    showNotif('🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings));
+    state.delivery2=null;
   }
   // Авто-доход за время офлайн (сеть/лодка/сонар)
   if (state.autoPerSec > 0) {
@@ -854,6 +862,20 @@ function renderMarket() {
       +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left+'с</div></div>';
   }
 
+  // Доставка водителя (delivery2)
+  var dlv2 = state.delivery2;
+  if (dlv2) {
+    var tr2 = getTr(dlv2.transportId) || tr;
+    var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
+    var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
+    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' Водитель в пути...</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−50% водителю)</span></div>'
+      +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
+      +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left2+'с</div></div>';
+  }
+
+  // Кнопка найма водителя добавится после вычисления hasFresh/hasDried/hasFilets
+
   // Транспорт
   var trBtns='';
   for (var ti=0;ti<TRANSPORTS.length;ti++) {
@@ -883,6 +905,22 @@ function renderMarket() {
     if (!ffg2.packingEndsAt) filetGrouped2[ffg2.name]=(filetGrouped2[ffg2.name]||0)+(ffg2.packets||1);
   }
   var hasFilets = Object.keys(filetGrouped2).length > 0;
+
+  // Кнопка найма водителя (если есть второй разблокированный транспорт и он свободен)
+  var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== state.transport; });
+  if (!dlv2 && hireCandidates.length > 0 && (hasFresh||hasDried||hasFilets)) {
+    html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
+      +'<div style="font-size:12px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">Отправь второй транспорт одновременно! Водитель забирает 50% выручки.</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    for (var hci=0;hci<hireCandidates.length;hci++) {
+      var hcid = hireCandidates[hci];
+      var hct = getTr(hcid);
+      var hcd = getDur(hcid);
+      html+='<button class="btn" onclick="hireDriver(\''+hcid+'\')" '+(hcd<=0?'disabled':'')+' style="background:#3a2a5c">'+hct.emoji+' '+hct.name+(hcd<=0?' 🔴':'')+'</button>';
+    }
+    html+='</div></div>';
+  }
 
   if (!hasFresh && !hasDried && !hasFilets) {
     html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
@@ -2460,6 +2498,55 @@ function sendDelivery() {
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
+function hireDriver(transportId) {
+  if (state.delivery2) return;
+  var tr2 = getTr(transportId);
+  var dur2 = getDur(transportId);
+  if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
+  var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
+  if (!sel) { showNotif('Выбери что отправить!'); return; }
+  var toSend=[], rest=[], earn=0;
+  if (isFilet) {
+    var takenF=0, restFilets=[];
+    for (var f=0;f<(state.filets||[]).length;f++) {
+      var ff=state.filets[f];
+      if (ff.name===sel && !ff.packingEndsAt && takenF<tr2.capacity) {
+        var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mpF.cur*5*(ff.packets||1); takenF+=(ff.packets||1);
+      } else restFilets.push(ff);
+    }
+    if (!takenF) { showNotif('Нет филе этого вида!'); return; }
+    state.filets=restFilets;
+  } else if (isDried) {
+    var taken=0;
+    for (var i=0;i<state.driedFish.length;i++) {
+      if (state.driedFish[i].name===sel && taken<tr2.capacity) {
+        var mp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mp.cur*3; toSend.push(state.driedFish[i]); taken++;
+      } else rest.push(state.driedFish[i]);
+    }
+    if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
+    state.driedFish=rest;
+  } else {
+    var taken2=0;
+    for (var j=0;j<state.liveFish.length;j++) {
+      if (state.liveFish[j].name===sel && taken2<tr2.capacity) {
+        var mp2=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
+        earn+=mp2.cur; toSend.push(state.liveFish[j]); taken2++;
+      } else rest.push(state.liveFish[j]);
+    }
+    if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
+    state.liveFish=rest;
+  }
+  earn=Math.round(earn*0.5*100)/100; // водитель забирает 50%
+  var secs=delivTime(tr2);
+  state.durability[tr2.id]=Math.max(0,dur2-10);
+  state.delivery2={transportId:tr2.id,count:toSend.length,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
+  state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
+  showNotif('🧑‍✈️ Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
+  updateUI(); save();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
 function repairTr(id) {
   var tr=getTr(id); if (!tr) return;
   if (state.coins<tr.repairCost) { showNotif('Не хватает монет!'); return; }
@@ -2526,7 +2613,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[]};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[]};
   for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
@@ -2549,8 +2636,7 @@ function checkDeaths() {
   }
 }
 function checkDelivery() {
-  if (!state.delivery) return;
-  if (Date.now()>=state.delivery.endsAt) {
+  if (state.delivery && Date.now()>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
@@ -2562,7 +2648,16 @@ function checkDelivery() {
     showNotif(msg);
     state.delivery=null; updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  } else if (currentTab==='market') renderMarket();
+  }
+  if (state.delivery2 && Date.now()>=state.delivery2.endsAt) {
+    state.coins=Math.round((state.coins+state.delivery2.earnings)*100)/100;
+    state.totalEarned=Math.round((state.totalEarned+state.delivery2.earnings)*100)/100;
+    addQuestProgress('earn', state.delivery2.earnings);
+    showNotif('🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings));
+    state.delivery2=null; updateUI(); save();
+    if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  }
+  if (currentTab==='market') renderMarket();
 }
 function tick() {
   try {
@@ -2629,6 +2724,7 @@ function applyState(s) {
   state.liveFish          = s.live  || [];
   state.transport         = s.transport || 'bike';
   state.delivery          = s.delivery  || null;
+  state.delivery2         = s.delivery2 || null;
   state.unlockedTransports= s.utrans    || ['bike'];
   state.durability        = s.dur || {bike:100,moped:100,car:100,truck:100};
   state.dailyDay          = s.dailyDay  || 0;
