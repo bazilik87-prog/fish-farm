@@ -1655,6 +1655,13 @@ function renderBoosts() {
       desc:'Вся текущая упаковка завершается мгновенно',
       active: false,
       timeLeft: 0
+    },
+    {
+      id:'instantDelivery', name:'Мгновенная доставка', emoji:'🚀',
+      desc:'Все активные доставки (твоя + водителя) завершаются мгновенно',
+      active: false,
+      timeLeft: 0,
+      disabled: !state.delivery && !state.delivery2
     }
   ];
 
@@ -1677,8 +1684,8 @@ function renderBoosts() {
         ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен</div>'
         : '')
       +'</div>'
-      +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+(bst.active?'disabled':'')+'>'
-      +(bst.active?'Активен':'⭐ 1')
+      +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+((bst.active||bst.disabled)?'disabled':'')+'>'
+      +(bst.active?'Активен':bst.disabled?'Нет доставок':'⭐ 1')
       +'</button>'
       +'</div>';
   }
@@ -1733,6 +1740,28 @@ function activateBoost(id) {
   }
   if (id==='luckyRod')   state.boosts.luckyRod   = now + 1800000;
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
+  if (id==='instantDelivery') {
+    var earned = 0;
+    if (state.delivery) {
+      state.coins = Math.round((state.coins + state.delivery.earnings)*100)/100;
+      state.totalEarned = Math.round((state.totalEarned + state.delivery.earnings)*100)/100;
+      addQuestProgress('earn', state.delivery.earnings);
+      var saltA = state.delivery.saltOrder||0;
+      var knifeA = state.delivery.knifeOrder||0;
+      var msg = '🚀 Доставка прибыла мгновенно! +🪙'+fmt(state.delivery.earnings);
+      if (saltA>0) { state.salt=(state.salt||0)+saltA; msg+=' · 🧂+'+saltA; }
+      if (knifeA>0) { state.knife=(state.knife||0)+knifeA; msg+=' · 🔪+'+knifeA; }
+      showNotif(msg);
+      state.delivery = null;
+    }
+    if (state.delivery2) {
+      state.coins = Math.round((state.coins + state.delivery2.earnings)*100)/100;
+      state.totalEarned = Math.round((state.totalEarned + state.delivery2.earnings)*100)/100;
+      addQuestProgress('earn', state.delivery2.earnings);
+      showNotif('🚀 Водитель прибыл мгновенно! +🪙'+fmt(state.delivery2.earnings));
+      state.delivery2 = null;
+    }
+  }
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
