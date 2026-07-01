@@ -2597,7 +2597,7 @@ function hireDriver(transportId) {
   state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
-  showNotif('🧑‍✈️ Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
+  showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
