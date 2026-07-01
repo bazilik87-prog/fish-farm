@@ -1911,7 +1911,12 @@ function activateBoost(id) {
       state.coins = Math.round((state.coins + state.delivery2.earnings)*100)/100;
       state.totalEarned = Math.round((state.totalEarned + state.delivery2.earnings)*100)/100;
       addQuestProgress('earn', state.delivery2.earnings);
-      showNotif('🚀 Водитель прибыл мгновенно! +🪙'+fmt(state.delivery2.earnings));
+      var d2saltI=state.delivery2.saltOrder||0;
+      var d2knifeI=state.delivery2.knifeOrder||0;
+      var d2msgI='🚀 Водитель прибыл мгновенно! +🪙'+fmt(state.delivery2.earnings);
+      if (d2saltI>0) { state.salt=(state.salt||0)+d2saltI; d2msgI+=' · 🧂+'+d2saltI; }
+      if (d2knifeI>0) { state.knife=(state.knife||0)+d2knifeI; d2msgI+=' · 🔪+'+d2knifeI; }
+      showNotif(d2msgI);
       state.delivery2 = null;
     }
   }
