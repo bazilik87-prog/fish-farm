@@ -99,7 +99,6 @@ html{overflow-x:hidden;width:100%}
   <div class="tab" onclick="showTab('aquarium')">🐠</div>
   <div class="tab" onclick="showTab('kitchen')">🍳</div>
   <div class="tab" onclick="showTab('market')">🏪</div>
-  <div class="tab" onclick="showTab('driver')">🧑‍✈️</div>
   <div class="tab" onclick="showTab('daily')">🎁</div>
   <div class="tab" onclick="showTab('quests')">📋</div>
   <div class="tab" onclick="showTab('boosts')">⚡</div>
@@ -685,7 +684,7 @@ function showTab(tab) {
   currentTab=tab;
   if (tab==='leaders') leadersLoaded=false;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','driver','daily','quests','boosts','leaders','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -847,6 +846,7 @@ function bulkSell(type) {
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function renderMarket() {
+  if (state.marketSubpage === 'driver') { renderDriver(); return; }
   var tr=getTr(), dlv=state.delivery;
   var next=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000));
   var grouped={};
@@ -857,7 +857,12 @@ function renderMarket() {
   var dur=getDur(tr.id), broken=dur<=0;
   var dt=delivTime(tr);
 
-  var html='<div class="card" style="display:flex;justify-content:space-between;align-items:center">'
+  var dlv2 = state.delivery2;
+  var html='<div style="display:flex;gap:6px;margin-bottom:8px">'
+    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#1565c0;font-size:13px">🏪 Рынок</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🧑‍✈️ Водитель'+(dlv2?' ●':'')+'</button>'
+    +'</div>';
+  html+='<div class="card" style="display:flex;justify-content:space-between;align-items:center">'
     +'<span style="font-size:12px;color:#90caf9">🏪 Рынок рыбы</span>'
     +'<span style="font-size:11px;color:#666">Цены через <b id="mkt-timer" style="color:#FFD700">'+next+'с</b></span></div>';
 
@@ -873,7 +878,6 @@ function renderMarket() {
   }
 
   // Доставка водителя (delivery2)
-  var dlv2 = state.delivery2;
   if (dlv2) {
     var tr2 = getTr(dlv2.transportId) || tr;
     var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
@@ -1620,7 +1624,10 @@ function renderQuests() {
 function renderDriver() {
   var dlv = state.delivery;
   var dlv2 = state.delivery2;
-  var html = '';
+  var html = '<div style="display:flex;gap:6px;margin-bottom:8px">'
+    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🏪 Рынок</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderDriver()" style="flex:1;background:#6a4fc2;font-size:13px">🧑‍✈️ Водитель'+(dlv2?' ●':'')+'</button>'
+    +'</div>';
 
   // Доставка водителя если в пути
   if (dlv2) {
@@ -2781,6 +2788,7 @@ function sendDriverDelivery() {
   // Сбрасываем состояние водителя
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
+  state.marketSubpage=null;
   showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   showTab('market'); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
