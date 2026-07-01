@@ -99,6 +99,7 @@ html{overflow-x:hidden;width:100%}
   <div class="tab" onclick="showTab('aquarium')">🐠</div>
   <div class="tab" onclick="showTab('kitchen')">🍳</div>
   <div class="tab" onclick="showTab('market')">🏪</div>
+  <div class="tab" onclick="showTab('driver')">🧑‍✈️</div>
   <div class="tab" onclick="showTab('daily')">🎁</div>
   <div class="tab" onclick="showTab('quests')">📋</div>
   <div class="tab" onclick="showTab('boosts')">⚡</div>
@@ -682,9 +683,9 @@ function checkNameInput() {
 
 function showTab(tab) {
   currentTab=tab;
-  if (tab==='leaders') leadersLoaded=false; // сбрасываем чтобы перезагрузить
+  if (tab==='leaders') leadersLoaded=false;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','driver','daily','quests','boosts','leaders','locations','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -694,6 +695,7 @@ function renderContent() {
   else if (currentTab==='kitchen') renderKitchen();
   else if (currentTab==='bank') renderBank();
   else if (currentTab==='market') renderMarket();
+  else if (currentTab==='driver') renderDriver();
   else if (currentTab==='daily') renderDaily();
   else if (currentTab==='quests') renderQuests();
   else if (currentTab==='boosts') renderBoosts();
@@ -914,30 +916,8 @@ function renderMarket() {
   }
   var hasFilets = Object.keys(filetGrouped2).length > 0;
 
-  // Блок найма водителя
-  var busyTransportId = dlv ? dlv.transportId : state.transport;
-  var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== busyTransportId; });
-  if (!dlv2 && hireCandidates.length > 0 && (hasFresh||hasDried||hasFilets)) {
-    html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
-      +'<div style="font-size:12px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
-      +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">Отправь второй транспорт одновременно! Водитель забирает 30% выручки.</div>'
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    for (var hci=0;hci<hireCandidates.length;hci++) {
-      var hcid = hireCandidates[hci];
-      var hct = getTr(hcid);
-      var hcd = getDur(hcid);
-      var isDriverSelected = state.driverTransport === hcid;
-      html+='<button class="btn" onclick="selectDriverTransport(\''+hcid+'\')" '+(hcd<=0?'disabled':'')+' style="background:'+(isDriverSelected?'#6a4fc2':'#3a2a5c')+';border:1.5px solid '+(isDriverSelected?'#b794f6':'transparent')+'">'
-        +hct.emoji+' '+hct.name+(isDriverSelected?' ✓':'')+(hcd<=0?' 🔴':'')+'</button>';
-    }
-    html+='</div></div>';
+  // Кнопка водителя убрана в отдельную вкладку 🧑‍✈️
 
-    // Блок выбора рыбы для водителя (если транспорт выбран)
-    if (state.driverTransport) {
-      var dtr = getTr(state.driverTransport);
-      var ddt = delivTime(state.driverTransport);
-    }
-  }
 
   if (!hasFresh && !hasDried && !hasFilets) {
     html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
@@ -1065,16 +1045,6 @@ function renderMarket() {
     html+='<button class="btn btn-full '+((!busy&&!broken&&sel&&selCnt)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel||!selCnt)?'disabled':'')+'>'
       +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':sel&&selCnt?tr.emoji+' Отправить':'Выбери что отправить')
       +'</button>';
-
-    // Кнопка водителя если транспорт выбран
-    if (state.driverTransport && !dlv2) {
-      var dtr2=getTr(state.driverTransport);
-      var driverBroken2=getDur(state.driverTransport)<=0;
-      var driverBusy2=dlv2&&dlv2.transportId===state.driverTransport;
-      html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBusy2||driverBroken2||!sel||!selCnt)?'disabled':'')+' style="background:'+(sel&&selCnt&&!driverBroken2?'#6a4fc2':'#2a1a4a')+';color:#fff;margin-top:6px">'
-        +(driverBroken2?'🔴 Водитель — сломан':sel&&selCnt?dtr2.emoji+' Отправить водителя':'Выбери что везёт водитель')
-        +'</button>';
-    }
     html+='</div>';
   }
 
@@ -1646,6 +1616,157 @@ function renderQuests() {
     +'Квесты обновляются каждый день в полночь. Выполняй их чтобы получать монеты!</div>';
 
   document.getElementById('content').innerHTML=html;
+}
+function renderDriver() {
+  var dlv = state.delivery;
+  var dlv2 = state.delivery2;
+  var html = '';
+
+  // Доставка водителя если в пути
+  if (dlv2) {
+    var tr2 = getTr(dlv2.transportId);
+    var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
+    var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
+    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' Водитель в пути...</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−30% водителю)</span></div>'
+      +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
+      +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left2+'с</div></div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  // Выбор транспорта для водителя
+  var busyTransportId = dlv ? dlv.transportId : state.transport;
+  var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== busyTransportId; });
+
+  html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
+    +'<div style="font-size:14px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Отправь второй транспорт одновременно! Водитель забирает 30% выручки.</div>';
+
+  if (hireCandidates.length === 0) {
+    html+='<div style="color:#666;font-size:12px">Нет доступных транспортов для водителя</div>';
+  } else {
+    html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
+    for (var hci=0;hci<hireCandidates.length;hci++) {
+      var hcid=hireCandidates[hci];
+      var hct=getTr(hcid);
+      var hcd=getDur(hcid);
+      var isDriverSelected=state.driverTransport===hcid;
+      html+='<button class="btn" onclick="selectDriverTransport(\''+hcid+'\')" '+(hcd<=0?'disabled':'')+' style="background:'+(isDriverSelected?'#6a4fc2':'#3a2a5c')+';border:1.5px solid '+(isDriverSelected?'#b794f6':'transparent')+'">'
+        +hct.emoji+' '+hct.name+(isDriverSelected?' ✓':'')+(hcd<=0?' 🔴':'')+'</button>';
+    }
+    html+='</div>';
+  }
+  html+='</div>';
+
+  if (!state.driverTransport) {
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  // Транспорт выбран — показываем выбор рыбы
+  var dtr=getTr(state.driverTransport);
+  var ddt=delivTime(state.driverTransport);
+
+  // Группируем рыбу
+  var grouped={}, driedGrouped={}, filetGrouped2={};
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
+  for (var k=0;k<(state.filets||[]).length;k++) { var ff=state.filets[k]; if (!ff.packingEndsAt) filetGrouped2[ff.name]=(filetGrouped2[ff.name]||0)+(ff.packets||1); }
+  var hasFresh=Object.keys(grouped).length>0;
+  var hasDried=Object.keys(driedGrouped).length>0;
+  var hasFilets=Object.keys(filetGrouped2).length>0;
+
+  html+='<div class="card" style="background:#0d1428">';
+  html+='<div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:10px">📦 Выбери что везёт водитель:</div>';
+
+  if (!hasFresh && !hasDried && !hasFilets) {
+    html+='<div style="color:#666;text-align:center;padding:20px">Нет рыбы на складе</div>';
+  } else {
+    if (hasFresh) {
+      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 Свежая рыба:</div>';
+      for (var fn in grouped) {
+        var fcnt=grouped[fn], fdef=null;
+        for (var fi=0;fi<ALL_FISH.length;fi++) if(ALL_FISH[fi].name===fn) fdef=ALL_FISH[fi];
+        var fmp=marketPrices[fn]||{cur:BASE_PRICES[fn]||1};
+        var fsend=Math.min(fcnt,dtr.capacity);
+        var fearn=Math.round(fmp.cur*fsend*0.7*100)/100;
+        var isSel=state.selectedDriverFish===fn&&!state.selectedDriverDried&&!state.selectedDriverFilet;
+        html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
+          +'<span style="font-size:22px">'+(fdef?fdef.emoji:'🐟')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(fearn)+' твоя · '+fsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +(isSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
+      }
+    }
+    if (hasDried) {
+      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 Сушёная рыба:</div>';
+      for (var dnn in driedGrouped) {
+        var dcnt=driedGrouped[dnn], dddef=null;
+        for (var ddi=0;ddi<ALL_FISH.length;ddi++) if(ALL_FISH[ddi].name===dnn) dddef=ALL_FISH[ddi];
+        var ddmp=marketPrices[dnn]||{cur:BASE_PRICES[dnn]||1};
+        var ddsend=Math.min(dcnt,dtr.capacity);
+        var ddearn=Math.round(ddmp.cur*ddsend*3*0.7*100)/100;
+        var isDrySel=state.selectedDriverFish===dnn&&state.selectedDriverDried;
+        html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
+          +'<span style="font-size:22px">'+(dddef?dddef.emoji:'📦')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dnn+' сушёная <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ddearn)+' твоя · '+ddsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +(isDrySel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
+      }
+    }
+    if (hasFilets) {
+      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 Филе рыбы:</div>';
+      for (var ffn in filetGrouped2) {
+        var ffcnt=filetGrouped2[ffn], ffdef=null;
+        for (var ffi=0;ffi<ALL_FISH.length;ffi++) if(ALL_FISH[ffi].name===ffn) ffdef=ALL_FISH[ffi];
+        var ffmp=marketPrices[ffn]||{cur:BASE_PRICES[ffn]||1};
+        var ffsend=Math.min(ffcnt,dtr.capacity);
+        var ffearn=Math.round(ffmp.cur*ffsend*5*0.7*100)/100;
+        var isFiletSel=state.selectedDriverFish===ffn&&state.selectedDriverFilet;
+        html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
+          +'<span style="font-size:22px">'+(ffdef?ffdef.emoji:'🍱')+'</span>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+ffn+' филе <span class="badge">x'+ffcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ffearn)+' твоя · '+ffsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +(isFiletSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
+      }
+    }
+  }
+
+  // Соль и ножи
+  var dSel=state.selectedDriverFish;
+  var dIsDried=!!state.selectedDriverDried;
+  var dIsFilet=!!state.selectedDriverFilet;
+  if (dSel) {
+    var dSaltPrice=SALT_PRICE[state.currentLoc]||1;
+    var dCurSalt=state.driverSaltOrder||0;
+    var dSaltCost=dCurSalt*dSaltPrice;
+    var dKnifePrice=KNIFE_PRICE[state.currentLoc]||3;
+    var dCurKnife=state.driverKnifeOrder||0;
+    var dKnifeCost=dCurKnife*dKnifePrice;
+    html+='<div style="background:#0a0a1e;border-radius:8px;padding:10px;margin-top:8px;margin-bottom:10px">'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 Соль на обратный путь:</div>'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      +'<button class="btn" onclick="changeDriverSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
+      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurSalt+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(dSaltCost)+'</span></div>'
+      +'<button class="btn" onclick="changeDriverSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+      +'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 Ножи на обратный путь:</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<button class="btn" onclick="changeDriverKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
+      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurKnife+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(dKnifeCost)+'</span></div>'
+      +'<button class="btn" onclick="changeDriverKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+      +'</div></div>';
+  }
+
+  // Кнопка отправки
+  var driverBroken=getDur(state.driverTransport)<=0;
+  html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBroken||!dSel)?'disabled':'')+' style="background:'+(dSel&&!driverBroken?'#6a4fc2':'#2a1a4a')+';color:#fff">'
+    +(driverBroken?'🔴 Сломан — почини':dSel?dtr.emoji+' Отправить водителя':'Выбери что везёт водитель')
+    +'</button>';
+  html+='</div>';
+
+  document.getElementById('content').innerHTML = html;
 }
 function renderBoosts() {
   var now = Date.now();
@@ -2577,7 +2698,7 @@ function selectDriverTransport(id) {
     state.driverSaltOrder = 0;
     state.driverKnifeOrder = 0;
   }
-  renderMarket();
+  renderDriver();
 }
 function selectDriverFish(name, dried, filet) {
   if (state.selectedDriverFish===name && !!state.selectedDriverDried===!!dried && !!state.selectedDriverFilet===!!filet) {
@@ -2585,17 +2706,17 @@ function selectDriverFish(name, dried, filet) {
   } else {
     state.selectedDriverFish=name; state.selectedDriverDried=!!dried; state.selectedDriverFilet=!!filet;
   }
-  renderMarket();
+  renderDriver();
 }
 function changeDriverSaltOrder(delta) {
   var dtr=getTr(state.driverTransport);
   state.driverSaltOrder=Math.max(0,Math.min(dtr.capacity,(state.driverSaltOrder||0)+delta));
-  renderMarket();
+  renderDriver();
 }
 function changeDriverKnifeOrder(delta) {
   var dtr=getTr(state.driverTransport);
   state.driverKnifeOrder=Math.max(0,Math.min(dtr.capacity,(state.driverKnifeOrder||0)+delta));
-  renderMarket();
+  renderDriver();
 }
 function sendDriverDelivery() {
   if (state.delivery2) return;
@@ -2661,7 +2782,7 @@ function sendDriverDelivery() {
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
-  updateUI(); save();
+  showTab('market'); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function hireDriver(transportId) {
