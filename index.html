@@ -2733,7 +2733,7 @@ function sendDriverDelivery() {
   var tr2 = getTr(transportId);
   var dur2 = getDur(transportId);
   if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
-  var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
+  var sel=state.selectedDriverFish, isDried=!!state.selectedDriverDried, isFilet=!!state.selectedDriverFilet;
   if (!sel) { showNotif('Выбери что отправить!'); return; }
   var toSend=[], rest=[], earn=0, sentCount=0;
   if (isFilet) {
@@ -2787,7 +2787,6 @@ function sendDriverDelivery() {
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   // Сбрасываем состояние водителя
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.driverSaltOrder=0; state.driverKnifeOrder=0;
-  state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   state.marketSubpage=null;
   showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   showTab('market'); save();
