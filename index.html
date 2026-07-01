@@ -1666,7 +1666,7 @@ function renderDriver() {
 
   // Транспорт выбран — показываем выбор рыбы
   var dtr=getTr(state.driverTransport);
-  var ddt=delivTime(state.driverTransport);
+  var ddt=delivTime(dtr);
 
   // Группируем рыбу
   var grouped={}, driedGrouped={}, filetGrouped2={};
