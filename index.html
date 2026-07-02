@@ -565,7 +565,7 @@ function showNotif(msg, dead) {
   var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
                   msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
                   msg.indexOf('🧂') >= 0 || msg.indexOf('🎉') >= 0 || msg.indexOf('🎁') >= 0 ||
-                  msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || dead;
+                  msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 || dead;
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
@@ -1995,6 +1995,21 @@ function exchangeCoins() {
           state.coins=Math.round((state.coins-amount)*100)/100;
           showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! TON Fish придут в течение 24ч', true);
           updateUI(); save();
+          // Начисляем рефереру 50% от суммы вывода
+          if (userId && firebaseDB) {
+            firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
+              var referrerId = snap.val();
+              if (!referrerId) return;
+              var bonus = Math.round(amount * 0.5 * 100) / 100;
+              var key = 'ref_bonus_' + userId + '_' + Date.now();
+              var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+              var fromName = (tgUser && (tgUser.username || tgUser.first_name)) || ('ID:' + userId);
+              firebaseDB.ref('ref_bonuses/tg_' + referrerId + '/' + key).set({
+                amount: bonus,
+                from: fromName
+              });
+            });
+          }
         }
       });
     } else { showNotif('Ошибка: нет ссылки'); }
@@ -2094,6 +2109,28 @@ function checkAndApplyRefRewards(isRod2) {
         firebaseDB.ref('pending_rewards/' + pid).remove();
         updateUI(); save();
       }
+    }
+  });
+
+  // Получаем реферальные бонусы
+  firebaseDB.ref('ref_bonuses/' + pid).once('value', function(snap) {
+    var bonuses = snap.val();
+    if (!bonuses) return;
+    var keys = Object.keys(bonuses);
+    if (!keys.length) return;
+    var totalBonus = 0;
+    keys.forEach(function(k) {
+      var b = bonuses[k];
+      var amt = b.amount || 0;
+      var from = b.from || '?';
+      totalBonus += amt;
+      showNotif('👥 Реферальный бонус от ' + from + ': +🪙' + fmt(amt));
+    });
+    if (totalBonus > 0) {
+      state.coins = Math.round((state.coins + totalBonus) * 100) / 100;
+      state.totalEarned = Math.round((state.totalEarned + totalBonus) * 100) / 100;
+      firebaseDB.ref('ref_bonuses/' + pid).remove();
+      updateUI(); save();
     }
   });
 
@@ -2524,7 +2561,12 @@ function showInstructions() {
     +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!<br><br>'
     +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.<br><br>'
-    +'<b style="color:#fff">👥 Реферальная программа</b><br>Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.<br>🎁 Ты и друг получите по 🪙100 монет при регистрации<br>🎁 Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000<br>В разделе «Мои друзья» можно видеть кто уже присоединился!<br><br>'
+    +'<b style="color:#fff">👥 Реферальная программа</b><br>Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.<br><br>'
+    +'🎁 <b style="color:#FFD700">Бонус при регистрации</b> — ты и друг получите по 🪙100 монет<br>'
+    +'🎁 <b style="color:#FFD700">Бонус за активность</b> — когда друг купит удочку ур.2 — ты получишь ещё 🪙1000<br>'
+    +'💰 <b style="color:#FFD700">Постоянный бонус</b> — каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 50% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙250 прямо на баланс<br><br>'
+    +'Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.<br>'
+    +'В разделе «Мои друзья» можно видеть кто уже присоединился!<br><br>'
     +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars:<br>'
     +'⚡ Авто-буст — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
     +'🌡 Мгновенная сушка — все текущие пакеты досушиваются мгновенно<br>'
