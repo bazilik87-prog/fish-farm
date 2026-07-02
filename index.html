@@ -2586,7 +2586,7 @@ function buyUpgrade(id) {
 function notifyRefContestNetPurchase() {
   if (!userId || !firebaseDB) return;
   // Проверяем есть ли реферер
-  firebaseDB.ref('referrals/used/tg_' + userId).once('value', function(snap) {
+  firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
     var referrerId = snap.val();
     if (!referrerId) return;
     // Проверяем не засчитали ли уже
