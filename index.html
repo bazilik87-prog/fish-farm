@@ -1902,8 +1902,8 @@ function activateBoost(id) {
       var saltA = state.delivery.saltOrder||0;
       var knifeA = state.delivery.knifeOrder||0;
       var msg = '🚀 Доставка прибыла мгновенно! +🪙'+fmt(state.delivery.earnings);
-      if (saltA>0) { state.salt=(state.salt||0)+saltA; msg+=' · 🧂+'+saltA; }
-      if (knifeA>0) { state.knife=(state.knife||0)+knifeA; msg+=' · 🔪+'+knifeA; }
+      if (saltA>0) { state.salt=(state.salt||0)+saltA; addQuestProgress('buysalt', saltA); msg+=' · 🧂+'+saltA; }
+      if (knifeA>0) { state.knife=(state.knife||0)+knifeA; addQuestProgress('buyknife', knifeA); msg+=' · 🔪+'+knifeA; }
       showNotif(msg);
       state.delivery = null;
     }
@@ -1914,8 +1914,8 @@ function activateBoost(id) {
       var d2saltI=state.delivery2.saltOrder||0;
       var d2knifeI=state.delivery2.knifeOrder||0;
       var d2msgI='🚀 Водитель прибыл мгновенно! +🪙'+fmt(state.delivery2.earnings);
-      if (d2saltI>0) { state.salt=(state.salt||0)+d2saltI; d2msgI+=' · 🧂+'+d2saltI; }
-      if (d2knifeI>0) { state.knife=(state.knife||0)+d2knifeI; d2msgI+=' · 🔪+'+d2knifeI; }
+      if (d2saltI>0) { state.salt=(state.salt||0)+d2saltI; addQuestProgress('buysalt', d2saltI); d2msgI+=' · 🧂+'+d2saltI; }
+      if (d2knifeI>0) { state.knife=(state.knife||0)+d2knifeI; addQuestProgress('buyknife', d2knifeI); d2msgI+=' · 🔪+'+d2knifeI; }
       showNotif(d2msgI);
       state.delivery2 = null;
     }
