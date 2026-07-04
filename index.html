@@ -72,6 +72,7 @@ html{overflow-x:hidden;width:100%}
 </style>
 </head>
 <body>
+<div id="sky" style="height:60px;transition:background 2s ease"></div>
 <div id="ocean" ontouchstart="tapOcean(event)" onclick="tapOcean(event)">
   <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
@@ -387,12 +388,19 @@ function loadWeather() {
   });
 }
 
+var SKY_COLORS = {
+  sunny:   'linear-gradient(180deg, #87CEEB 0%, #b8e4f9 60%, #d4f1ff 100%)',
+  cloudy:  'linear-gradient(180deg, #8899aa 0%, #aabbcc 60%, #c8d8e8 100%)',
+  rain:    'linear-gradient(180deg, #445566 0%, #667788 60%, #8899aa 100%)',
+  storm:   'linear-gradient(180deg, #1a1a2e 0%, #2d2d44 60%, #3a3a5c 100%)',
+  perfect: 'linear-gradient(180deg, #ff9a3c 0%, #ffb347 40%, #ffe066 100%)',
+};
+
 function updateWeatherUI() {
   var el = document.getElementById('weather-indicator');
-  if (el) {
-    var msLeft = weatherEndsAt - Date.now();
-    el.textContent = currentWeather.emoji + ' ' + currentWeather.name;
-  }
+  if (el) el.textContent = currentWeather.emoji + ' ' + currentWeather.name;
+  var sky = document.getElementById('sky');
+  if (sky) sky.style.background = SKY_COLORS[currentWeather.id] || SKY_COLORS.sunny;
   if (Date.now() > weatherEndsAt && weatherEndsAt > 0) loadWeather();
 }
 
