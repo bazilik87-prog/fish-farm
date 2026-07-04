@@ -23,18 +23,20 @@ CORS = {
 }
 
 BOOST_NAMES = {
-    'doubleTap':   'Auto Boost +2 auto income per minute for 1 hour',
-    'turboDry':    'Instant Dry - all drying packets finish instantly',
-    'luckyRod':    'Lucky Rod +50pct for 30min',
-    'turboSpeed':  'Turbo Speed x2 transport speed for 1 hour',
-    'turboPack':   'Instant Packing - all packing finishes instantly',
+    'doubleTap':       'Auto Boost +2 auto income per minute for 1 hour',
+    'turboDry':        'Instant Dry - all drying packets finish instantly',
+    'luckyRod':        'Lucky Rod +50pct for 30min',
+    'turboSpeed':      'Turbo Speed x2 transport speed for 1 hour',
+    'turboPack':       'Instant Packing - all packing finishes instantly',
+    'instantDelivery': 'Instant Delivery - all active deliveries finish instantly',
 }
 BOOST_LABELS = {
-    'doubleTap':  '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
-    'turboDry':   '🌡 Мгновенная сушка',
-    'luckyRod':   '🎣 Удачная рыбалка',
-    'turboSpeed': '🏎 Турбо скорость',
-    'turboPack':  '📦 Мгновенная упаковка',
+    'doubleTap':       '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
+    'turboDry':        '🌡 Мгновенная сушка',
+    'luckyRod':        '🎣 Удачная рыбалка',
+    'turboSpeed':      '🏎 Турбо скорость',
+    'turboPack':       '📦 Мгновенная упаковка',
+    'instantDelivery': '🚀 Мгновенная доставка',
 }
 
 SUPPORT_GROUP_ID = -5478312122
