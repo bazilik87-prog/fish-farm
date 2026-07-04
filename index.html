@@ -254,7 +254,7 @@ var weatherEndsAt = 0;
 var WEATHER_DURATION = 30 * 60 * 1000; // 30 минут
 
 // ── Редкая рыба ───────────────────────────────────────
-var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 50, life: 0.33}; // цена 50🪙, живёт 10мин
+var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 25, life: 0.33}; // цена 25🪙, живёт 10мин
 var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
 var RARE_FISH_DURATION = 10 * 60 * 1000;     // живёт 10 минут
 var rareFishActive = false;
@@ -722,7 +722,7 @@ function showNotif(msg, dead) {
   // Сохраняем важные уведомления в историю
   var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
                   msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
-                  msg.indexOf('🧂') >= 0 || msg.indexOf('🎉') >= 0 || msg.indexOf('🎁') >= 0 ||
+                  msg.indexOf('🧂') >= 0 || msg.indexOf('🎁') >= 0 ||
                   msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 || dead;
   if (important) {
     var time = new Date();
@@ -2697,7 +2697,7 @@ function showInstructions() {
     '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
-    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа в пруду появляется редкая Осетрина — она живёт 10 минут! При тапе есть шанс 15% поймать её за 🪙50. Следи за иконкой 🫍 под процентом улова!<br><br>'
+    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа в пруду появляется редкая Осетрина — в течение 10 минут её можно поймать! При тапе есть шанс 15% — и ты сразу получишь 🪙25. Следи за иконкой 🫍 под процентом улова!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
     +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
     +'<b style="color:#fff">🌤 Погода</b><br>Каждые 30 минут погода меняется для всех игроков одновременно!<br>'
