@@ -77,7 +77,7 @@ html{overflow-x:hidden;width:100%}
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
   <div id="mood-label" style="position:absolute;top:10px;right:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);pointer-events:none"></div>
   <div id="weather-indicator" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.3);padding:3px 10px;border-radius:10px;pointer-events:none">☀️ Ясно</div>
-  <div id="rare-fish-indicator" style="display:none;position:absolute;bottom:32px;left:50%;transform:translateX(-50%);font-size:12px;color:#FFD700;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:10px;pointer-events:none;font-weight:600;border:1px solid #FFD700"></div>
+  <div id="rare-fish-indicator" style="display:none;position:absolute;top:28px;right:12px;font-size:18px;pointer-events:none"></div>
 </div>
 <div id="bank-banner" onclick="showTab('bank')" style="background:linear-gradient(135deg,#0a2a5a,#1565c0,#0a3d6b);margin:0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
@@ -254,9 +254,9 @@ var weatherEndsAt = 0;
 var WEATHER_DURATION = 30 * 60 * 1000; // 30 минут
 
 // ── Редкая рыба ───────────────────────────────────────
-var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 50, life: 0.33}; // цена 50🪙, живёт 20мин
+var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 50, life: 0.33}; // цена 50🪙, живёт 10мин
 var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
-var RARE_FISH_DURATION = 20 * 60 * 1000;     // живёт 20 минут
+var RARE_FISH_DURATION = 10 * 60 * 1000;     // живёт 10 минут
 var rareFishActive = false;
 var rareFishEndsAt = 0;
 var rareFishNextAt = 0;
@@ -330,13 +330,12 @@ function updateRareFishUI() {
   var el = document.getElementById('rare-fish-indicator');
   if (!el) return;
   if (rareFishActive) {
-    var left = Math.max(0, Math.ceil((rareFishEndsAt - Date.now()) / 1000));
-    var mins = Math.floor(left/60), secs = left%60;
     el.style.display = 'block';
-    el.textContent = '🫍 Осетрина в пруду! ' + mins + ':' + (secs<10?'0':'')+secs;
+    el.textContent = '🫍';
   } else {
     el.style.display = 'none';
   }
+  if (Date.now() > rareFishEndsAt && rareFishEndsAt > 0) loadRareFish();
 }
 
 var PRICE_INTERVAL = 30000;
@@ -391,12 +390,7 @@ function updateWeatherUI() {
   var el = document.getElementById('weather-indicator');
   if (el) {
     var msLeft = weatherEndsAt - Date.now();
-    var timeStr = '';
-    if (msLeft > 0) {
-      var minsLeft = Math.ceil(msLeft / 60000);
-      timeStr = minsLeft >= 60 ? Math.ceil(minsLeft/60) + 'ч' : minsLeft + 'м';
-    }
-    el.textContent = currentWeather.emoji + ' ' + currentWeather.name + (timeStr ? ' · ' + timeStr : '');
+    el.textContent = currentWeather.emoji + ' ' + currentWeather.name;
   }
   if (Date.now() > weatherEndsAt && weatherEndsAt > 0) loadWeather();
 }
@@ -2703,7 +2697,7 @@ function showInstructions() {
     '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
-    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа в пруду появляется редкая Осетрина — она живёт 20 минут! При тапе есть шанс 15% поймать её за 🪙50. Следи за золотым баннером на экране рыбалки!<br><br>'
+    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа в пруду появляется редкая Осетрина — она живёт 10 минут! При тапе есть шанс 15% поймать её за 🪙50. Следи за иконкой 🫍 под процентом улова!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
     +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
     +'<b style="color:#fff">🌤 Погода</b><br>Каждые 30 минут погода меняется для всех игроков одновременно!<br>'
@@ -2782,7 +2776,6 @@ function tapOcean(e) {
     state.totalEarned = Math.round((state.totalEarned + rareEarned)*100)/100;
     state.caught++;
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
-    state.liveFish.push({name:RARE_FISH.name, emoji:RARE_FISH.emoji, dieAt:Date.now()+RARE_FISH.life*3600000});
     addQuestProgress('catch', 1);
     spawnAnim(x,y,RARE_FISH.emoji,'🎉 +'+rareEarned+'!');
     showNotif('🎉 Поймал Осетрину! +🪙'+rareEarned);
