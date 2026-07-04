@@ -116,6 +116,7 @@ var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsa
 if (tg) {
   tg.ready();
   tg.expand();
+  if (tg.requestFullscreen) tg.requestFullscreen();
   // Активируем буст при возврате в игру после оплаты через бота
   tg.onEvent('invoiceClosed', function(data) {
     if (data && data.status === 'paid' && data.url) {
