@@ -76,6 +76,8 @@ html{overflow-x:hidden;width:100%}
   <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
   <div id="mood-label" style="position:absolute;top:10px;right:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);pointer-events:none"></div>
+  <div id="weather-indicator" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.3);padding:3px 10px;border-radius:10px;pointer-events:none">☀️ Ясно</div>
+  <div id="rare-fish-indicator" style="display:none;position:absolute;bottom:32px;left:50%;transform:translateX(-50%);font-size:12px;color:#FFD700;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:10px;pointer-events:none;font-weight:600;border:1px solid #FFD700"></div>
 </div>
 <div id="bank-banner" onclick="showTab('bank')" style="background:linear-gradient(135deg,#0a2a5a,#1565c0,#0a3d6b);margin:0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
@@ -239,7 +241,166 @@ var state = {
 
 var marketPrices = {};
 var lastPriceUpdate = 0;
+var WEATHER_TYPES = [
+  {id:'sunny',    emoji:'☀️',  name:'Ясно',          catchMult:1.0,  priceMult:1.0,  weight:25},
+  {id:'cloudy',   emoji:'🌥',  name:'Облачно',        catchMult:0.9,  priceMult:1.1,  weight:30},
+  {id:'rain',     emoji:'🌧',  name:'Дождь',          catchMult:0.75, priceMult:1.25, weight:25},
+  {id:'storm',    emoji:'⛈',  name:'Шторм',          catchMult:0.6,  priceMult:1.5,  weight:10},
+  {id:'perfect',  emoji:'🌟',  name:'Отличный клёв!', catchMult:1.3,  priceMult:0.9,  weight:10},
+];
+var currentWeather = WEATHER_TYPES[0];
+var weatherEndsAt = 0;
+var WEATHER_DURATION = 30 * 60 * 1000; // 30 минут
+
+// ── Редкая рыба ───────────────────────────────────────
+var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 50, life: 0.33}; // цена 50🪙, живёт 20мин
+var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
+var RARE_FISH_DURATION = 20 * 60 * 1000;     // живёт 20 минут
+var rareFishActive = false;
+var rareFishEndsAt = 0;
+var rareFishNextAt = 0;
+
+function loadRareFish() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('rare_fish').once('value', function(snap) {
+    var d = snap.val();
+    var now = Date.now();
+    if (!d) {
+      // Первый раз — планируем первое появление через 2 часа
+      rareFishNextAt = now + RARE_FISH_INTERVAL;
+      firebaseDB.ref('rare_fish').set({nextAt: rareFishNextAt, active: false, endsAt: 0});
+      return;
+    }
+    rareFishNextAt = d.nextAt || 0;
+    rareFishEndsAt = d.endsAt || 0;
+    if (d.active && rareFishEndsAt > now) {
+      rareFishActive = true;
+      showNotif('🫍 Осетрина в пруду! Успей поймать!');
+      updateRareFishUI();
+    } else if (!d.active && now >= rareFishNextAt) {
+      // Время появиться!
+      spawnRareFish();
+    }
+  });
+  // Слушаем изменения
+  firebaseDB.ref('rare_fish').on('value', function(snap) {
+    var d = snap.val();
+    if (!d) return;
+    var now = Date.now();
+    var wasActive = rareFishActive;
+    rareFishActive = d.active && d.endsAt > now;
+    rareFishEndsAt = d.endsAt || 0;
+    rareFishNextAt = d.nextAt || 0;
+    if (!wasActive && rareFishActive) {
+      showNotif('🫍 Редкая рыба появилась! Осетрина в пруду!');
+    }
+    updateRareFishUI();
+  });
+}
+
+function spawnRareFish() {
+  if (!firebaseDB) return;
+  var now = Date.now();
+  var endsAt = now + RARE_FISH_DURATION;
+  var nextAt = now + RARE_FISH_INTERVAL;
+  rareFishActive = true;
+  rareFishEndsAt = endsAt;
+  rareFishNextAt = nextAt;
+  firebaseDB.ref('rare_fish').set({active: true, endsAt: endsAt, nextAt: nextAt});
+}
+
+function checkRareFish() {
+  var now = Date.now();
+  if (rareFishActive && now >= rareFishEndsAt) {
+    rareFishActive = false;
+    // Если истекла — планируем следующую
+    if (firebaseDB) {
+      var nextAt = now + RARE_FISH_INTERVAL;
+      rareFishNextAt = nextAt;
+      firebaseDB.ref('rare_fish').set({active: false, endsAt: 0, nextAt: nextAt});
+    }
+    updateRareFishUI();
+  } else if (!rareFishActive && rareFishNextAt > 0 && now >= rareFishNextAt) {
+    spawnRareFish();
+  }
+}
+
+function updateRareFishUI() {
+  var el = document.getElementById('rare-fish-indicator');
+  if (!el) return;
+  if (rareFishActive) {
+    var left = Math.max(0, Math.ceil((rareFishEndsAt - Date.now()) / 1000));
+    var mins = Math.floor(left/60), secs = left%60;
+    el.style.display = 'block';
+    el.textContent = '🫍 Осетрина в пруду! ' + mins + ':' + (secs<10?'0':'')+secs;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 var PRICE_INTERVAL = 30000;
+
+function getWeatherById(id) {
+  for (var i=0;i<WEATHER_TYPES.length;i++) if(WEATHER_TYPES[i].id===id) return WEATHER_TYPES[i];
+  return WEATHER_TYPES[0];
+}
+
+function randomWeather() {
+  var total = WEATHER_TYPES.reduce(function(s,w){return s+w.weight;},0);
+  var r = Math.random()*total, acc=0;
+  for (var i=0;i<WEATHER_TYPES.length;i++) {
+    acc+=WEATHER_TYPES[i].weight;
+    if (r<=acc) return WEATHER_TYPES[i];
+  }
+  return WEATHER_TYPES[0];
+}
+
+function loadWeather() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('weather').once('value', function(snap) {
+    var w = snap.val();
+    var now = Date.now();
+    if (w && w.endsAt > now) {
+      currentWeather = getWeatherById(w.id);
+      weatherEndsAt = w.endsAt;
+    } else {
+      // Генерируем новую погоду
+      var nw = randomWeather();
+      var endsAt = now + WEATHER_DURATION;
+      currentWeather = nw;
+      weatherEndsAt = endsAt;
+      firebaseDB.ref('weather').set({id:nw.id, endsAt:endsAt});
+      showNotif(nw.emoji + ' Погода изменилась: ' + nw.name);
+    }
+    updateWeatherUI();
+  });
+  // Слушаем изменения погоды от других клиентов
+  firebaseDB.ref('weather').on('value', function(snap) {
+    var w = snap.val();
+    if (w && w.id !== currentWeather.id) {
+      currentWeather = getWeatherById(w.id);
+      weatherEndsAt = w.endsAt;
+      showNotif(currentWeather.emoji + ' Погода изменилась: ' + currentWeather.name);
+      updateWeatherUI();
+    }
+  });
+}
+
+function updateWeatherUI() {
+  var el = document.getElementById('weather-indicator');
+  if (el) {
+    var msLeft = weatherEndsAt - Date.now();
+    var timeStr = '';
+    if (msLeft > 0) {
+      var minsLeft = Math.ceil(msLeft / 60000);
+      timeStr = minsLeft >= 60 ? Math.ceil(minsLeft/60) + 'ч' : minsLeft + 'м';
+    }
+    el.textContent = currentWeather.emoji + ' ' + currentWeather.name + (timeStr ? ' · ' + timeStr : '');
+  }
+  if (Date.now() > weatherEndsAt && weatherEndsAt > 0) loadWeather();
+}
+
+
 var currentTab = 'upgrades';
 var tapped = false;
 var lastAuto = Date.now();
@@ -292,10 +453,13 @@ function initPrices() {
   }
 }
 function updatePrices() {
+  var wm = currentWeather.priceMult || 1.0;
   for (var n in BASE_PRICES) {
     var p=marketPrices[n], base=BASE_PRICES[n];
     var chg=(Math.random()-0.48)*0.3;
     var nv=Math.max(base*0.3,Math.min(base*3,p.cur*(1+chg)));
+    nv = nv * wm;
+    nv = Math.max(base*0.3, Math.min(base*4, nv));
     p.prev=p.cur; p.cur=Math.round(nv*100)/100;
     p.trend=p.cur>p.prev?1:p.cur<p.prev?-1:0;
   }
@@ -519,7 +683,7 @@ function catchChance() {
   else if (scareFactor>=0.6) mult=0.5;   // 😐 насторожена ~50%
   else if (scareFactor>=0.3) mult=0.17;  // 😨 напугана ~5% от базы
   else                       mult=0.05;  // 😱 в панике ~1% от базы
-  return Math.min(0.95, Math.round(base*mult*lucky*100)/100);
+  return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
 }
 function updateScare() {
   var now=Date.now(), ntimes=[];
@@ -2527,9 +2691,16 @@ function showInstructions() {
     '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
-    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br><br>'
+    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа в пруду появляется редкая Осетрина — она живёт 20 минут! При тапе есть шанс 15% поймать её за 🪙50. Следи за золотым баннером на экране рыбалки!<br><br>'
     +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
     +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
+    +'<b style="color:#fff">🌤 Погода</b><br>Каждые 30 минут погода меняется для всех игроков одновременно!<br>'
+    +'☀️ Ясно — всё в норме<br>'
+    +'🌥 Облачно — −10% улов, +10% цены<br>'
+    +'🌧 Дождь — −25% улов, +25% цены<br>'
+    +'⛈ Шторм — −40% улов, +50% цены<br>'
+    +'🌟 Отличный клёв — +30% улов, −10% цены<br>'
+    +'Следи за погодой внизу экрана — при шторме выгоднее продавать, при отличном клёве — ловить!<br><br>'
     +'<b style="color:#fff">🍳 Кухня — засолка, сушка и филе</b><br>'
     +'<u>Засолка и сушка:</u><br>'
     +'1️⃣ Накопи 10 рыб одного вида<br>'
@@ -2591,6 +2762,23 @@ function tapOcean(e) {
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
   if (Math.random()>catchChance()) { spawnAnim(x,y,'💨','Мимо!'); if(currentTab==='upgrades') renderUpgrades(); return; }
+
+  // Шанс поймать редкую рыбу если она активна
+  if (rareFishActive && Math.random() < 0.15) {
+    var rareEarned = RARE_FISH.price;
+    state.coins = Math.round((state.coins + rareEarned)*100)/100;
+    state.totalEarned = Math.round((state.totalEarned + rareEarned)*100)/100;
+    state.caught++;
+    state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
+    state.liveFish.push({name:RARE_FISH.name, emoji:RARE_FISH.emoji, dieAt:Date.now()+RARE_FISH.life*3600000});
+    addQuestProgress('catch', 1);
+    spawnAnim(x,y,RARE_FISH.emoji,'🎉 +'+rareEarned+'!');
+    showNotif('🎉 Поймал Осетрину! +🪙'+rareEarned);
+    updateUI(); save();
+    if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    return;
+  }
+
   var f=randFish();
   var boostMult=1;
   var earned=Math.round(state.tapPower*boostMult*10)/10;
@@ -3034,7 +3222,10 @@ function tick() {
     }
     checkDeaths(); checkDelivery(); checkDrying(); checkSalting(); checkCutting();
     uploadScore();
+    checkRareFish();
+    updateRareFishUI();
     if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
+    updateWeatherUI();
     var te=document.getElementById('mkt-timer');
     if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
   } catch(e) { console.error('tick error:', e); }
@@ -3046,6 +3237,8 @@ load();
 calcStats();
 processOffline();
 initFirebase();
+setTimeout(loadWeather, 2000);
+setTimeout(loadRareFish, 3000);
 
 // Загружаем из Firebase и сравниваем с localStorage по lastSeen
 function loadFromFirebase(callback) {
