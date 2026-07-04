@@ -626,12 +626,11 @@ function processOffline() {
     var d2salt=state.delivery2.saltOrder||0;
     var d2knife=state.delivery2.knifeOrder||0;
     var d2msg='🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings);
-    if (d2salt>0) { state.salt=(state.salt||0)+d2salt; d2msg+=' · 🧂+'+d2salt; }
-    if (d2knife>0) { state.knife=(state.knife||0)+d2knife; d2msg+=' · 🔪+'+d2knife; }
+    if (d2salt>0) { state.salt=(state.salt||0)+d2salt; addQuestProgress('buysalt', d2salt); d2msg+=' · 🧂+'+d2salt; }
+    if (d2knife>0) { state.knife=(state.knife||0)+d2knife; addQuestProgress('buyknife', d2knife); d2msg+=' · 🔪+'+d2knife; }
     showNotif(d2msg);
     state.delivery2=null;
   }
-  // Авто-доход за время офлайн (сеть/лодка/сонар)
   if (state.autoPerSec > 0) {
     var autoEarned = Math.round(state.autoPerSec * elapsed / 1000 / 60 * 100) / 100;
     if (autoEarned > 0) {
@@ -3198,8 +3197,8 @@ function checkDelivery() {
     var d2salt=state.delivery2.saltOrder||0;
     var d2knife=state.delivery2.knifeOrder||0;
     var d2msg='🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings);
-    if (d2salt>0) { state.salt=(state.salt||0)+d2salt; d2msg+=' · 🧂+'+d2salt; }
-    if (d2knife>0) { state.knife=(state.knife||0)+d2knife; d2msg+=' · 🔪+'+d2knife; }
+    if (d2salt>0) { state.salt=(state.salt||0)+d2salt; addQuestProgress('buysalt', d2salt); d2msg+=' · 🧂+'+d2salt; }
+    if (d2knife>0) { state.knife=(state.knife||0)+d2knife; addQuestProgress('buyknife', d2knife); d2msg+=' · 🔪+'+d2knife; }
     showNotif(d2msg);
     state.delivery2=null; updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
