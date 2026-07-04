@@ -2778,7 +2778,7 @@ function tapOcean(e) {
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
     addQuestProgress('catch', 1);
     spawnAnim(x,y,RARE_FISH.emoji,'🎉 +'+rareEarned+'!');
-    showNotif('🎉 Поймал Осетрину! +🪙'+rareEarned);
+    showNotif('Поймал Осетрину! +🪙'+rareEarned);
     updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     return;
