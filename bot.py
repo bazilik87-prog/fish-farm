@@ -706,8 +706,12 @@ async def main():
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', PORT).start()
     print(f"API запущен на порту {PORT}")
+    # Сбрасываем вебхук и ждём чтобы избежать ConflictError при деплое
+    await bot.delete_webhook(drop_pending_updates=False)
+    import asyncio
+    await asyncio.sleep(2)
     print("Бот запущен!")
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__ == "__main__":
     asyncio.run(main())
