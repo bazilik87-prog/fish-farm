@@ -2139,7 +2139,7 @@ function activateBoost(id) {
         {label:'🪙 300 монет', coins:300, weight:25},
         {label:'🪙 500 монет', coins:500, weight:15},
         {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:10},
-        {label:'🫍 10 Осетрин +🪙250', coins:250, weight:7},
+        {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
         {label:'💎 ДЖЕКПОТ '+Math.floor(jackpot)+'🪙', coins:Math.floor(jackpot), isJackpot:true, weight:3},
       ];
       var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
@@ -2153,6 +2153,10 @@ function activateBoost(id) {
           state.liveFish.push({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
         }
         state.caught+=won.fish;
+      }
+      if (won.knife) {
+        state.knife=(state.knife||0)+won.knife;
+        addQuestProgress('buyknife', won.knife);
       }
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
