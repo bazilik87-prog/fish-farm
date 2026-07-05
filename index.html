@@ -732,7 +732,8 @@ function showNotif(msg, dead) {
   var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
                   msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
                   msg.indexOf('🧂') >= 0 || msg.indexOf('🎁') >= 0 ||
-                  msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 || dead;
+                  msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 ||
+                  msg.indexOf('🏆') >= 0 || dead;
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
@@ -1739,7 +1740,7 @@ function addQuestProgress(type, amount) {
     if (allDone) {
       state.coins=Math.round((state.coins+500)*100)/100;
       state.totalEarned=Math.round((state.totalEarned+300)*100)/100;
-      showNotif('🎉 Все квесты выполнены! +🪙500');
+      showNotif('🏆 Все квесты выполнены! +🪙500', true);
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
     updateUI(); save();
@@ -2003,6 +2004,46 @@ function renderBoosts() {
     +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Временные усиления за ⭐ Telegram Stars</div>'
     +'</div>';
 
+  // Лотерея — загружаем текущий джекпот
+  var jackpotDisplay = window._jackpotCache || 2000;
+  if (firebaseDB && !window._jackpotCache) {
+    firebaseDB.ref('jackpot/amount').once('value', function(snap) {
+      window._jackpotCache = snap.val() || 2000;
+      setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
+    });
+  }
+  html += '<div class="card" style="background:linear-gradient(135deg,#1a0a2e,#2a1a4a);border:1px solid #9b59b6">'
+    +'<div style="display:flex;align-items:center;gap:12px">'
+    +'<div style="font-size:32px">🎰</div>'
+    +'<div style="flex:1">'
+    +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">100🪙 · 300🪙 · 500🪙 · 💎 <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'🪙</b> джекпот</div>'
+    +'</div>'
+    +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">⭐ 1</button>'
+    +'</div></div>';
+
+  // Смена погоды
+  html += '<div class="card" style="background:linear-gradient(135deg,#0a1a2e,#0a2a3a);border:1px solid #1565c0">'
+    +'<div style="font-size:14px;font-weight:600;color:#90caf9;margin-bottom:10px">🌤 Сменить погоду для всех</div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:10px">Выбери погоду — она изменится для всех игроков на 30 минут!</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  var weathers = [
+    {id:'sunny', label:'☀️ Ясно'},
+    {id:'cloudy', label:'🌥 Облачно'},
+    {id:'rain', label:'🌧 Дождь'},
+    {id:'storm', label:'⛈ Шторм'},
+    {id:'perfect', label:'🌟 Клёв!'},
+  ];
+  for (var wi=0;wi<weathers.length;wi++) {
+    var isCurrent = currentWeather.id === weathers[wi].id;
+    html += '<button class="btn" onclick="buyWeather(\''+weathers[wi].id+'\')" '+(isCurrent?'disabled':'')+' style="background:'+(isCurrent?'#1565c0':'#0a1a3a')+';font-size:12px;padding:6px 10px">'
+      +weathers[wi].label+(isCurrent?' ✓':'')+'</button>';
+  }
+  html += '</div>'
+    +'<div style="font-size:11px;color:#666;margin-top:8px;text-align:right">⭐ 1 за смену</div>'
+    +'</div>';
+
   for (var i=0;i<boostList.length;i++) {
     var bst = boostList[i];
     html += '<div class="card" style="display:flex;align-items:center;gap:12px">'
@@ -2027,6 +2068,29 @@ function renderBoosts() {
     +'1 ⭐ = 1 бустер. Бустеры не складываются.</div>';
 
   document.getElementById('content').innerHTML = html;
+}
+
+function buyWeather(weatherId) {
+  showNotif('⏳ Создаём счёт...');
+  var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+  if (!userId) { showNotif('❌ Войди через Telegram'); return; }
+  var wName = weatherId;
+  for (var i=0;i<WEATHER_TYPES.length;i++) if(WEATHER_TYPES[i].id===weatherId) wName=WEATHER_TYPES[i].name;
+  fetch('https://fish-farm-production-436a.up.railway.app/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'boost', boost_id:'weather_'+weatherId, user_id:userId})
+  }).then(function(r){return r.json();}).then(function(data){
+    if (data && data.status==='paid') {
+      // Меняем погоду для всех через Firebase
+      var wType = getWeatherById(weatherId);
+      currentWeather = wType;
+      weatherEndsAt = Date.now() + 30*60*1000;
+      if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
+      showNotif('🌤 Погода изменена: '+wName+'!', true);
+      updateWeatherUI(); renderBoosts();
+    }
+  }).catch(function(){showNotif('❌ Ошибка соединения');});
 }
 
 function buyBoost(id) {
@@ -2070,7 +2134,58 @@ function activateBoost(id) {
     for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
     showNotif('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.');
   }
-  if (id==='luckyRod')   state.boosts.luckyRod   = now + 1800000;
+  if (id==='lottery') {
+    // Загружаем текущий джекпот из Firebase
+    var doLottery = function(jackpot) {
+      var prizes = [
+        {label:'🪙 100 монет', coins:100, weight:40},
+        {label:'🪙 300 монет', coins:300, weight:25},
+        {label:'🪙 500 монет', coins:500, weight:15},
+        {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:10},
+        {label:'🫍 10 Осетрин +🪙250', coins:250, weight:7},
+        {label:'💎 ДЖЕКПОТ '+Math.floor(jackpot)+'🪙', coins:Math.floor(jackpot), isJackpot:true, weight:3},
+      ];
+      var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
+      var r=Math.random()*total, acc=0, won=prizes[0];
+      for (var pj=0;pj<prizes.length;pj++) { acc+=prizes[pj].weight; if (r<=acc){won=prizes[pj];break;} }
+      state.coins=Math.round((state.coins+won.coins)*100)/100;
+      state.totalEarned=Math.round((state.totalEarned+won.coins)*100)/100;
+      if (won.fish) {
+        for (var fi=0;fi<won.fish;fi++) {
+          var rf=randFish();
+          state.liveFish.push({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
+        }
+        state.caught+=won.fish;
+      }
+      // Обновляем джекпот в Firebase
+      if (firebaseDB) {
+        if (won.isJackpot) {
+          firebaseDB.ref('jackpot/amount').set(2000); // сброс
+          window._jackpotCache = 2000;
+          showNotif('🎰 '+won.label+'! 🎉 ДЖЕКПОТ!', true);
+        } else {
+          var newJackpot = Math.round(jackpot * 1.01 * 100) / 100; // +1%
+          firebaseDB.ref('jackpot/amount').set(newJackpot);
+          window._jackpotCache = newJackpot;
+          showNotif('🎰 '+won.label+'!', true);
+        }
+      } else {
+        showNotif('🎰 '+won.label+'!', true);
+      }
+      updateUI(); save();
+      if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      if (currentTab==='boosts') renderBoosts();
+    };
+    if (firebaseDB) {
+      firebaseDB.ref('jackpot/amount').once('value', function(snap) {
+        var j = snap.val() || 2000;
+        doLottery(j);
+      });
+    } else {
+      doLottery(2000);
+    }
+  }
+
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
   if (id==='instantDelivery') {
     var earned = 0;

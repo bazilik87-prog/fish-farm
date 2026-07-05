@@ -29,6 +29,12 @@ BOOST_NAMES = {
     'turboSpeed':      'Turbo Speed x2 transport speed for 1 hour',
     'turboPack':       'Instant Packing - all packing finishes instantly',
     'instantDelivery': 'Instant Delivery - all active deliveries finish instantly',
+    'lottery':         'Lottery - spin the wheel and win coins or jackpot!',
+    'weather_sunny':   'Weather Change - Sunny for 30 minutes',
+    'weather_cloudy':  'Weather Change - Cloudy for 30 minutes',
+    'weather_rain':    'Weather Change - Rain for 30 minutes',
+    'weather_storm':   'Weather Change - Storm for 30 minutes',
+    'weather_perfect': 'Weather Change - Perfect Fishing for 30 minutes',
 }
 BOOST_LABELS = {
     'doubleTap':       '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
@@ -37,6 +43,12 @@ BOOST_LABELS = {
     'turboSpeed':      '🏎 Турбо скорость',
     'turboPack':       '📦 Мгновенная упаковка',
     'instantDelivery': '🚀 Мгновенная доставка',
+    'lottery':         '🎰 Лотерея',
+    'weather_sunny':   '☀️ Погода: Ясно',
+    'weather_cloudy':  '🌥 Погода: Облачно',
+    'weather_rain':    '🌧 Погода: Дождь',
+    'weather_storm':   '⛈ Погода: Шторм',
+    'weather_perfect': '🌟 Погода: Отличный клёв',
 }
 
 SUPPORT_GROUP_ID = -5478312122
