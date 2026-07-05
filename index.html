@@ -2085,32 +2085,7 @@ function showLotteryResult(title, prize, color, isJackpot) {
 }
 
 function buyWeather(weatherId) {
-  showNotif('⏳ Создаём счёт...');
-  var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
-  if (!userId) { showNotif('❌ Войди через Telegram'); return; }
-  fetch(BOT_API_URL+'/invoice', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'boost', boost:'weather_'+weatherId, user_id:userId})
-  }).then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  }).then(function(data){
-    if(data.link && tg && tg.openInvoice) {
-      tg.openInvoice(data.link, function(status){
-        if(status==='paid') {
-          var wType = getWeatherById(weatherId);
-          var wName = wType.name;
-          currentWeather = wType;
-          weatherEndsAt = Date.now() + 30*60*1000;
-          if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
-          showNotif('🌤 Погода изменена: '+wName+'!', true);
-          updateWeatherUI();
-          if(currentTab==='boosts') renderBoosts();
-        }
-      });
-    } else { showNotif('Ошибка: нет ссылки'); }
-  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
+  buyBoost('weather_'+weatherId);
 }
 
 function buyBoost(id) {
