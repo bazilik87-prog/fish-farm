@@ -7,14 +7,11 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo, LabeledPrice, PreCheckoutQuery
 )
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-BOT_TOKEN    = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
-GAME_URL     = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
-ADMIN_ID     = int(os.getenv("ADMIN_ID", "0"))
-PORT         = int(os.getenv("PORT", "8080"))
-RAILWAY_URL  = os.getenv("RAILWAY_URL", "")  # например https://fish-farm-production-436a.up.railway.app
-WEBHOOK_PATH = "/webhook"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
+GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
+ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
+PORT      = int(os.getenv("PORT", "8080"))
 
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher()
@@ -699,33 +696,20 @@ async def any_message(message: types.Message):
 
 
 async def main():
-    # Устанавливаем webhook
-    webhook_url = RAILWAY_URL + WEBHOOK_PATH
-    await bot.set_webhook(webhook_url, drop_pending_updates=True)
-    print(f"Webhook установлен: {webhook_url}")
-
     app = web.Application()
-
-    # Регистрируем webhook handler
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
-
-    # Остальные роуты
     app.router.add_post('/invoice', create_invoice)
     app.router.add_options('/invoice', create_invoice)
     app.router.add_post('/referral_notify', referral_notify)
     app.router.add_options('/referral_notify', referral_notify)
     app.router.add_get('/health', health)
-
-    print(f"API запущен на порту {PORT}")
-    print("Бот запущен!")
-
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', PORT).start()
-
-    # Держим сервер запущенным
-    await asyncio.Event().wait()
+    print(f"API запущен на порту {PORT}")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(3)
+    print("Бот запущен!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
