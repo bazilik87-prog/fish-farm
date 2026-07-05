@@ -395,6 +395,37 @@ async def refcontest_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('startpromo'))
+async def startpromo_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp, time
+    ends_at = int((time.time() + 86400) * 1000)  # 24 часа
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/promo/net_bonus.json", json={"endsAt": ends_at, "bonus": 500})
+        from datetime import datetime, timezone, timedelta
+        ends_dt = datetime.fromtimestamp(ends_at/1000, tz=timezone(timedelta(hours=3)))
+        await message.answer(f"✅ Акция запущена!\n🎁 Бонус 500🪙 за покупку Сети активен до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('stoppromo'))
+async def stoppromo_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.delete(f"{base}/promo/net_bonus.json")
+        await message.answer("✅ Акция остановлена!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('comm'))
 async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -407,6 +438,8 @@ async def comm_command(message: types.Message):
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/pay @username СУММА — уведомить игрока о выплате\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
+        "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
+        "/stoppromo — остановить акцию\n"
         "/comm — список команд\n\n"
         "🎮 *Команды для всех:*\n\n"
         "/start — запустить игру\n"
