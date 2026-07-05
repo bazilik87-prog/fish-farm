@@ -2070,27 +2070,47 @@ function renderBoosts() {
   document.getElementById('content').innerHTML = html;
 }
 
+function showLotteryResult(title, prize, color, isJackpot) {
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid '+color+'">'
+    +'<div style="font-size:60px;margin-bottom:12px">'+(isJackpot?'💎':'🎰')+'</div>'
+    +'<div style="font-size:18px;font-weight:700;color:'+color+';margin-bottom:10px">'+title+'</div>'
+    +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">'+prize+'</div>'
+    +(isJackpot?'<div style="font-size:14px;color:#FFD700;margin-bottom:16px">🎉 Поздравляем! Джекпот твой!</div>':'')
+    +'<button onclick="this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:'+color+';border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">Забрать!</button>'
+    +'</div>';
+  document.body.appendChild(modal);
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(isJackpot?'success':'success');
+}
+
 function buyWeather(weatherId) {
   showNotif('⏳ Создаём счёт...');
   var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
   if (!userId) { showNotif('❌ Войди через Telegram'); return; }
-  var wName = weatherId;
-  for (var i=0;i<WEATHER_TYPES.length;i++) if(WEATHER_TYPES[i].id===weatherId) wName=WEATHER_TYPES[i].name;
-  fetch('https://fish-farm-production-436a.up.railway.app/invoice', {
+  fetch(BOT_API_URL+'/invoice', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'boost', boost_id:'weather_'+weatherId, user_id:userId})
-  }).then(function(r){return r.json();}).then(function(data){
-    if (data && data.status==='paid') {
-      // Меняем погоду для всех через Firebase
-      var wType = getWeatherById(weatherId);
-      currentWeather = wType;
-      weatherEndsAt = Date.now() + 30*60*1000;
-      if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
-      showNotif('🌤 Погода изменена: '+wName+'!', true);
-      updateWeatherUI(); renderBoosts();
-    }
-  }).catch(function(){showNotif('❌ Ошибка соединения');});
+    body:JSON.stringify({action:'boost', boost:'weather_'+weatherId, user_id:userId})
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(data){
+    if(data.link && tg && tg.openInvoice) {
+      tg.openInvoice(data.link, function(status){
+        if(status==='paid') {
+          var wType = getWeatherById(weatherId);
+          var wName = wType.name;
+          currentWeather = wType;
+          weatherEndsAt = Date.now() + 30*60*1000;
+          if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
+          showNotif('🌤 Погода изменена: '+wName+'!', true);
+          updateWeatherUI();
+          if(currentTab==='boosts') renderBoosts();
+        }
+      });
+    } else { showNotif('Ошибка: нет ссылки'); }
+  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
 }
 
 function buyBoost(id) {
@@ -2160,17 +2180,17 @@ function activateBoost(id) {
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
         if (won.isJackpot) {
-          firebaseDB.ref('jackpot/amount').set(2000); // сброс
+          firebaseDB.ref('jackpot/amount').set(2000);
           window._jackpotCache = 2000;
-          showNotif('🎰 '+won.label+'! 🎉 ДЖЕКПОТ!', true);
+          showLotteryResult('💎 ДЖЕКПОТ!', Math.floor(jackpot)+'🪙', '#FFD700', true);
         } else {
-          var newJackpot = Math.round(jackpot * 1.01 * 100) / 100; // +1%
+          var newJackpot = Math.round(jackpot * 1.01 * 100) / 100;
           firebaseDB.ref('jackpot/amount').set(newJackpot);
           window._jackpotCache = newJackpot;
-          showNotif('🎰 '+won.label+'!', true);
+          showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
         }
       } else {
-        showNotif('🎰 '+won.label+'!', true);
+        showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
       }
       updateUI(); save();
       if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
