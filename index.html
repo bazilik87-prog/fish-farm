@@ -2822,9 +2822,23 @@ function buyUpgrade(id) {
   // Реферальный конкурс: фиксируем покупку сети ур.1
   if (id==='net' && u.bought===1) {
     notifyRefContestNetPurchase();
+    checkNetBonus();
   }
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
+
+function checkNetBonus() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('promo/net_bonus').once('value', function(snap) {
+    var d = snap.val();
+    if (!d || !d.endsAt || Date.now() > d.endsAt) return;
+    // Акция активна — начисляем бонус
+    state.coins = Math.round((state.coins + 500)*100)/100;
+    state.totalEarned = Math.round((state.totalEarned + 500)*100)/100;
+    showNotif('🎁 Бонус за покупку Сети! +🪙500');
+    updateUI(); save();
+  });
 }
 
 function notifyRefContestNetPurchase() {
