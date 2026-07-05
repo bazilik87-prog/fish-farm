@@ -2128,7 +2128,9 @@ function buyBoost(id) {
       tg.openInvoice(data.link, function(status){
         if(status==='paid') {
           activateBoost(id);
-          showNotif('✅ Бустер активирован!');
+          if (id !== 'lottery' && !id.startsWith('weather_')) {
+            showNotif('✅ Бустер активирован!');
+          }
           if(currentTab==='boosts') renderBoosts();
         }
       });
@@ -2236,6 +2238,17 @@ function activateBoost(id) {
   }
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  // Смена погоды
+  if (id && id.startsWith('weather_')) {
+    var weatherId = id.replace('weather_', '');
+    var wType = getWeatherById(weatherId);
+    currentWeather = wType;
+    weatherEndsAt = Date.now() + 30*60*1000;
+    if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
+    showNotif('🌤 Погода изменена: '+wType.name+'!', true);
+    updateWeatherUI();
+    if(currentTab==='boosts') renderBoosts();
+  }
 }
 function renderBank() {
   var coins = Math.floor(state.coins);
