@@ -733,7 +733,7 @@ function showNotif(msg, dead) {
                   msg.indexOf('🪙 Авто') >= 0 || msg.indexOf('📦') >= 0 ||
                   msg.indexOf('🧂') >= 0 || msg.indexOf('🎁') >= 0 ||
                   msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 ||
-                  msg.indexOf('🏆') >= 0 || dead;
+                  msg.indexOf('🏆') >= 0 || msg.indexOf('🎰') >= 0 || msg.indexOf('💎') >= 0 || dead;
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
@@ -2168,14 +2168,23 @@ function activateBoost(id) {
           firebaseDB.ref('jackpot/amount').set(2000);
           window._jackpotCache = 2000;
           showLotteryResult('💎 ДЖЕКПОТ!', Math.floor(jackpot)+'🪙', '#FFD700', true);
+          showNotif('💎 ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+'🪙');
+          var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
+          fetch(BOT_API_URL + '/jackpot_broadcast', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot)})
+          }).catch(function(){});
         } else {
           var newJackpot = Math.round(jackpot * 1.01 * 100) / 100;
           firebaseDB.ref('jackpot/amount').set(newJackpot);
           window._jackpotCache = newJackpot;
           showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
+          showNotif('🎰 Лотерея: '+won.label);
         }
       } else {
         showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
+        showNotif('🎰 Лотерея: '+won.label);
       }
       updateUI(); save();
       if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');

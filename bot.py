@@ -145,8 +145,52 @@ async def referral_notify(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+async def jackpot_broadcast(request):
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
 
-    return web.json_response({'ok': True}, headers=CORS)
+    username = data.get('username', 'Игрок')
+    amount = data.get('amount', 0)
+
+    text = (
+        f"🎰💎 *ДЖЕКПОТ ВЫИГРАН!*\n\n"
+        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,} монет в лотерее FishFarm! 🎉\n\n"
+        f"Крути колесо и попробуй свою удачу!"
+    )
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                players = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    if not players:
+        return web.json_response({'ok': True, 'sent': 0}, headers=CORS)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+
+    sent = 0
+    for v in players.values():
+        user_id = v.get('userId')
+        if not user_id:
+            continue
+        try:
+            await bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=keyboard)
+            sent += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+    return web.json_response({'ok': True, 'sent': sent}, headers=CORS)
 
 
 @dp.message(CommandStart())
@@ -746,6 +790,8 @@ async def main():
     app.router.add_options('/invoice', create_invoice)
     app.router.add_post('/referral_notify', referral_notify)
     app.router.add_options('/referral_notify', referral_notify)
+    app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
+    app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_get('/health', health)
     runner = web.AppRunner(app)
     await runner.setup()
