@@ -451,6 +451,135 @@ async def refcontest_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('starttournament'))
+async def starttournament_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Запускаю турнир...")
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    started_at = int(time.time() * 1000)
+    ends_at = started_at + 48 * 3600 * 1000  # 48 часов
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                players = await resp.json()
+
+            baseline = {}
+            if players:
+                for pid, v in players.items():
+                    baseline[pid] = v.get('caught', 0)
+
+            await session.put(f"{base}/tournament.json", json={
+                "active": True,
+                "startedAt": started_at,
+                "endsAt": ends_at,
+                "baseline": baseline
+            })
+
+        ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
+        await message.answer(
+            f"✅ Турнир запущен!\n🏆 Гонка на 48 часов — до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК\n"
+            f"Игроки увидят баннер и таблицу турнира в разделе 🏆 Лидеры."
+        )
+
+        if not players:
+            return
+
+        text = (
+            "🏆 *ТУРНИР НЕДЕЛИ НАЧАЛСЯ!*\n\n"
+            "Лови как можно больше рыбы за 48 часов — топ рыбаков получат призы! 🎁\n\n"
+            "Заходи в игру и проверь свою позицию в разделе 🏆 Лидеры."
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        sent = 0
+        for i, v in enumerate(players.values()):
+            user_id = v.get('userId')
+            if not user_id:
+                continue
+            try:
+                await bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                sent += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await message.answer(f"📨 Анонс отправлен {sent} игрокам.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('stoptournament'))
+async def stoptournament_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/tournament.json", json={"active": False})
+        await message.answer("✅ Турнир остановлен досрочно. Итоги — командой /tournamentstats")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('tournamentstats'))
+async def tournamentstats_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю рейтинг турнира...")
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/tournament.json") as resp:
+                t = await resp.json()
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                players = await resp.json()
+
+        if not t or not players:
+            await message.answer("Турнир ещё не запускался или нет игроков.")
+            return
+
+        baseline = t.get('baseline') or {}
+        results = []
+        for pid, v in players.items():
+            caught_now = v.get('caught', 0)
+            start_caught = baseline.get(pid, 0)
+            delta = caught_now - start_caught
+            if delta <= 0:
+                continue
+            username = v.get('username')
+            first_name = v.get('firstName')
+            if username:
+                display = f"@{username}"
+            elif first_name:
+                display = first_name
+            else:
+                display = f"ID:{v.get('userId', '?')}"
+            results.append((display, delta))
+
+        if not results:
+            await message.answer("Пока никто не поймал рыбу в рамках турнира.")
+            return
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        medals = ['🥇', '🥈', '🥉']
+        lines = []
+        for i, (name, delta) in enumerate(results[:15]):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            lines.append(f"{medal} {name} — {delta} рыб")
+
+        status = "🟢 Активен" if t.get('active') and t.get('endsAt', 0) > int(time.time() * 1000) else "🔴 Завершён"
+        text = f"🏆 *Турнир недели — {status}*\n\n" + "\n".join(lines)
+        await message.answer(text, parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('startpromo'))
 async def startpromo_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -496,6 +625,9 @@ async def comm_command(message: types.Message):
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
+        "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
+        "/stoptournament — остановить турнир досрочно\n"
+        "/tournamentstats — рейтинг турнира\n"
         "/comm — список команд\n\n"
         "🎮 *Команды для всех:*\n\n"
         "/start — запустить игру\n"

@@ -90,6 +90,16 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Открыть →</div>
 </div>
+<div id="tournament-banner" onclick="showTab('leaders')" style="display:none;background:linear-gradient(135deg,#3a0f5c,#8e24aa,#3a0f5c);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">🏆</div>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#fff">Турнир недели</div>
+      <div id="tournament-timer" style="font-size:11px;color:#e1bee7;margin-top:2px">Осталось: —</div>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Топ →</div>
+</div>
 <div id="loc-bar"></div>
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
@@ -2512,6 +2522,31 @@ function renderNewsHtml(data) {
   document.getElementById('content').innerHTML = html;
 }
 
+var tournamentData = {active:false, endsAt:0, baseline:{}};
+function checkTournament() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('tournament').once('value', function(snap) {
+    var t = snap.val();
+    if (!t) { tournamentData = {active:false, endsAt:0, baseline:{}}; }
+    else { tournamentData = {active: !!t.active, endsAt: t.endsAt||0, baseline: t.baseline||{}}; }
+    updateTournamentBanner();
+  });
+}
+
+function updateTournamentBanner() {
+  var el = document.getElementById('tournament-banner');
+  if (!el) return;
+  var now = Date.now();
+  var isLive = tournamentData.active && tournamentData.endsAt > now;
+  if (!isLive) { el.style.display='none'; return; }
+  el.style.display='flex';
+  var msLeft = tournamentData.endsAt - now;
+  var h = Math.floor(msLeft/3600000);
+  var m = Math.floor((msLeft%3600000)/60000);
+  var timerEl = document.getElementById('tournament-timer');
+  if (timerEl) timerEl.textContent = 'Осталось: '+h+'ч '+m+'м';
+}
+
 function checkDailyNews() {
   if (!firebaseDB) return;
   var today = new Date().toDateString();
@@ -2719,6 +2754,7 @@ function renderLeaders() {
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">Таблица лидеров</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Топ рыбаков по улову</div>'
     +'</div>'
+    +'<div id="tournament-section"></div>'
     +'<div id="leaders-list"><div style="text-align:center;padding:20px;color:#666">⏳ Загрузка...</div></div>';
 
   if (!firebaseDB) {
@@ -2729,44 +2765,83 @@ function renderLeaders() {
   }
 
   var myPid = getPlayerId();
-  firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
-    var entries = [];
-    snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
-    entries.sort(function(a,b){ return b.data.caught - a.data.caught; });
+  firebaseDB.ref('tournament').once('value', function(tSnap) {
+    var t = tSnap.val();
+    var tournamentLive = !!(t && t.active && t.endsAt > Date.now());
+    var baseline = (t && t.baseline) || {};
 
-    if (entries.length === 0) {
-      document.getElementById('leaders-list').innerHTML =
-        '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока никого нет 🐟<br>Будь первым!</div>';
-      return;
-    }
+    firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
+      var entries = [];
+      snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
+      entries.sort(function(a,b){ return b.data.caught - a.data.caught; });
 
-    var locEmoji = {pond:'🌿',river:'🏞',tropics:'🌴',deep:'🌊',space:'🚀'};
-    var medals = ['🥇','🥈','🥉'];
-    var html = '';
-    var myRank = -1;
+      if (entries.length === 0) {
+        document.getElementById('leaders-list').innerHTML =
+          '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока никого нет 🐟<br>Будь первым!</div>';
+        return;
+      }
 
-    for (var i=0;i<entries.length;i++) {
-      var e = entries[i];
-      var isMe = e.id === myPid;
-      if (isMe) myRank = i+1;
-      var rank = i<3 ? medals[i] : '#'+(i+1);
-      var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 Рыбак #'+(e.data.num||'?'));
-      var loc = locEmoji[e.data.loc]||'🌿';
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
-        +'<div style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:#90caf9">'+rank+'</div>'
-        +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
-        +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
-        +'</div>'
-        +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
-        +'</div>';
-    }
+      if (tournamentLive) {
+        var tEntries = entries.map(function(e) {
+          return {id:e.id, data:e.data, delta:(e.data.caught||0)-(baseline[e.id]||0)};
+        }).filter(function(e){ return e.delta > 0; });
+        tEntries.sort(function(a,b){ return b.delta - a.delta; });
 
-    if (myRank === -1) {
-      html += '<div class="card" style="text-align:center;font-size:12px;color:#666">Тебя пока нет в таблице — лови рыбу!</div>';
-    }
+        var msLeft = t.endsAt - Date.now();
+        var th = Math.floor(msLeft/3600000), tm = Math.floor((msLeft%3600000)/60000);
 
-    document.getElementById('leaders-list').innerHTML = html;
+        var tHtml = '<div class="card" style="background:linear-gradient(135deg,#3a0f5c,#5c1a8e);border:1.5px solid #b794f6;margin-bottom:10px">'
+          +'<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:2px">🏆 Турнир недели</div>'
+          +'<div style="font-size:11px;color:#e1bee7;margin-bottom:10px">⏱ Осталось: '+th+'ч '+tm+'м</div>';
+
+        if (tEntries.length === 0) {
+          tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">Пока никто не поймал рыбу в турнире 🐟</div>';
+        } else {
+          var tMedals=['🥇','🥈','🥉'];
+          for (var ti=0; ti<Math.min(10, tEntries.length); ti++) {
+            var te = tEntries[ti];
+            var isMeT = te.id === myPid;
+            var tName = te.data.playerName || te.data.firstName || (te.data.username?'@'+te.data.username:'🎣 Рыбак #'+(te.data.num||'?'));
+            var tRank = ti<3 ? tMedals[ti] : '#'+(ti+1);
+            tHtml += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;'+(isMeT?'background:rgba(255,215,0,.15);border-radius:8px':'')+'">'
+              +'<div style="font-size:12px;min-width:26px;text-align:center">'+tRank+'</div>'
+              +'<div style="flex:1;font-size:12px;color:'+(isMeT?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tName+(isMeT?' (ты)':'')+'</div>'
+              +'<div style="font-size:12px;font-weight:700;color:#e1bee7">🐟+'+fmt(te.delta)+'</div>'
+              +'</div>';
+          }
+        }
+        tHtml += '</div>';
+        document.getElementById('tournament-section').innerHTML = tHtml;
+      }
+
+      var html = '';
+      var myRank = -1;
+      var locEmoji = {pond:'🌿',river:'🏞',tropics:'🌴',deep:'🌊',space:'🚀'};
+      var medals = ['🥇','🥈','🥉'];
+
+      for (var i=0;i<entries.length;i++) {
+        var e = entries[i];
+        var isMe = e.id === myPid;
+        if (isMe) myRank = i+1;
+        var rank = i<3 ? medals[i] : '#'+(i+1);
+        var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 Рыбак #'+(e.data.num||'?'));
+        var loc = locEmoji[e.data.loc]||'🌿';
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
+          +'<div style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:#90caf9">'+rank+'</div>'
+          +'<div style="flex:1">'
+          +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
+          +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
+          +'</div>'
+          +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
+          +'</div>';
+      }
+
+      if (myRank === -1) {
+        html += '<div class="card" style="text-align:center;font-size:12px;color:#666">Тебя пока нет в таблице — лови рыбу!</div>';
+      }
+
+      document.getElementById('leaders-list').innerHTML = html;
+    });
   });
 }
 function clearNotifLog() {
@@ -3501,6 +3576,9 @@ setTimeout(function() {
     checkPendingBoosts();
     checkNameInput();
     setTimeout(checkDailyNews, 1500);
+    checkTournament();
+    setInterval(checkTournament, 60000);
+    setInterval(updateTournamentBanner, 30000);
   });
 }, 800);
 
