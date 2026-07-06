@@ -2018,7 +2018,7 @@ function renderBoosts() {
     +'<div style="flex:1">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
-    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">100🪙 · 300🪙 · 500🪙 · 💎 <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'🪙</b> джекпот</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">300🪙 · 500🪙 · 🐟100 · 🧂15 · 🔪15 · 💎 <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'🪙</b> джекпот</div>'
     +'</div>'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">⭐ 1</button>'
     +'</div></div>';
@@ -2135,10 +2135,10 @@ function activateBoost(id) {
     // Загружаем текущий джекпот из Firebase
     var doLottery = function(jackpot) {
       var prizes = [
-        {label:'🪙 100 монет', coins:100, weight:40},
-        {label:'🪙 300 монет', coins:300, weight:25},
-        {label:'🪙 500 монет', coins:500, weight:15},
-        {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:10},
+        {label:'🪙 300 монет', coins:300, weight:40},
+        {label:'🪙 500 монет', coins:500, weight:25},
+        {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:15},
+        {label:'🧂 15 соли на склад', coins:0, salt:15, weight:10},
         {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
         {label:'💎 ДЖЕКПОТ '+Math.floor(jackpot)+'🪙', coins:Math.floor(jackpot), isJackpot:true, weight:3},
       ];
@@ -2157,6 +2157,10 @@ function activateBoost(id) {
       if (won.knife) {
         state.knife=(state.knife||0)+won.knife;
         addQuestProgress('buyknife', won.knife);
+      }
+      if (won.salt) {
+        state.salt=(state.salt||0)+won.salt;
+        addQuestProgress('buysalt', won.salt);
       }
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
