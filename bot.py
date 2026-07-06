@@ -470,7 +470,7 @@ async def starttournament_command(message: types.Message):
             baseline = {}
             if players:
                 for pid, v in players.items():
-                    baseline[pid] = v.get('caught', 0)
+                    baseline[pid] = v.get('totalEarned', 0)
 
             await session.put(f"{base}/tournament.json", json={
                 "active": True,
@@ -490,7 +490,7 @@ async def starttournament_command(message: types.Message):
 
         text = (
             "🏆 *ТУРНИР НЕДЕЛИ НАЧАЛСЯ!*\n\n"
-            "Лови как можно больше рыбы за 48 часов — топ рыбаков получат призы! 🎁\n\n"
+            "Заработай как можно больше монет за 48 часов — топ игроков получат призы! 🎁\n\n"
             "Заходи в игру и проверь свою позицию в разделе 🏆 Лидеры."
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -547,9 +547,9 @@ async def tournamentstats_command(message: types.Message):
         baseline = t.get('baseline') or {}
         results = []
         for pid, v in players.items():
-            caught_now = v.get('caught', 0)
-            start_caught = baseline.get(pid, 0)
-            delta = caught_now - start_caught
+            earned_now = v.get('totalEarned', 0)
+            start_earned = baseline.get(pid, 0)
+            delta = earned_now - start_earned
             if delta <= 0:
                 continue
             username = v.get('username')
@@ -571,7 +571,7 @@ async def tournamentstats_command(message: types.Message):
         lines = []
         for i, (name, delta) in enumerate(results[:15]):
             medal = medals[i] if i < 3 else f"{i+1}."
-            lines.append(f"{medal} {name} — {delta} рыб")
+            lines.append(f"{medal} {name} — {delta:,} монет")
 
         status = "🟢 Активен" if t.get('active') and t.get('endsAt', 0) > int(time.time() * 1000) else "🔴 Завершён"
         text = f"🏆 *Турнир недели — {status}*\n\n" + "\n".join(lines)

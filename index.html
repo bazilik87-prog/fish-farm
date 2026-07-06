@@ -2783,7 +2783,7 @@ function renderLeaders() {
 
       if (tournamentLive) {
         var tEntries = entries.map(function(e) {
-          return {id:e.id, data:e.data, delta:(e.data.caught||0)-(baseline[e.id]||0)};
+          return {id:e.id, data:e.data, delta:(e.data.totalEarned||0)-(baseline[e.id]||0)};
         }).filter(function(e){ return e.delta > 0; });
         tEntries.sort(function(a,b){ return b.delta - a.delta; });
 
@@ -2795,7 +2795,7 @@ function renderLeaders() {
           +'<div style="font-size:11px;color:#e1bee7;margin-bottom:10px">⏱ Осталось: '+th+'ч '+tm+'м</div>';
 
         if (tEntries.length === 0) {
-          tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">Пока никто не поймал рыбу в турнире 🐟</div>';
+          tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">Пока никто не заработал монет в турнире 🪙</div>';
         } else {
           var tMedals=['🥇','🥈','🥉'];
           for (var ti=0; ti<Math.min(10, tEntries.length); ti++) {
@@ -2806,7 +2806,7 @@ function renderLeaders() {
             tHtml += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;'+(isMeT?'background:rgba(255,215,0,.15);border-radius:8px':'')+'">'
               +'<div style="font-size:12px;min-width:26px;text-align:center">'+tRank+'</div>'
               +'<div style="flex:1;font-size:12px;color:'+(isMeT?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tName+(isMeT?' (ты)':'')+'</div>'
-              +'<div style="font-size:12px;font-weight:700;color:#e1bee7">🐟+'+fmt(te.delta)+'</div>'
+              +'<div style="font-size:12px;font-weight:700;color:#e1bee7">🪙+'+fmt(te.delta)+'</div>'
               +'</div>';
           }
         }
