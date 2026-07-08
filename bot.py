@@ -157,8 +157,8 @@ async def jackpot_broadcast(request):
     amount = data.get('amount', 0)
 
     text = (
-        f"🎰💎 *ДЖЕКПОТ ВЫИГРАН!*\n\n"
-        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,} монет в лотерее FishFarm! 🎉\n\n"
+        f"🎰⭐ *ДЖЕКПОТ ВЫИГРАН!*\n\n"
+        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
         f"Крути колесо и попробуй свою удачу!"
     )
 
@@ -621,7 +621,8 @@ async def comm_command(message: types.Message):
         "/referrals — реферальная система (файл .txt)\n"
         "/refcontest — рейтинг реферального конкурса\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
-        "/pay @username СУММА — уведомить игрока о выплате\n"
+        "/pay @username СУММА — уведомить игрока о выплате TON Fish\n"
+        "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
@@ -676,6 +677,50 @@ async def pay_command(message: types.Message):
             ]])
         )
         await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount} TON Fish")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('paystars'))
+async def paystars_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 3:
+        await message.answer(
+            "Использование:\n`/paystars @username СУММА`\n\nПример:\n`/paystars @Metelegram12 27`",
+            parse_mode="Markdown"
+        )
+        return
+    username = text[1].lstrip('@').lower()
+    amount = text[2]
+    import aiohttp
+    try:
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+        user_id = None
+        if data:
+            for v in data.values():
+                if str(v.get('username','')).lower() == username:
+                    user_id = v.get('userId')
+                    break
+        if not user_id:
+            found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
+            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
+            return
+        await bot.send_message(
+            user_id,
+            f"✅ *Выплата выполнена!*\n\n"
+            f"⭐ {amount} Stars отправлены тебе.\n\n"
+            f"Спасибо что играешь в FishFarm! 🎣",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
+            ]])
+        )
+        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount}⭐ Stars")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 

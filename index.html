@@ -2015,10 +2015,12 @@ function renderBoosts() {
     +'</div>';
 
   // Лотерея — загружаем текущий джекпот
-  var jackpotDisplay = window._jackpotCache || 2000;
+  var jackpotDisplay = window._jackpotCache || 20;
   if (firebaseDB && !window._jackpotCache) {
     firebaseDB.ref('jackpot/amount').once('value', function(snap) {
-      window._jackpotCache = snap.val() || 2000;
+      var v = snap.val();
+      if (!v || v > 1000) { v = 20; firebaseDB.ref('jackpot/amount').set(20); } // миграция со старой (монетной) системы
+      window._jackpotCache = v;
       setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
     });
   }
@@ -2028,7 +2030,7 @@ function renderBoosts() {
     +'<div style="flex:1">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
-    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">300🪙 · 500🪙 · 🐟100 · 🧂15 · 🔪15 · 💎 <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'🪙</b> джекпот</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">300🪙 · 500🪙 · 🐟100 · 🧂15 · 🔪15 · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
     +'</div>'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">⭐ 1</button>'
     +'</div></div>';
@@ -2150,7 +2152,7 @@ function activateBoost(id) {
         {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:15},
         {label:'🧂 15 соли на склад', coins:0, salt:15, weight:10},
         {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
-        {label:'💎 ДЖЕКПОТ '+Math.floor(jackpot)+'🪙', coins:Math.floor(jackpot), isJackpot:true, weight:3},
+        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:0.5},
       ];
       var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
       var r=Math.random()*total, acc=0, won=prizes[0];
@@ -2175,10 +2177,10 @@ function activateBoost(id) {
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
         if (won.isJackpot) {
-          firebaseDB.ref('jackpot/amount').set(2000);
-          window._jackpotCache = 2000;
-          showLotteryResult('💎 ДЖЕКПОТ!', Math.floor(jackpot)+'🪙', '#FFD700', true);
-          showNotif('💎 ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+'🪙');
+          firebaseDB.ref('jackpot/amount').set(20);
+          window._jackpotCache = 20;
+          showLotteryResult('⭐ ДЖЕКПОТ!', Math.floor(jackpot)+' Stars', '#FFD700', true);
+          showNotif('⭐ ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+' Stars — жди перевода от администратора!');
           var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
           fetch(BOT_API_URL + '/jackpot_broadcast', {
             method: 'POST',
@@ -2186,7 +2188,7 @@ function activateBoost(id) {
             body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot)})
           }).catch(function(){});
         } else {
-          var newJackpot = Math.round(jackpot * 1.01 * 100) / 100;
+          var newJackpot = Math.floor(jackpot) + 1;
           firebaseDB.ref('jackpot/amount').set(newJackpot);
           window._jackpotCache = newJackpot;
           showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
@@ -2202,11 +2204,12 @@ function activateBoost(id) {
     };
     if (firebaseDB) {
       firebaseDB.ref('jackpot/amount').once('value', function(snap) {
-        var j = snap.val() || 2000;
+        var j = snap.val();
+        if (!j || j > 1000) j = 20; // миграция со старой (монетной) системы
         doLottery(j);
       });
     } else {
-      doLottery(2000);
+      doLottery(20);
     }
   }
 
