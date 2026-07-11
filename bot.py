@@ -909,13 +909,6 @@ async def successful_payment(message: types.Message):
                 await session.put(url, json=int(time.time() * 1000))
         except Exception:
             pass
-        await message.answer(
-            f"✅ *{label} активирован!*\n\nВернись в игру 👇",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-            ]])
-        )
 
     elif payload.startswith('ex:'):
         user_id = payload.split(':')[1]
