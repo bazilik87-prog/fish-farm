@@ -2015,11 +2015,11 @@ function renderBoosts() {
     +'</div>';
 
   // Лотерея — загружаем текущий джекпот
-  var jackpotDisplay = window._jackpotCache || 20;
+  var jackpotDisplay = window._jackpotCache || 10;
   if (firebaseDB && !window._jackpotCache) {
     firebaseDB.ref('jackpot/amount').once('value', function(snap) {
       var v = snap.val();
-      if (!v || v > 1000) { v = 20; firebaseDB.ref('jackpot/amount').set(20); } // миграция со старой (монетной) системы
+      if (!v || v > 1000) { v = 10; firebaseDB.ref('jackpot/amount').set(10); } // миграция со старой (монетной) системы
       window._jackpotCache = v;
       setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
     });
@@ -2152,7 +2152,7 @@ function activateBoost(id) {
         {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:15},
         {label:'🧂 15 соли на склад', coins:0, salt:15, weight:10},
         {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
-        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:0.5},
+        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:1},
       ];
       var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
       var r=Math.random()*total, acc=0, won=prizes[0];
@@ -2177,8 +2177,8 @@ function activateBoost(id) {
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
         if (won.isJackpot) {
-          firebaseDB.ref('jackpot/amount').set(20);
-          window._jackpotCache = 20;
+          firebaseDB.ref('jackpot/amount').set(10);
+          window._jackpotCache = 10;
           showLotteryResult('⭐ ДЖЕКПОТ!', Math.floor(jackpot)+' Stars', '#FFD700', true);
           showNotif('⭐ ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+' Stars — жди перевода от администратора!');
           var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
@@ -2188,7 +2188,7 @@ function activateBoost(id) {
             body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot)})
           }).catch(function(){});
         } else {
-          var newJackpot = Math.floor(jackpot) + 1;
+          var newJackpot = Math.round((jackpot + 0.7) * 10) / 10;
           firebaseDB.ref('jackpot/amount').set(newJackpot);
           window._jackpotCache = newJackpot;
           showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
@@ -2205,11 +2205,11 @@ function activateBoost(id) {
     if (firebaseDB) {
       firebaseDB.ref('jackpot/amount').once('value', function(snap) {
         var j = snap.val();
-        if (!j || j > 1000) j = 20; // миграция со старой (монетной) системы
+        if (!j || j > 1000) j = 10; // миграция со старой (монетной) системы
         doLottery(j);
       });
     } else {
-      doLottery(20);
+      doLottery(10);
     }
   }
 
