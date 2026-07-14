@@ -2112,8 +2112,9 @@ function buyBoost(id) {
     return r.json();
   }).then(function(data){
     if(data.link && tg && tg.openInvoice) {
+      var invLink = data.link.replace('https://telegram.me/', 'https://t.me/');
       try {
-        tg.openInvoice(data.link, function(status){
+        tg.openInvoice(invLink, function(status){
           if(status==='paid') {
             activateBoost(id);
             if (id !== 'lottery' && !id.startsWith('weather_')) {
@@ -2332,7 +2333,8 @@ function exchangeCoins() {
     return r.json();
   }).then(function(data){
     if(data.link && tg && tg.openInvoice) {
-      tg.openInvoice(data.link, function(status){
+      var invLink2 = data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink2, function(status){
         if(status==='paid') {
           state.coins=Math.round((state.coins-amount)*100)/100;
           showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! TON Fish придут в течение 24ч', true);
