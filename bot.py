@@ -923,19 +923,36 @@ async def successful_payment(message: types.Message):
         coins    = info['coins']
         wallet   = info['wallet']
         username = info['username']
+
+        def esc_md(s):
+            if not s:
+                return s
+            for ch in ('_', '*', '`', '['):
+                s = s.replace(ch, '\\' + ch)
+            return s
+
+        wallet_safe = esc_md(str(wallet))
+        username_safe = esc_md(str(username)) if username else None
+
         await message.answer(
             f"✅ *Заявка принята!*\n\n"
-            f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet}`\n\n"
+            f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet_safe}`\n\n"
             f"⏳ Отправим в течение 24 часов.",
             parse_mode="Markdown"
         )
         if ADMIN_ID:
-            ul = f"@{username}" if username else f"ID: {user_id}"
-            sent = await bot.send_message(
-                ADMIN_ID,
-                f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Отправь токены!",
-                parse_mode="Markdown"
-            )
+            ul = f"@{username_safe}" if username_safe else f"ID: {user_id}"
+            try:
+                sent = await bot.send_message(
+                    ADMIN_ID,
+                    f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet_safe}`\n\n⭐ Отправь токены!",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                sent = await bot.send_message(
+                    ADMIN_ID,
+                    f"💰 Новый обмен!\n👤 {ul}\n🪙 {coins}\n👛 {wallet}\n\n⭐ Отправь токены!"
+                )
             try:
                 await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
             except Exception:
@@ -943,15 +960,23 @@ async def successful_payment(message: types.Message):
             try:
                 await bot.send_message(
                     SUPPORT_GROUP_ID,
-                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Требует выплаты!",
+                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet_safe}`\n\n⭐ Требует выплаты!",
                     parse_mode="Markdown"
                 )
             except Exception:
-                pass
+                try:
+                    await bot.send_message(
+                        SUPPORT_GROUP_ID,
+                        f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 {coins}\n👛 {wallet}\n\n⭐ Требует выплаты!"
+                    )
+                except Exception:
+                    pass
 
 
 @dp.message()
 async def any_message(message: types.Message):
+    if message.chat.type != 'private':
+        return  # web_app-кнопки нельзя отправлять в группах — просто игнорируем
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
     ]])
