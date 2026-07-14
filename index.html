@@ -2123,7 +2123,7 @@ function buyBoost(id) {
           }
         });
       } catch(err) {
-        showNotif('Ошибка openInvoice: '+err.message+' | link: '+data.link);
+        alert('Ошибка openInvoice: '+err.message+'\n\nlink: '+data.link);
       }
     } else if (data.error) {
       showNotif('Ошибка сервера: '+data.error);
