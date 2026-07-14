@@ -2112,15 +2112,19 @@ function buyBoost(id) {
     return r.json();
   }).then(function(data){
     if(data.link && tg && tg.openInvoice) {
-      tg.openInvoice(data.link, function(status){
-        if(status==='paid') {
-          activateBoost(id);
-          if (id !== 'lottery' && !id.startsWith('weather_')) {
-            showNotif('✅ Бустер активирован!');
+      try {
+        tg.openInvoice(data.link, function(status){
+          if(status==='paid') {
+            activateBoost(id);
+            if (id !== 'lottery' && !id.startsWith('weather_')) {
+              showNotif('✅ Бустер активирован!');
+            }
+            if(currentTab==='boosts') renderBoosts();
           }
-          if(currentTab==='boosts') renderBoosts();
-        }
-      });
+        });
+      } catch(err) {
+        showNotif('Ошибка openInvoice: '+err.message+' | link: '+data.link);
+      }
     } else if (data.error) {
       showNotif('Ошибка сервера: '+data.error);
     } else { showNotif('Ошибка: нет ссылки на оплату'); }
