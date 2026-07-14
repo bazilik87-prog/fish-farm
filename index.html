@@ -2123,7 +2123,11 @@ function buyBoost(id) {
           }
         });
       } catch(err) {
-        alert('Ошибка openInvoice: '+err.message+'\n\nlink: '+data.link);
+        var dbg = document.createElement('div');
+        dbg.style.cssText = 'position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#c0392b;color:#fff;padding:14px;border-radius:10px;font-size:12px;word-break:break-all;max-height:80vh;overflow:auto';
+        dbg.innerHTML = '<b>Ошибка openInvoice:</b> '+err.message+'<br><br><b>link (длина '+(data.link?data.link.length:0)+'):</b><br>'+JSON.stringify(data.link)
+          +'<br><br><button onclick="this.parentNode.remove()" style="padding:8px 14px;border-radius:8px;border:none;background:#fff;color:#c0392b;font-weight:600">Закрыть</button>';
+        document.body.appendChild(dbg);
       }
     } else if (data.error) {
       showNotif('Ошибка сервера: '+data.error);
