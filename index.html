@@ -2121,7 +2121,9 @@ function buyBoost(id) {
           if(currentTab==='boosts') renderBoosts();
         }
       });
-    } else { showNotif('Ошибка: нет ссылки'); }
+    } else if (data.error) {
+      showNotif('Ошибка сервера: '+data.error);
+    } else { showNotif('Ошибка: нет ссылки на оплату'); }
   }).catch(function(e){ showNotif('Ошибка: '+e.message); });
 }
 
@@ -2344,7 +2346,9 @@ function exchangeCoins() {
           }
         }
       });
-    } else { showNotif('Ошибка: нет ссылки'); }
+    } else if (data.error) {
+      showNotif('Ошибка сервера: '+data.error);
+    } else { showNotif('Ошибка: нет ссылки на оплату'); }
   }).catch(function(){
     var cmd = '/bank '+amount+' '+wallet;
     document.getElementById('bank-fallback').style.display='block';
