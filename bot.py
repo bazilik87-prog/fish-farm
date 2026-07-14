@@ -53,9 +53,6 @@ BOOST_LABELS = {
 
 SUPPORT_GROUP_ID = -5478312122
 
-# Хранилище pending обменов: user_id -> {coins, wallet}
-pending = {}
-
 
 
 
@@ -74,11 +71,14 @@ async def create_invoice(request):
             coins   = int(data.get('coins', 0))
             wallet  = str(data.get('wallet', '')).strip()
             user_id = int(data.get('user_id', 0))
+            username = str(data.get('username', '')).strip()
             if coins < 1 or not wallet:
                 return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
-            pending[str(user_id)] = {'coins': coins, 'wallet': wallet,
-                                     'username': str(data.get('username', ''))}
-            payload = f"ex:{user_id}"
+            # Зашиваем данные прямо в payload — Telegram вернёт их при оплате,
+            # так что рестарт бота между созданием счёта и оплатой ничего не потеряет.
+            payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
+            if len(payload.encode('utf-8')) > 128:
+                return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
             link = await bot.create_invoice_link(
                 title="TON Fish Exchange",
                 description=f"{coins} coins to TON Fish",
@@ -915,14 +915,15 @@ async def successful_payment(message: types.Message):
             pass
 
     elif payload.startswith('ex:'):
-        user_id = payload.split(':')[1]
-        info    = pending.pop(user_id, None)
-        if not info:
+        parts = payload.split(':', 4)
+        # ex:{user_id}:{coins}:{wallet}:{username}
+        if len(parts) < 4:
             await message.answer("✅ Оплата получена! Свяжись с администратором для получения TON Fish.")
             return
-        coins    = info['coins']
-        wallet   = info['wallet']
-        username = info['username']
+        user_id  = parts[1]
+        coins    = parts[2]
+        wallet   = parts[3]
+        username = parts[4] if len(parts) > 4 else ''
 
         def esc_md(s):
             if not s:
