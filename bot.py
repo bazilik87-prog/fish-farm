@@ -156,9 +156,16 @@ async def jackpot_broadcast(request):
     username = data.get('username', 'Игрок')
     amount = data.get('amount', 0)
 
+    def esc_md(s):
+        if not s:
+            return s
+        for ch in ('_', '*', '`', '['):
+            s = s.replace(ch, '\\' + ch)
+        return s
+
     text = (
         f"🎰⭐ *ДЖЕКПОТ ВЫИГРАН!*\n\n"
-        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
+        f"@{esc_md(username)} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
         f"Крути колесо и попробуй свою удачу!"
     )
 
@@ -187,7 +194,11 @@ async def jackpot_broadcast(request):
             await bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=keyboard)
             sent += 1
         except Exception:
-            pass
+            try:
+                await bot.send_message(user_id, text.replace('*', ''), reply_markup=keyboard)
+                sent += 1
+            except Exception:
+                pass
         await asyncio.sleep(0.05)
 
     return web.json_response({'ok': True, 'sent': sent}, headers=CORS)
@@ -214,7 +225,13 @@ async def start(message: types.Message):
 
     # Уведомляем админа о новом игроке
     if ADMIN_ID and user.id != ADMIN_ID:
-        name = f"@{user.username}" if user.username else f"{user.first_name or 'Без имени'}"
+        def esc_md(s):
+            if not s:
+                return s
+            for ch in ('_', '*', '`', '['):
+                s = s.replace(ch, '\\' + ch)
+            return s
+        name = f"@{esc_md(user.username)}" if user.username else esc_md(user.first_name or 'Без имени')
         try:
             await bot.send_message(
                 ADMIN_ID,
@@ -260,7 +277,13 @@ async def start(message: types.Message):
                               json=100)
 
         # Уведомляем реферера
-        ref_name = f"@{user.username}" if user.username else user.first_name or 'Новый игрок'
+        def esc_md2(s):
+            if not s:
+                return s
+            for ch in ('_', '*', '`', '['):
+                s = s.replace(ch, '\\' + ch)
+            return s
+        ref_name = f"@{esc_md2(user.username)}" if user.username else esc_md2(user.first_name or 'Новый игрок')
         try:
             await bot.send_message(
                 int(referrer_id),
@@ -424,6 +447,13 @@ async def refcontest_command(message: types.Message):
             return
 
         # Строим словарь userId -> username
+        def esc_md(s):
+            if not s:
+                return s
+            for ch in ('_', '*', '`', '['):
+                s = s.replace(ch, '\\' + ch)
+            return s
+
         id_to_name = {}
         if lb:
             for v in lb.values():
@@ -431,9 +461,9 @@ async def refcontest_command(message: types.Message):
                 username = v.get('username', '')
                 first_name = v.get('firstName', '')
                 if username:
-                    id_to_name[uid] = f"@{username}"
+                    id_to_name[uid] = f"@{esc_md(username)}"
                 elif first_name:
-                    id_to_name[uid] = first_name
+                    id_to_name[uid] = esc_md(first_name)
                 else:
                     id_to_name[uid] = f"ID:{uid}"
 
@@ -446,7 +476,10 @@ async def refcontest_command(message: types.Message):
             lines.append(f"{medal} {name} — {count} активных рефералов")
 
         text = "🏆 *Реферальный конкурс — текущий рейтинг:*\n\n" + "\n".join(lines)
-        await message.answer(text, parse_mode="Markdown")
+        try:
+            await message.answer(text, parse_mode="Markdown")
+        except Exception:
+            await message.answer(text.replace('*', ''))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -549,6 +582,14 @@ async def tournamentstats_command(message: types.Message):
             return
 
         baseline = t.get('baseline') or {}
+
+        def esc_md(s):
+            if not s:
+                return s
+            for ch in ('_', '*', '`', '['):
+                s = s.replace(ch, '\\' + ch)
+            return s
+
         results = []
         for pid, v in players.items():
             earned_now = v.get('totalEarned', 0)
@@ -559,9 +600,9 @@ async def tournamentstats_command(message: types.Message):
             username = v.get('username')
             first_name = v.get('firstName')
             if username:
-                display = f"@{username}"
+                display = f"@{esc_md(username)}"
             elif first_name:
-                display = first_name
+                display = esc_md(first_name)
             else:
                 display = f"ID:{v.get('userId', '?')}"
             results.append((display, delta))
@@ -579,7 +620,10 @@ async def tournamentstats_command(message: types.Message):
 
         status = "🟢 Активен" if t.get('active') and t.get('endsAt', 0) > int(time.time() * 1000) else "🔴 Завершён"
         text = f"🏆 *Турнир недели — {status}*\n\n" + "\n".join(lines)
-        await message.answer(text, parse_mode="Markdown")
+        try:
+            await message.answer(text, parse_mode="Markdown")
+        except Exception:
+            await message.answer(text.replace('*', ''))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
