@@ -122,6 +122,16 @@ html{overflow-x:hidden;width:100%}
 <div id="content" style="overflow-x:hidden;word-break:break-word"></div>
 
 <script>
+// Принудительно сохраняем в Firebase при сворачивании/закрытии,
+// чтобы debounce (2с) не терял последние действия перед выходом
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && window._fbSaveTimer && firebaseDB) {
+    clearTimeout(window._fbSaveTimer);
+    window._fbSaveTimer = null;
+    var pid = getPlayerId();
+    firebaseDB.ref('saves/' + pid).set(window._pendingFbSave);
+  }
+});
 var tg = window.Telegram && window.Telegram.WebApp;
 var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
 if (tg) {
@@ -560,10 +570,15 @@ function save() {
       playerName:state.playerName
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
-    // Сохраняем в Firebase для синхронизации между устройствами
+    // Firebase пишем с debounce — не чаще раза в 2с, чтобы частые тапы не заваливали сеть запросами
     if (firebaseDB) {
-      var pid = getPlayerId();
-      firebaseDB.ref('saves/' + pid).set(saveData);
+      window._pendingFbSave = saveData;
+      if (window._fbSaveTimer) clearTimeout(window._fbSaveTimer);
+      window._fbSaveTimer = setTimeout(function(){
+        var pid = getPlayerId();
+        firebaseDB.ref('saves/' + pid).set(window._pendingFbSave);
+        window._fbSaveTimer = null;
+      }, 2000);
     }
   } catch(e){}
 }
