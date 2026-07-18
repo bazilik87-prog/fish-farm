@@ -72,11 +72,7 @@ html{overflow-x:hidden;width:100%}
 </style>
 <!-- ВРЕМЕННО ДЛЯ ОТЛАДКИ — удалить после диагностики тормозов -->
 <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-<script src="https://cdn.jsdelivr.net/npm/eruda-monitor"></script>
-<script>
-  eruda.init();
-  eruda.add(erudaMonitor);
-</script>
+<script>eruda.init();</script>
 </head>
 <body>
 <div id="sky" style="height:60px;transition:background 2s ease"></div>
@@ -312,7 +308,12 @@ function loadRareFish() {
       spawnRareFish();
     }
   });
-  // Слушаем изменения
+}
+
+// Постоянный слушатель регистрируется ОДИН раз при старте (см. вызов ниже по файлу),
+// а не при каждом вызове loadRareFish() — иначе слушатели копятся и тормозят игру.
+function listenRareFish() {
+  if (!firebaseDB) return;
   firebaseDB.ref('rare_fish').on('value', function(snap) {
     var d = snap.val();
     if (!d) return;
@@ -364,7 +365,10 @@ function updateRareFishUI() {
   } else {
     el.style.display = 'none';
   }
-  if (Date.now() > rareFishEndsAt && rareFishEndsAt > 0) loadRareFish();
+  if (Date.now() > rareFishEndsAt && rareFishEndsAt > 0) {
+    rareFishEndsAt = 0; // сбрасываем сразу, чтобы не вызывать loadRareFish() на каждом тике
+    loadRareFish();
+  }
 }
 
 var PRICE_INTERVAL = 30000;
@@ -2577,7 +2581,7 @@ function showNews() {
     return;
   }
   // Показываем загрузку только первый раз
-  if (!window._newsCache) {
+  if (!window._newsCacheLoaded) {
     document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div></div>';
   } else {
     renderNewsHtml(window._newsCache);
@@ -2585,6 +2589,7 @@ function showNews() {
   }
   firebaseDB.ref('news').orderByKey().limitToLast(5).once('value', function(snap) {
     window._newsCache = snap.val();
+    window._newsCacheLoaded = true;
     renderNewsHtml(window._newsCache);
   });
 }
@@ -2858,8 +2863,8 @@ function renderLeaders() {
 
     firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
       var entries = [];
-      snap.forEach(function(child) { entries.push({id:child.key, data:child.val()}); });
-      entries.sort(function(a,b){ return b.data.caught - a.data.caught; });
+      snap.forEach(function(child) { var v=child.val(); if (v) entries.push({id:child.key, data:v}); });
+      entries.sort(function(a,b){ return (b.data&&b.data.caught||0) - (a.data&&a.data.caught||0); });
 
       if (entries.length === 0) {
         document.getElementById('leaders-list').innerHTML =
@@ -2869,7 +2874,7 @@ function renderLeaders() {
 
       if (tournamentLive) {
         var tEntries = entries.map(function(e) {
-          return {id:e.id, data:e.data, delta:(e.data.totalEarned||0)-(baseline[e.id]||0)};
+          return {id:e.id, data:e.data, delta:((e.data&&e.data.totalEarned)||0)-(baseline[e.id]||0)};
         }).filter(function(e){ return e.delta > 0; });
         tEntries.sort(function(a,b){ return b.delta - a.delta; });
 
@@ -3596,6 +3601,7 @@ processOffline();
 initFirebase();
 setTimeout(loadWeather, 2000);
 setTimeout(loadRareFish, 3000);
+setTimeout(listenRareFish, 3000);
 
 // Загружаем из Firebase и сравниваем с localStorage по lastSeen
 function loadFromFirebase(callback) {
