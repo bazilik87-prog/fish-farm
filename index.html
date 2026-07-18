@@ -407,7 +407,12 @@ function loadWeather() {
     }
     updateWeatherUI();
   });
-  // Слушаем изменения погоды от других клиентов
+}
+
+// Постоянный слушатель регистрируется ОДИН раз при старте (см. вызов ниже по файлу),
+// а не при каждом вызове loadWeather() — иначе слушатели копятся и тормозят игру.
+function listenWeather() {
+  if (!firebaseDB) return;
   firebaseDB.ref('weather').on('value', function(snap) {
     var w = snap.val();
     if (w && w.id !== currentWeather.id) {
@@ -432,7 +437,10 @@ function updateWeatherUI() {
   if (el) el.textContent = currentWeather.emoji + ' ' + currentWeather.name;
   var sky = document.getElementById('sky');
   if (sky) sky.style.background = SKY_COLORS[currentWeather.id] || SKY_COLORS.sunny;
-  if (Date.now() > weatherEndsAt && weatherEndsAt > 0) loadWeather();
+  if (Date.now() > weatherEndsAt && weatherEndsAt > 0) {
+    weatherEndsAt = 0; // сбрасываем сразу, чтобы не вызывать loadWeather() на каждом тике
+    loadWeather();
+  }
 }
 
 
@@ -3600,6 +3608,7 @@ calcStats();
 processOffline();
 initFirebase();
 setTimeout(loadWeather, 2000);
+setTimeout(listenWeather, 2000);
 setTimeout(loadRareFish, 3000);
 setTimeout(listenRareFish, 3000);
 
