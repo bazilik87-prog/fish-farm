@@ -614,11 +614,51 @@ function load() {
   } catch(e){}
 }
 
+function showComebackBonus(coins, days) {
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid #FFD700">'
+    +'<div style="font-size:60px;margin-bottom:12px">👋</div>'
+    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:6px">Мы скучали!</div>'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:16px">Тебя не было '+days+' '+dayWord(days)+'</div>'
+    +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">+🪙'+fmt(coins)+' монет</div>'
+    +'<button onclick="claimComebackBonus('+coins+');this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:#FFD700;border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">Забрать!</button>'
+    +'</div>';
+  document.body.appendChild(modal);
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+}
+function dayWord(n) {
+  var n10 = n % 10, n100 = n % 100;
+  if (n100 >= 11 && n100 <= 14) return 'дней';
+  if (n10 === 1) return 'день';
+  if (n10 >= 2 && n10 <= 4) return 'дня';
+  return 'дней';
+}
+function claimComebackBonus(coins) {
+  state.coins = Math.round((state.coins + coins) * 100) / 100;
+  state.totalEarned = Math.round((state.totalEarned + coins) * 100) / 100;
+  addQuestProgress('earn', coins);
+  updateUI(); save();
+}
+
 // ── Офлайн ────────────────────────────────────────────
 function processOffline() {
   var now=Date.now(), last=state.lastSeen||now;
   var elapsed=now-last;
   if (elapsed<5000) return;
+
+  // Комбэк-бонус для вернувшихся после долгого отсутствия
+  if (!window._comebackShown) {
+    window._comebackShown = true;
+    var daysAway = elapsed / 86400000;
+    var comebackCoins = 0;
+    if (daysAway >= 14)      comebackCoins = 1000;
+    else if (daysAway >= 7)  comebackCoins = 500;
+    else if (daysAway >= 3)  comebackCoins = 200;
+    if (comebackCoins > 0) {
+      setTimeout(function(){ showComebackBonus(comebackCoins, Math.floor(daysAway)); }, 600);
+    }
+  }
   if (state.delivery && now>=state.delivery.endsAt) {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;

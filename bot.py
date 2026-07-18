@@ -672,6 +672,7 @@ async def comm_command(message: types.Message):
         "/pay @username СУММА — уведомить игрока о выплате TON Fish\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
+        "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
@@ -895,6 +896,63 @@ async def broadcast_command(message: types.Message):
             f"👥 Всего: {total}",
             parse_mode="Markdown"
         )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('pushcomeback'))
+async def pushcomeback_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip()[len('/pushcomeback'):].strip()
+    if not text:
+        await message.answer(
+            "Использование:\n`/pushcomeback Текст сообщения`\n\n"
+            "Отправит только игрокам, которые заходили 1-3 дня назад "
+            "(лучший момент вернуть в игру, пока не забыли).\n\n"
+            "Пример:\n`/pushcomeback 🐡 Редкая рыба уже в пруду! Успей поймать!`",
+            parse_mode="Markdown"
+        )
+        return
+    await message.answer("⏳ Ищу игроков, заходивших 1-3 дня назад...")
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                data = await resp.json()
+        if not data:
+            await message.answer("❌ Игроков не найдено.")
+            return
+
+        now_ms = int(time.time() * 1000)
+        day_ms = 24 * 3600 * 1000
+        targets = []
+        for v in data.values():
+            user_id = v.get('userId')
+            ts = v.get('ts', 0)
+            if not user_id or not ts:
+                continue
+            age = now_ms - ts
+            if day_ms <= age <= 3 * day_ms:
+                targets.append(user_id)
+
+        if not targets:
+            await message.answer("Сейчас нет игроков в сегменте \"1-3 дня назад\".")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        sent = 0
+        for user_id in targets:
+            try:
+                await bot.send_message(user_id, text, reply_markup=keyboard)
+                sent += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await message.answer(f"✅ Таргетированный пуш отправлен {sent} из {len(targets)} игроков (заходили 1-3 дня назад).")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
