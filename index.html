@@ -880,7 +880,14 @@ function updateUI() {
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
   if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
-  if (currentTab!=='leaders' && currentTab!=='bank') renderContent();
+  // Полную перерисовку вкладки троттлим — на каждый тап достаточно обновить только цифры выше
+  if (currentTab!=='leaders' && currentTab!=='bank') {
+    var nowTs = Date.now();
+    if (!window._lastFullRender || nowTs - window._lastFullRender > 400) {
+      window._lastFullRender = nowTs;
+      renderContent();
+    }
+  }
 }
 function showNameInput() {
   var overlay = document.createElement('div');
