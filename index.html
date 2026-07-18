@@ -2235,7 +2235,7 @@ function activateBoost(id) {
       if (won.fish) {
         for (var fi=0;fi<won.fish;fi++) {
           var rf=randFish();
-          state.liveFish.push({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
+          pushLiveFish({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
         }
         state.caught+=won.fish;
       }
@@ -3094,7 +3094,7 @@ function tapOcean(e) {
   state.totalEarned=Math.round((state.totalEarned+earned)*100)/100;
   state.caught++;
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
-  state.liveFish.push({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000});
+  pushLiveFish({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000});
   unlockFish();
   // Квест: улов
   var isRare = (FISH[state.currentLoc]||[]).indexOf(f) > 0;
@@ -3511,6 +3511,14 @@ function resetGame() {
 }
 
 // ── Тик ──────────────────────────────────────────────
+function pushLiveFish(entry) {
+  state.liveFish.push(entry);
+  var CAP = 150; // не даём массиву расти бесконечно — это тормозит сохранение со временем
+  if (state.liveFish.length > CAP) {
+    state.liveFish.splice(0, state.liveFish.length - CAP);
+  }
+}
+
 function checkDeaths() {
   var now=Date.now(), dead=[], live=[];
   for (var i=0;i<state.liveFish.length;i++) {
