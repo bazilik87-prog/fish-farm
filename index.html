@@ -132,6 +132,16 @@ document.addEventListener('visibilitychange', function() {
     firebaseDB.ref('saves/' + pid).set(window._pendingFbSave);
   }
 });
+// Скрываем клавиатуру при тапе вне текстового поля —
+// в WebView Telegram это не происходит само по себе
+document.addEventListener('touchstart', function(e) {
+  var active = document.activeElement;
+  var isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if (isInput && e.target !== active) {
+    active.blur();
+  }
+}, {passive: true});
+
 var tg = window.Telegram && window.Telegram.WebApp;
 var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
 if (tg) {

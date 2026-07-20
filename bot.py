@@ -1034,12 +1034,11 @@ async def successful_payment(message: types.Message):
                 s = s.replace(ch, '\\' + ch)
             return s
 
-        wallet_safe = esc_md(str(wallet))
         username_safe = esc_md(str(username)) if username else None
 
         await message.answer(
             f"✅ *Заявка принята!*\n\n"
-            f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet_safe}`\n\n"
+            f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet}`\n\n"
             f"⏳ Отправим в течение 24 часов.",
             parse_mode="Markdown"
         )
@@ -1048,7 +1047,7 @@ async def successful_payment(message: types.Message):
             try:
                 sent = await bot.send_message(
                     ADMIN_ID,
-                    f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet_safe}`\n\n⭐ Отправь токены!",
+                    f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Отправь токены!",
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -1063,7 +1062,7 @@ async def successful_payment(message: types.Message):
             try:
                 await bot.send_message(
                     SUPPORT_GROUP_ID,
-                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet_safe}`\n\n⭐ Требует выплаты!",
+                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Требует выплаты!",
                     parse_mode="Markdown"
                 )
             except Exception:
