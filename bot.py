@@ -592,6 +592,9 @@ async def tournamentstats_command(message: types.Message):
 
         results = []
         for pid, v in players.items():
+            uid = v.get('userId')
+            if not uid:
+                continue  # без настоящего Telegram ID — не легитимный игрок, пропускаем
             earned_now = v.get('totalEarned', 0)
             start_earned = baseline.get(pid, 0)
             delta = earned_now - start_earned
@@ -604,7 +607,7 @@ async def tournamentstats_command(message: types.Message):
             elif first_name:
                 display = esc_md(first_name)
             else:
-                display = f"ID:{v.get('userId', '?')}"
+                display = f"ID:{uid}"
             results.append((display, delta))
 
         if not results:
