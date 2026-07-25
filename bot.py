@@ -206,15 +206,16 @@ async def jackpot_broadcast(request):
 
 @dp.message(CommandStart())
 async def start(message: types.Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
-    ]])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))],
+        [InlineKeyboardButton(text="💬 Чат игроков", url="https://t.me/+cLBHDCmOkaA3NWQy")]
+    ])
     await message.answer(
         "🐟 *Добро пожаловать на Рыбную ферму!*\n\n"
         "Лови рыбу, улучшай снаряжение, открывай локации.\n"
         "💡 Банк — обмен монет на TON Fish за ⭐️\n"
         "⚡️ Бустеры — усиления за ⭐️\n"
-        "🛟 Поддержка — @elbanderass\n\n"
+        "💬 Чат игроков — общайся и получай поддержку\n\n"
         "Нажми кнопку чтобы начать 👇",
         parse_mode="Markdown",
         reply_markup=keyboard
@@ -684,7 +685,8 @@ async def comm_command(message: types.Message):
         "/comm — список команд\n\n"
         "🎮 *Команды для всех:*\n\n"
         "/start — запустить игру\n"
-        "/boost — купить бустер за ⭐",
+        "/boost — купить бустер за ⭐\n\n"
+        "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="Markdown"
     )
 
