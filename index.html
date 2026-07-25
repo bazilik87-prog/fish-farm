@@ -224,6 +224,27 @@ var UPGRADES = [
 ];
 
 var ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7];
+
+// Прокачка (удочка/сеть/лодка/сонар) хранится ОТДЕЛЬНО для каждой локации.
+// UPGRADES[i].bought используется как временный кэш уровня ТЕКУЩЕЙ локации —
+// syncUpgradesToLoc() синхронизирует его перед любым расчётом/рендером.
+function curUpgLevel(id) {
+  var loc = state.upgLevels[state.currentLoc];
+  return (loc && loc[id]) || 0;
+}
+function setUpgLevel(id, val) {
+  if (!state.upgLevels[state.currentLoc]) state.upgLevels[state.currentLoc] = {};
+  state.upgLevels[state.currentLoc][id] = val;
+}
+function syncUpgradesToLoc() {
+  for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought = curUpgLevel(UPGRADES[i].id);
+}
+// Стоимость апгрейда пропорциональна локации — в Реке (×2) вдвое дороже, в Космосе (×50) в 50 раз дороже
+function upgCost(u, level) {
+  var mult = (getLoc(state.currentLoc)||{}).tapMult || 1;
+  return Math.round(u.costs[level] * mult);
+}
+
 var SALT_PRICE  = {pond:1,  river:2,  tropics:5,  deep:15,  space:50};
 var KNIFE_PRICE = {pond:3,  river:6,  tropics:15, deep:45,  space:150};
 
@@ -268,6 +289,7 @@ var state = {
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
   knife:0, knifeOrder:0, cutting:[], filets:[],
+  upgLevels:{}, // прокачка (удочка/сеть/лодка/сонар) отдельно для каждой локации: {pond:{rod:0,...}, river:{...}}
   playerName:''
 };
 
@@ -601,7 +623,7 @@ function save() {
       transport:state.transport, delivery:state.delivery, delivery2:state.delivery2,
       utrans:state.unlockedTransports, dur:state.durability,
       dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
-      lastSeen:Date.now(), totalEarned:state.totalEarned, upg:upg, prices:marketPrices, priceTs:lastPriceUpdate,
+      lastSeen:Date.now(), totalEarned:state.totalEarned, upg:upg, upgLevels:state.upgLevels, prices:marketPrices, priceTs:lastPriceUpdate,
       drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
       salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
@@ -658,7 +680,16 @@ function load() {
     state.cutting           = s.cutting      || [];
     state.filets            = s.filets       || [];
     state.playerName        = s.playerName   || '';
-    for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
+    if (s.upgLevels && typeof s.upgLevels === 'object') {
+      state.upgLevels = s.upgLevels;
+    } else if (s.upg) {
+      // Миграция со старого формата: прокачка была общей — оставляем её в текущей локации игрока
+      state.upgLevels = {};
+      state.upgLevels[state.currentLoc] = s.upg;
+    } else {
+      state.upgLevels = {};
+    }
+    syncUpgradesToLoc();
     for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
     if (s.prices)  marketPrices    = s.prices;
     if (s.priceTs) lastPriceUpdate = s.priceTs;
@@ -765,6 +796,7 @@ function processOffline() {
 
 // ── Расчёты ───────────────────────────────────────────
 function calcStats() {
+  syncUpgradesToLoc();
   var tm=1, auto=0;
   var rodBought=0;
   for (var i=0;i<UPGRADES.length;i++) {
@@ -988,10 +1020,11 @@ function renderContent() {
 
 // ── Вкладки ───────────────────────────────────────────
 function renderUpgrades() {
+  syncUpgradesToLoc();
   var html='';
   for (var i=0;i<UPGRADES.length;i++) {
     var u=UPGRADES[i], maxed=u.bought>=u.max;
-    var cost=maxed?0:u.costs[u.bought], canBuy=!maxed&&state.coins>=cost;
+    var cost=maxed?0:upgCost(u,u.bought), canBuy=!maxed&&state.coins>=cost;
     var extra='';
     if (u.id==='rod') {
       var cur=ROD_TAP[u.bought]||0.1;
@@ -3156,8 +3189,9 @@ function tapOcean(e) {
 function buyUpgrade(id) {
   var u=null; for (var i=0;i<UPGRADES.length;i++) if(UPGRADES[i].id===id) u=UPGRADES[i];
   if (!u||u.bought>=u.max) return;
-  var cost=u.costs[u.bought]; if (state.coins<cost) return;
+  var cost=upgCost(u,u.bought); if (state.coins<cost) return;
   state.coins=Math.round((state.coins-cost)*100)/100; u.bought++;
+  setUpgLevel(id, u.bought); // сохраняем именно в текущую локацию
   // Реферальная награда: реферер получает 1000 монет когда реферал купил удочку ур.2
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
@@ -3550,8 +3584,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[]};
-  for (var i=0;i<UPGRADES.length;i++) UPGRADES[i].bought=0;
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],upgLevels:{}};
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
   tapped=false; scareFactor=1.0;
@@ -3699,7 +3732,15 @@ function applyState(s) {
   state.cutting           = s.cutting      || [];
   state.filets            = s.filets       || [];
   state.playerName        = s.playerName   || '';
-  for (var i=0;i<UPGRADES.length;i++) { if(s.upg&&s.upg[UPGRADES[i].id]) UPGRADES[i].bought=s.upg[UPGRADES[i].id]; }
+  if (s.upgLevels && typeof s.upgLevels === 'object') {
+    state.upgLevels = s.upgLevels;
+  } else if (s.upg) {
+    state.upgLevels = {};
+    state.upgLevels[state.currentLoc] = s.upg;
+  } else {
+    state.upgLevels = {};
+  }
+  syncUpgradesToLoc();
   for (var j=0;j<LOCATIONS.length;j++) { if(state.unlockedLocs.indexOf(LOCATIONS[j].id)>=0) LOCATIONS[j].unlocked=true; }
   if (s.prices)  marketPrices    = s.prices;
   if (s.priceTs) lastPriceUpdate = s.priceTs;
