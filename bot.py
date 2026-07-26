@@ -673,6 +673,7 @@ async def comm_command(message: types.Message):
         "/referrals — реферальная система (файл .txt)\n"
         "/refcontest — рейтинг реферального конкурса\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате TON Fish\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
@@ -689,6 +690,56 @@ async def comm_command(message: types.Message):
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="Markdown"
     )
+
+
+@dp.message(Command('ban'))
+async def ban_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer("Использование:\n`/ban @username`\n\nУдаляет игрока из лидерборда/турнира, стирает прогресс, убирает из рефералов и блокирует повторный вход.", parse_mode="Markdown")
+        return
+    username = args[1].lstrip('@').lower()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json") as resp:
+                lb = await resp.json()
+
+            target_pid = None
+            target_uid = None
+            if lb:
+                for pid, v in lb.items():
+                    if str(v.get('username', '')).lower() == username:
+                        target_pid = pid
+                        target_uid = str(v.get('userId', ''))
+                        break
+
+            if not target_pid:
+                await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
+                return
+
+            # Удаляем из лидерборда и стираем прогресс
+            await session.delete(f"{base}/leaderboard/{target_pid}.json")
+            await session.delete(f"{base}/saves/{target_pid}.json")
+
+            # Убираем из всех реферальных списков
+            async with session.get(f"{base}/referrals/by.json") as resp:
+                by_data = await resp.json()
+            if by_data and target_uid:
+                for referrer_id, refs in by_data.items():
+                    if isinstance(refs, dict) and target_uid in refs:
+                        await session.delete(f"{base}/referrals/by/{referrer_id}/{target_uid}.json")
+
+            # Помечаем как забаненного — игра проверяет это при входе
+            if target_uid:
+                await session.put(f"{base}/banned/{target_uid}.json", json=True)
+
+        await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('pay'))

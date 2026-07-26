@@ -3746,26 +3746,43 @@ function applyState(s) {
   if (s.priceTs) lastPriceUpdate = s.priceTs;
 }
 
-setTimeout(function() {
-  loadFromFirebase(function() {
-    checkPendingBoosts();
-    checkNameInput();
-    setTimeout(checkDailyNews, 1500);
-    checkTournament();
-    setInterval(checkTournament, 60000);
-    setInterval(updateTournamentBanner, 30000);
-  });
-}, 800);
+function startGame() {
+  setTimeout(function() {
+    loadFromFirebase(function() {
+      checkPendingBoosts();
+      checkNameInput();
+      setTimeout(checkDailyNews, 1500);
+      checkTournament();
+      setInterval(checkTournament, 60000);
+      setInterval(updateTournamentBanner, 30000);
+    });
+  }, 800);
 
-initPrices();
-if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
-calcStats();
-var il=getLoc();
-var oc=document.getElementById('ocean');
-oc.style.background=il.bg; oc.style.borderBottomColor=il.border;
-document.getElementById('loc-label').textContent=il.emoji+' '+il.name;
-for (var bi=0;bi<LOCATIONS.length;bi++) if(state.unlockedLocs.indexOf(LOCATIONS[bi].id)>=0) LOCATIONS[bi].unlocked=true;
-spawnBubbles(); renderLocBar(); updateUI(); setTimeout(tick,500);
+  initPrices();
+  if (!lastPriceUpdate) { updatePrices(); lastPriceUpdate=Date.now(); }
+  calcStats();
+  var il=getLoc();
+  var oc=document.getElementById('ocean');
+  oc.style.background=il.bg; oc.style.borderBottomColor=il.border;
+  document.getElementById('loc-label').textContent=il.emoji+' '+il.name;
+  for (var bi=0;bi<LOCATIONS.length;bi++) if(state.unlockedLocs.indexOf(LOCATIONS[bi].id)>=0) LOCATIONS[bi].unlocked=true;
+  spawnBubbles(); renderLocBar(); updateUI(); setTimeout(tick,500);
+}
+
+if (userId && firebaseDB) {
+  firebaseDB.ref('banned/' + userId).once('value', function(snap) {
+    if (snap.val()) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px;color:#fff">'
+        + '<div><div style="font-size:48px;margin-bottom:16px">🚫</div>'
+        + '<div style="font-size:16px;font-weight:600">Доступ ограничен</div>'
+        + '<div style="font-size:13px;color:#90caf9;margin-top:8px">Обратитесь к администратору, если считаете это ошибкой.</div></div></div>';
+    } else {
+      startGame();
+    }
+  });
+} else {
+  startGame();
+}
 </script>
 </body>
 </html>
