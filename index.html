@@ -949,7 +949,15 @@ function updateUI() {
   }
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
-  if(moodEl) moodEl.textContent=moodEmoji()+' '+chance+'% улов';
+  if(moodEl) {
+    moodEl.textContent=moodEmoji()+' '+chance+'% улов';
+    if (state.boosts.luckyRod > Date.now()) {
+      var luckyEl = document.createElement('span');
+      luckyEl.style.cssText = 'color:#FFD700;font-size:11px;font-weight:700;margin-left:5px';
+      luckyEl.textContent = '🎣+50%';
+      moodEl.appendChild(luckyEl);
+    }
+  }
   // Полную перерисовку вкладки троттлим — на каждый тап достаточно обновить только цифры выше
   if (currentTab!=='leaders' && currentTab!=='bank') {
     var nowTs = Date.now();
@@ -2368,6 +2376,7 @@ function activateBoost(id) {
     }
   }
 
+  if (id==='luckyRod') state.boosts.luckyRod = now + 1800000;
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
   if (id==='repairAll') {
     for (var trk in state.durability) state.durability[trk] = 100;
