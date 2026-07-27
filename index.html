@@ -2250,7 +2250,7 @@ function buyBoost(id) {
   fetch(BOT_API_URL+'/invoice', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'boost',boost:id,user_id:userId})
+    body:JSON.stringify({action:'boost',boost:id,user_id:userId,init_data:tg&&tg.initData||''})
   }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
@@ -2340,7 +2340,7 @@ function activateBoost(id) {
           fetch(BOT_API_URL + '/jackpot_broadcast', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot)})
+            body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot), init_data: tg&&tg.initData||''})
           }).catch(function(){});
         } else {
           var newJackpot = Math.round((jackpot + 0.7) * 10) / 10;
@@ -2441,8 +2441,8 @@ function renderBank() {
         +'<div style="font-size:20px;font-weight:700;color:#4caf50">🐟 '+Math.min(100,coins)+' TON Fish</div>'
         +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 1:1 · Отправка вручную в течение 24ч</div>'
       +'</div>'
-      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: 1 звезда Telegram за каждый обмен</div>'
-      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за 1 звезду Telegram</button>'
+      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: 3 звезды Telegram за каждый обмен</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за 3 звезды Telegram</button>'
     +'</div>'
     +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит TON Fish на указанный кошелёк в течение 24 часов.<br><br><a href="https://www.tonfish.io" style="color:#1565c0">tonfish.io</a></div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
@@ -2475,7 +2475,7 @@ function exchangeCoins() {
   fetch(BOT_API_URL+'/invoice', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'exchange',coins:amount,wallet:wallet,user_id:userId,username:username})
+    body:JSON.stringify({action:'exchange',coins:amount,wallet:wallet,user_id:userId,username:username,init_data:tg&&tg.initData||''})
   }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
@@ -2642,7 +2642,7 @@ function checkAndApplyRefRewards(isRod2) {
         fetch(BOT_API_URL + '/referral_notify', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({referrer_id: referrerId, type: 'rod2'})
+          body: JSON.stringify({referrer_id: referrerId, type: 'rod2', init_data: tg&&tg.initData||''})
         }).catch(function(){});
       });
     });
@@ -3134,7 +3134,8 @@ function showInstructions() {
     +'🎣 Удочка — увеличивает монеты за улов и шанс улова<br>'
     +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
     +'⛵ Лодка — +0.3 к автодобычи в минуту (макс 5 ур.)<br>'
-    +'📡 Сонар — +0.5 к автодобычи в минуту (макс 5 ур.)<br><br>'
+    +'📡 Сонар — +0.5 к автодобычи в минуту (макс 5 ур.)<br>'
+    +'⚠️ Прокачка отдельная для каждой локации! Перешёл в Реку — там всё с нуля, а уровни в Пруду сохранятся. Цена апгрейдов растёт вместе с локацией: Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50<br><br>'
     +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
     +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!<br><br>'
     +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.<br><br>'
@@ -3144,14 +3145,19 @@ function showInstructions() {
     +'💰 <b style="color:#FFD700">Постоянный бонус</b> — каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 50% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙250 прямо на баланс<br><br>'
     +'Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.<br>'
     +'В разделе «Мои друзья» можно видеть кто уже присоединился!<br><br>'
-    +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars:<br>'
-    +'⚡ Авто-буст — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
-    +'🌡 Мгновенная сушка — все текущие пакеты досушиваются мгновенно<br>'
-    +'🎣 Удачная рыбалка — +50% шанс улова на 30 мин<br>'
-    +'🏎 Турбо скорость — ×2 скорость транспорта на 1 час<br>'
-    +'📦 Мгновенная упаковка — вся текущая упаковка филе завершается мгновенно<br>'
-    +'🚀 Мгновенная доставка — все активные доставки (твоя + водителя) завершаются мгновенно<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish за ⭐. Укажи сумму и TON кошелёк — токены отправляются в течение 24ч.<br><br>'
+    +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars (цена указана у каждого):<br>'
+    +'⚡ Авто-буст (⭐1) — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
+    +'🌡 Мгновенная сушка (⭐1) — все текущие пакеты досушиваются мгновенно<br>'
+    +'🎣 Удачная рыбалка (⭐1) — +50% шанс улова на 30 мин<br>'
+    +'🏎 Турбо скорость (⭐1) — ×2 скорость транспорта на 1 час<br>'
+    +'📦 Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно<br>'
+    +'🚀 Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно<br>'
+    +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
+    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы: 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · ⭐ Джекпот в Stars (~0.5-1%).<br>'
+    +'Джекпот стартует с 10⭐ и растёт на +0.7⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
+    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish (курс 1:1). Укажи сумму и TON кошелёк — токены отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен.<br><br>'
+    +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
+    +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
 }

@@ -1,5 +1,10 @@
 import asyncio
 import os
+import json
+import hashlib
+import hmac
+import time as time_module
+from urllib.parse import parse_qsl
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -21,6 +26,32 @@ CORS = {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 }
+
+
+def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict | None:
+    """
+    Проверяет подпись Telegram WebApp initData по официальному алгоритму:
+    https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    Возвращает распарсенные данные, если подпись верна и данные не протухли, иначе None.
+    """
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, strict_parsing=True))
+        received_hash = parsed.pop('hash', None)
+        if not received_hash:
+            return None
+        data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
+        computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(computed_hash, received_hash):
+            return None
+        auth_date = int(parsed.get('auth_date', 0))
+        if max_age_seconds and (time_module.time() - auth_date) > max_age_seconds:
+            return None
+        return parsed
+    except Exception:
+        return None
 
 BOOST_NAMES = {
     'doubleTap':       'Auto Boost +2 auto income per minute for 1 hour',
@@ -70,13 +101,23 @@ async def create_invoice(request):
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
 
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
     action = data.get('action')
 
     try:
         if action == 'exchange':
             coins   = int(data.get('coins', 0))
             wallet  = str(data.get('wallet', '')).strip()
-            user_id = int(data.get('user_id', 0))
+            user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
             username = str(data.get('username', '')).strip()
             if coins < 1 or not wallet:
                 return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
@@ -90,14 +131,14 @@ async def create_invoice(request):
                 description=f"{coins} coins to TON Fish",
                 payload=payload,
                 currency="XTR",
-                prices=[LabeledPrice(label="Fee", amount=1)],
+                prices=[LabeledPrice(label="Fee", amount=3)],
                 provider_token="",
             )
             return web.json_response({'link': link}, headers=CORS)
 
         elif action == 'boost':
             boost_id = str(data.get('boost', ''))
-            user_id  = int(data.get('user_id', 0))
+            user_id  = real_user_id  # берём из проверенной подписи, а не из тела запроса
             name = BOOST_NAMES.get(boost_id, 'Boost')
             price = BOOST_PRICES.get(boost_id, 1)
             payload = f"bo:{boost_id}:{user_id}"
@@ -128,6 +169,9 @@ async def referral_notify(request):
         data = await request.json()
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    if not validate_init_data(data.get('init_data', '')):
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
     referrer_id = data.get('referrer_id')
     notify_type = data.get('type')
@@ -160,7 +204,16 @@ async def jackpot_broadcast(request):
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
 
-    username = data.get('username', 'Игрок')
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    # Берём имя из проверенной подписи, а не из тела запроса — иначе можно было
+    # разослать всем игрокам фейковое объявление о джекпоте с любым именем
+    username = real_user.get('username') or real_user.get('first_name') or data.get('username', 'Игрок')
     amount = data.get('amount', 0)
 
     def esc_md(s):
