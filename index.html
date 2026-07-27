@@ -2098,6 +2098,10 @@ function renderDriver() {
 
   document.getElementById('content').innerHTML = html;
 }
+function allTransportFull() {
+  for (var k in state.durability) { if (state.durability[k] < 100) return false; }
+  return true;
+}
 function renderBoosts() {
   var now = Date.now();
   var b = state.boosts;
@@ -2138,6 +2142,13 @@ function renderBoosts() {
       active: false,
       timeLeft: 0,
       disabled: !state.delivery && !state.delivery2
+    },
+    {
+      id:'repairAll', name:'Ремонт всего транспорта', emoji:'🔧', price:2,
+      desc:'Полностью чинит все виды транспорта разом',
+      active: false,
+      timeLeft: 0,
+      disabled: allTransportFull()
     }
   ];
 
@@ -2203,14 +2214,14 @@ function renderBoosts() {
         : '')
       +'</div>'
       +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+((bst.active||bst.disabled)?'disabled':'')+'>'
-      +(bst.active?'Активен':bst.disabled?'Нет доставок':'⭐ 1')
+      +(bst.active?'Активен':bst.disabled?(bst.id==='repairAll'?'Всё исправно':'Нет доставок'):'⭐ '+(bst.price||1))
       +'</button>'
       +'</div>';
   }
 
   html += '<div class="card" style="font-size:11px;color:#666;text-align:center;line-height:1.8">'
     +'Оплата через Telegram Stars — безопасно и мгновенно.<br>'
-    +'1 ⭐ = 1 бустер. Бустеры не складываются.</div>';
+    +'Бустеры не складываются.</div>';
 
   document.getElementById('content').innerHTML = html;
 }
@@ -2358,6 +2369,10 @@ function activateBoost(id) {
   }
 
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
+  if (id==='repairAll') {
+    for (var trk in state.durability) state.durability[trk] = 100;
+    showNotif('🔧 Весь транспорт полностью отремонтирован!');
+  }
   if (id==='instantDelivery') {
     var earned = 0;
     if (state.delivery) {

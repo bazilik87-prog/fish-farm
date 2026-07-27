@@ -29,6 +29,7 @@ BOOST_NAMES = {
     'turboSpeed':      'Turbo Speed x2 transport speed for 1 hour',
     'turboPack':       'Instant Packing - all packing finishes instantly',
     'instantDelivery': 'Instant Delivery - all active deliveries finish instantly',
+    'repairAll':       'Repair All Transport - fully repairs all vehicles',
     'lottery':         'Lottery - spin the wheel and win coins or jackpot!',
     'weather_sunny':   'Weather Change - Sunny for 30 minutes',
     'weather_cloudy':  'Weather Change - Cloudy for 30 minutes',
@@ -43,12 +44,17 @@ BOOST_LABELS = {
     'turboSpeed':      '🏎 Турбо скорость',
     'turboPack':       '📦 Мгновенная упаковка',
     'instantDelivery': '🚀 Мгновенная доставка',
+    'repairAll':       '🔧 Ремонт всего транспорта',
     'lottery':         '🎰 Лотерея',
     'weather_sunny':   '☀️ Погода: Ясно',
     'weather_cloudy':  '🌥 Погода: Облачно',
     'weather_rain':    '🌧 Погода: Дождь',
     'weather_storm':   '⛈ Погода: Шторм',
     'weather_perfect': '🌟 Погода: Отличный клёв',
+}
+# Цена в Stars за буст — по умолчанию 1, для отдельных бустов можно переопределить
+BOOST_PRICES = {
+    'repairAll': 2,
 }
 
 SUPPORT_GROUP_ID = -5478312122
@@ -93,13 +99,14 @@ async def create_invoice(request):
             boost_id = str(data.get('boost', ''))
             user_id  = int(data.get('user_id', 0))
             name = BOOST_NAMES.get(boost_id, 'Boost')
+            price = BOOST_PRICES.get(boost_id, 1)
             payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,
                 description=name,
                 payload=payload,
                 currency="XTR",
-                prices=[LabeledPrice(label="Boost", amount=1)],
+                prices=[LabeledPrice(label="Boost", amount=price)],
                 provider_token="",
             )
             return web.json_response({'link': link}, headers=CORS)
@@ -1030,19 +1037,21 @@ async def boost_callback(callback: types.CallbackQuery):
     boost_id = callback.data.split(':')[1]
     name  = BOOST_NAMES.get(boost_id, 'Boost')
     label = BOOST_LABELS.get(boost_id, name)
+    price = BOOST_PRICES.get(boost_id, 1)
     user_id = callback.from_user.id
     link = await bot.create_invoice_link(
         title=name, description=name,
         payload=f"bo:{boost_id}:{user_id}",
         currency="XTR",
-        prices=[LabeledPrice(label="Boost", amount=1)],
+        prices=[LabeledPrice(label="Boost", amount=price)],
         provider_token="",
     )
+    stars_word = 'звезду' if price == 1 else ('звезды' if price in (2,3,4) else 'звёзд')
     await callback.message.answer(
         f"⚡ *{label}*",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="⭐ Купить за 1 звезду", url=link)
+            InlineKeyboardButton(text=f"⭐ Купить за {price} {stars_word}", url=link)
         ]])
     )
     await callback.answer()
