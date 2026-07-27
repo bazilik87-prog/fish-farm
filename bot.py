@@ -17,6 +17,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
 ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
 PORT      = int(os.getenv("PORT", "8080"))
+FIREBASE_DB_SECRET = os.getenv("FIREBASE_DB_SECRET", "")
+# Добавляется ко всем запросам бота к Firebase — даёт админский доступ в обход правил безопасности,
+# которые теперь можно спокойно ужесточать для обычных клиентов (игры в браузере), не боясь сломать бота.
+FB_AUTH = ("?auth=" + FIREBASE_DB_SECRET) if FIREBASE_DB_SECRET else ""
 
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher()
@@ -233,7 +237,7 @@ async def jackpot_broadcast(request):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 players = await resp.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
@@ -318,23 +322,23 @@ async def start(message: types.Message):
 
         async with aiohttp.ClientSession() as session:
             # Проверяем что игрок новый (не использовал реферал раньше)
-            async with session.get(f"{base}/referrals/used/{user_id}.json") as resp:
+            async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as resp:
                 already_used = await resp.json()
             if already_used:
                 return  # реферал уже был использован
 
             # Сохраняем связь реферал → реферер
-            await session.put(f"{base}/referrals/used/{user_id}.json",
+            await session.put(f"{base}/referrals/used/{user_id}.json{FB_AUTH}",
                               json=referrer_id)
-            await session.put(f"{base}/referrals/by/{referrer_id}/{user_id}.json",
+            await session.put(f"{base}/referrals/by/{referrer_id}/{user_id}.json{FB_AUTH}",
                               json=True)
 
             # Начисляем +100 монет новому игроку
-            await session.put(f"{base}/pending_rewards/tg_{user_id}/ref_bonus.json",
+            await session.put(f"{base}/pending_rewards/tg_{user_id}/ref_bonus.json{FB_AUTH}",
                               json=100)
 
             # Начисляем +100 монет рефереру
-            await session.put(f"{base}/pending_rewards/tg_{referrer_id}/ref_invite_{user_id}.json",
+            await session.put(f"{base}/pending_rewards/tg_{referrer_id}/ref_invite_{user_id}.json{FB_AUTH}",
                               json=100)
 
         # Уведомляем реферера
@@ -384,7 +388,7 @@ async def addcoins_command(message: types.Message):
     try:
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 data = await resp.json()
 
         user_id = None
@@ -402,7 +406,7 @@ async def addcoins_command(message: types.Message):
         # Записываем в pending_rewards — игра заберёт при следующем входе
         async with aiohttp.ClientSession() as session:
             await session.put(
-                f"{base}/pending_rewards/tg_{user_id}/admin_compensation.json",
+                f"{base}/pending_rewards/tg_{user_id}/admin_compensation.json{FB_AUTH}",
                 json=amount
             )
 
@@ -438,10 +442,10 @@ async def referrals_command(message: types.Message):
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
         async with aiohttp.ClientSession() as session:
             # Получаем структуру referrals/by
-            async with session.get(f"{base}/referrals/by.json") as resp:
+            async with session.get(f"{base}/referrals/by.json{FB_AUTH}") as resp:
                 by_data = await resp.json()
             # Получаем leaderboard для имён
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 lb_data = await resp.json()
 
         # Строим словарь userId -> username
@@ -498,9 +502,9 @@ async def refcontest_command(message: types.Message):
     try:
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/ref_contest/scores.json") as resp:
+            async with session.get(f"{base}/ref_contest/scores.json{FB_AUTH}") as resp:
                 scores = await resp.json()
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 lb = await resp.json()
 
         if not scores:
@@ -558,7 +562,7 @@ async def starttournament_command(message: types.Message):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 players = await resp.json()
 
             baseline = {}
@@ -566,7 +570,7 @@ async def starttournament_command(message: types.Message):
                 for pid, v in players.items():
                     baseline[pid] = v.get('totalEarned', 0)
 
-            await session.put(f"{base}/tournament.json", json={
+            await session.put(f"{base}/tournament.json{FB_AUTH}", json={
                 "active": True,
                 "startedAt": started_at,
                 "endsAt": ends_at,
@@ -618,7 +622,7 @@ async def stoptournament_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            await session.patch(f"{base}/tournament.json", json={"active": False})
+            await session.patch(f"{base}/tournament.json{FB_AUTH}", json={"active": False})
         await message.answer("✅ Турнир остановлен досрочно. Итоги — командой /tournamentstats")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -633,9 +637,9 @@ async def tournamentstats_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/tournament.json") as resp:
+            async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
                 t = await resp.json()
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 players = await resp.json()
 
         if not t or not players:
@@ -701,7 +705,7 @@ async def startpromo_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/promo/net_bonus.json", json={"endsAt": ends_at, "bonus": 500})
+            await session.put(f"{base}/promo/net_bonus.json{FB_AUTH}", json={"endsAt": ends_at, "bonus": 500})
         from datetime import datetime, timezone, timedelta
         ends_dt = datetime.fromtimestamp(ends_at/1000, tz=timezone(timedelta(hours=3)))
         await message.answer(f"✅ Акция запущена!\n🎁 Бонус 500🪙 за покупку Сети активен до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК")
@@ -717,7 +721,7 @@ async def stoppromo_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            await session.delete(f"{base}/promo/net_bonus.json")
+            await session.delete(f"{base}/promo/net_bonus.json{FB_AUTH}")
         await message.answer("✅ Акция остановлена!")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -765,7 +769,7 @@ async def ban_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 lb = await resp.json()
 
             target_pid = None
@@ -782,20 +786,20 @@ async def ban_command(message: types.Message):
                 return
 
             # Удаляем из лидерборда и стираем прогресс
-            await session.delete(f"{base}/leaderboard/{target_pid}.json")
-            await session.delete(f"{base}/saves/{target_pid}.json")
+            await session.delete(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}")
+            await session.delete(f"{base}/saves/{target_pid}.json{FB_AUTH}")
 
             # Убираем из всех реферальных списков
-            async with session.get(f"{base}/referrals/by.json") as resp:
+            async with session.get(f"{base}/referrals/by.json{FB_AUTH}") as resp:
                 by_data = await resp.json()
             if by_data and target_uid:
                 for referrer_id, refs in by_data.items():
                     if isinstance(refs, dict) and target_uid in refs:
-                        await session.delete(f"{base}/referrals/by/{referrer_id}/{target_uid}.json")
+                        await session.delete(f"{base}/referrals/by/{referrer_id}/{target_uid}.json{FB_AUTH}")
 
             # Помечаем как забаненного — игра проверяет это при входе
             if target_uid:
-                await session.put(f"{base}/banned/{target_uid}.json", json=True)
+                await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
 
         await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
     except Exception as e:
@@ -817,7 +821,7 @@ async def pay_command(message: types.Message):
     amount = text[2]
     import aiohttp
     try:
-        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
@@ -861,7 +865,7 @@ async def paystars_command(message: types.Message):
     amount = text[2]
     import aiohttp
     try:
-        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
@@ -899,7 +903,7 @@ async def players_command(message: types.Message):
     from io import BytesIO
     from datetime import datetime, timezone
     try:
-        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json"
+        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
@@ -971,7 +975,7 @@ async def broadcast_command(message: types.Message):
             'date': now.strftime('%d.%m.%Y %H:%M')
         }
         async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/news/{news_key}.json", json=news_entry)
+            await session.put(f"{base}/news/{news_key}.json{FB_AUTH}", json=news_entry)
 
             # Оставляем только последние 5 новостей
             async with session.get(f"{base}/news.json?orderBy=\"ts\"") as resp:
@@ -979,9 +983,9 @@ async def broadcast_command(message: types.Message):
             if all_news and len(all_news) > 5:
                 sorted_keys = sorted(all_news.keys())
                 for old_key in sorted_keys[:-5]:
-                    await session.delete(f"{base}/news/{old_key}.json")
+                    await session.delete(f"{base}/news/{old_key}.json{FB_AUTH}")
 
-        url = f"{base}/leaderboard.json"
+        url = f"{base}/leaderboard.json{FB_AUTH}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
@@ -1035,7 +1039,7 @@ async def pushcomeback_command(message: types.Message):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json") as resp:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 data = await resp.json()
         if not data:
             await message.answer("❌ Игроков не найдено.")
@@ -1127,7 +1131,7 @@ async def successful_payment(message: types.Message):
         import aiohttp
         try:
             pid = f"tg_{user_id}"
-            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json"
+            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
             import time
             async with aiohttp.ClientSession() as session:
                 await session.put(url, json=int(time.time() * 1000))
