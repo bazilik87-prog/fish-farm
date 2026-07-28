@@ -2299,6 +2299,12 @@ function buyBoost(id) {
             }
             if(currentTab==='boosts') renderBoosts();
             if(currentTab==='market') renderMarket();
+            // Удаляем запись о покупке — буст уже активирован здесь и сейчас,
+            // иначе при следующем заходе он ошибочно активируется заново
+            if (firebaseDB) {
+              var pidForClean = getPlayerId();
+              firebaseDB.ref('pending_boosts/' + pidForClean + '/' + id).remove();
+            }
           }
         });
       } catch(err) {
@@ -2858,15 +2864,19 @@ function getRefLink() {
 
 function activateBoostWithTime(id, elapsed) {
   var now = Date.now();
-  var remaining = 3600000 - elapsed; // вычитаем уже прошедшее время
   if (id==='truckRental') {
     var remainingRental = 43200000 - elapsed; // у аренды своя длительность — 12 часов
     if (remainingRental > 0) state.boosts.truckRental = now + remainingRental;
     return;
   }
+  if (id==='luckyRod') {
+    var remainingLucky = 1800000 - elapsed; // у удачной рыбалки своя длительность — 30 минут
+    if (remainingLucky > 0) state.boosts.luckyRod = now + remainingLucky;
+    return;
+  }
+  var remaining = 3600000 - elapsed; // остальные бусты длятся 1 час
   if (remaining <= 0) return; // буст уже истёк
   if (id==='doubleTap')  state.boosts.doubleTap  = now + remaining;
-  if (id==='luckyRod')   state.boosts.luckyRod   = now + Math.min(remaining, 1800000);
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + remaining;
   if (id==='turboDry') {
     for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
