@@ -285,7 +285,7 @@ var state = {
   durability:{bike:100,moped:100,car:100,truck:100},
   dailyDay:0,dailyLastClaim:0,lastSeen:0,totalEarned:0,selectedFish:null,selectedDried:false,selectedFilet:false,
   selectedItems:[],
-  driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,driverSaltOrder:0,driverKnifeOrder:0,
+  driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,selectedDriverItems:[],driverSaltOrder:0,driverKnifeOrder:0,
   drying:[],driedFish:[],
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
   quests:[], questsDate:0, questProgress:{},
@@ -2046,7 +2046,7 @@ function renderDriver() {
         var fmp=marketPrices[fn]||{cur:BASE_PRICES[fn]||1};
         var fsend=Math.min(fcnt,dtr.capacity);
         var fearn=Math.round(fmp.cur*fsend*0.7*100)/100;
-        var isSel=state.selectedDriverFish===fn&&!state.selectedDriverDried&&!state.selectedDriverFilet;
+        var isSel=isDriverItemSelected(fn,false,false);
         html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef?fdef.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
@@ -2062,7 +2062,7 @@ function renderDriver() {
         var ddmp=marketPrices[dnn]||{cur:BASE_PRICES[dnn]||1};
         var ddsend=Math.min(dcnt,dtr.capacity);
         var ddearn=Math.round(ddmp.cur*ddsend*3*0.7*100)/100;
-        var isDrySel=state.selectedDriverFish===dnn&&state.selectedDriverDried;
+        var isDrySel=isDriverItemSelected(dnn,true,false);
         html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(dddef?dddef.emoji:'📦')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dnn+' сушёная <span class="badge">x'+dcnt+'</span></div>'
@@ -2078,7 +2078,7 @@ function renderDriver() {
         var ffmp=marketPrices[ffn]||{cur:BASE_PRICES[ffn]||1};
         var ffsend=Math.min(ffcnt,dtr.capacity);
         var ffearn=Math.round(ffmp.cur*ffsend*5*0.7*100)/100;
-        var isFiletSel=state.selectedDriverFish===ffn&&state.selectedDriverFilet;
+        var isFiletSel=isDriverItemSelected(ffn,false,true);
         html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(ffdef?ffdef.emoji:'🍱')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+ffn+' филе <span class="badge">x'+ffcnt+'</span></div>'
@@ -2088,10 +2088,18 @@ function renderDriver() {
     }
   }
 
+  // Индикатор загрузки
+  var dTotalSel = 0;
+  for (var dsi=0; dsi<(state.selectedDriverItems||[]).length; dsi++) dTotalSel += state.selectedDriverItems[dsi].qty;
+  var dSel = dTotalSel > 0;
+  if (dSel) {
+    var dRoomLeft = dtr.capacity - dTotalSel;
+    html+='<div style="font-size:12px;color:#90caf9;margin-bottom:8px;display:flex;justify-content:space-between">'
+      +'<span>📦 Загрузка: <b style="color:#FFD700">'+dTotalSel+'/'+dtr.capacity+'</b></span>'
+      +'<span style="color:'+(dRoomLeft>0?'#6ddc6d':'#e57373')+'">Место: '+dRoomLeft+'</span></div>';
+  }
+
   // Соль и ножи
-  var dSel=state.selectedDriverFish;
-  var dIsDried=!!state.selectedDriverDried;
-  var dIsFilet=!!state.selectedDriverFilet;
   if (dSel) {
     var dSaltPrice=SALT_PRICE[state.currentLoc]||1;
     var dCurSalt=state.driverSaltOrder||0;
@@ -2117,7 +2125,7 @@ function renderDriver() {
   // Кнопка отправки
   var driverBroken=getDur(state.driverTransport)<=0;
   html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBroken||!dSel)?'disabled':'')+' style="background:'+(dSel&&!driverBroken?'#6a4fc2':'#2a1a4a')+';color:#fff">'
-    +(driverBroken?'🔴 Сломан — почини':dSel?dtr.emoji+' Отправить водителя':'Выбери что везёт водитель')
+    +(driverBroken?'🔴 Сломан — почини':dSel?dtr.emoji+' Отправить водителя ('+dTotalSel+' шт)':'Выбери что везёт водитель')
     +'</button>';
   html+='</div>';
 
@@ -3426,16 +3434,47 @@ function selectDriverTransport(id) {
     state.selectedDriverFish = null;
     state.selectedDriverDried = false;
     state.selectedDriverFilet = false;
+    state.selectedDriverItems = [];
     state.driverSaltOrder = 0;
     state.driverKnifeOrder = 0;
   }
   renderDriver();
 }
+function isDriverItemSelected(name, dried, filet) {
+  var key = name + '|' + (dried?'dry':filet?'filet':'fresh');
+  if (!state.selectedDriverItems) return false;
+  for (var i=0; i<state.selectedDriverItems.length; i++) if (state.selectedDriverItems[i].key===key) return true;
+  return false;
+}
 function selectDriverFish(name, dried, filet) {
-  if (state.selectedDriverFish===name && !!state.selectedDriverDried===!!dried && !!state.selectedDriverFilet===!!filet) {
-    state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false;
+  if (!state.selectedDriverItems) state.selectedDriverItems = [];
+  var dtr = getTr(state.driverTransport);
+  var key = name + '|' + (dried?'dry':filet?'filet':'fresh');
+  var existing = null;
+  for (var i=0; i<state.selectedDriverItems.length; i++) {
+    if (state.selectedDriverItems[i].key === key) { existing = i; break; }
+  }
+  var totalSelected = 0;
+  for (var j=0; j<state.selectedDriverItems.length; j++) totalSelected += state.selectedDriverItems[j].qty;
+
+  if (existing !== null) {
+    state.selectedDriverItems.splice(existing, 1);
   } else {
-    state.selectedDriverFish=name; state.selectedDriverDried=!!dried; state.selectedDriverFilet=!!filet;
+    var pool = dried ? driedGrouped : filet ? filetGrouped2 : grouped;
+    var available = pool ? (pool[name] || 0) : 0;
+    var room = dtr.capacity - totalSelected;
+    var qty = Math.min(available, room);
+    if (qty <= 0) { showNotif('Транспорт водителя заполнен!'); return; }
+    state.selectedDriverItems.push({key:key, name:name, dried:!!dried, filet:!!filet, qty:qty});
+  }
+  // Совместимость со старым кодом (подсветка последнего выбранного и т.п.)
+  if (state.selectedDriverItems.length > 0) {
+    var last = state.selectedDriverItems[state.selectedDriverItems.length-1];
+    state.selectedDriverFish = last.name;
+    state.selectedDriverDried = last.dried;
+    state.selectedDriverFilet = last.filet;
+  } else {
+    state.selectedDriverFish = null; state.selectedDriverDried = false; state.selectedDriverFilet = false;
   }
   renderDriver();
 }
@@ -3457,44 +3496,51 @@ function sendDriverDelivery() {
   var tr2 = getTr(transportId);
   var dur2 = getDur(transportId);
   if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
-  var sel=state.selectedDriverFish, isDried=!!state.selectedDriverDried, isFilet=!!state.selectedDriverFilet;
-  if (!sel) { showNotif('Выбери что отправить!'); return; }
-  var toSend=[], rest=[], earn=0, sentCount=0;
-  if (isFilet) {
-    var takenF=0, restFilets=[];
-    for (var f=0;f<(state.filets||[]).length;f++) {
-      var ff=state.filets[f];
-      var room=tr2.capacity-takenF;
-      if (ff.name===sel && !ff.packingEndsAt && room>0) {
-        var pk=ff.packets||1;
-        var mpF=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-        else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt}); }
-      } else restFilets.push(ff);
+  if (!state.selectedDriverItems || !state.selectedDriverItems.length) { showNotif('Выбери что отправить!'); return; }
+
+  var earn=0, sentCount=0;
+
+  for (var si=0; si<state.selectedDriverItems.length; si++) {
+    var item = state.selectedDriverItems[si];
+    var need = item.qty;
+
+    if (item.filet) {
+      var takenF=0, restFilets=[];
+      for (var f=0;f<(state.filets||[]).length;f++) {
+        var ff=state.filets[f];
+        var room=need-takenF;
+        if (ff.name===item.name && !ff.packingEndsAt && room>0) {
+          var pk=ff.packets||1;
+          var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
+          if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt}); }
+        } else restFilets.push(ff);
+      }
+      state.filets=restFilets; sentCount+=takenF;
+    } else if (item.dried) {
+      var taken=0, rest=[];
+      for (var i=0;i<state.driedFish.length;i++) {
+        if (state.driedFish[i].name===item.name && taken<need) {
+          var mpD=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
+          earn+=mpD.cur*3; taken++;
+        } else rest.push(state.driedFish[i]);
+      }
+      state.driedFish=rest; sentCount+=taken;
+    } else {
+      var taken2=0, rest2=[];
+      for (var j=0;j<state.liveFish.length;j++) {
+        if (state.liveFish[j].name===item.name && taken2<need) {
+          var mpL=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
+          earn+=mpL.cur; taken2++;
+        } else rest2.push(state.liveFish[j]);
+      }
+      state.liveFish=rest2; sentCount+=taken2;
     }
-    if (!takenF) { showNotif('Нет филе этого вида!'); return; }
-    state.filets=restFilets; sentCount=takenF;
-  } else if (isDried) {
-    var taken=0;
-    for (var i=0;i<state.driedFish.length;i++) {
-      if (state.driedFish[i].name===sel && taken<tr2.capacity) {
-        var mp=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mp.cur*3; toSend.push(state.driedFish[i]); taken++;
-      } else rest.push(state.driedFish[i]);
-    }
-    if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
-    state.driedFish=rest; sentCount=toSend.length;
-  } else {
-    var taken2=0;
-    for (var j=0;j<state.liveFish.length;j++) {
-      if (state.liveFish[j].name===sel && taken2<tr2.capacity) {
-        var mp2=marketPrices[sel]||{cur:BASE_PRICES[sel]||1};
-        earn+=mp2.cur; toSend.push(state.liveFish[j]); taken2++;
-      } else rest.push(state.liveFish[j]);
-    }
-    if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
-    state.liveFish=rest; sentCount=toSend.length;
   }
+
+  if (!sentCount) { showNotif('Нет рыбы на складе!'); return; }
+  earn=Math.round(earn*100)/100;
+
   // Соль и ножи для водителя
   var saltOrder=state.driverSaltOrder||0;
   var saltPrice=SALT_PRICE[state.currentLoc]||1;
@@ -3511,7 +3557,7 @@ function sendDriverDelivery() {
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   addQuestProgress('deliver', 1);
   // Сбрасываем состояние водителя
-  state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.driverSaltOrder=0; state.driverKnifeOrder=0;
+  state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.selectedDriverItems=[]; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.marketSubpage=null;
   showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   showTab('market'); save();
