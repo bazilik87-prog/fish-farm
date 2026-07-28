@@ -65,6 +65,7 @@ BOOST_NAMES = {
     'turboPack':       'Instant Packing - all packing finishes instantly',
     'instantDelivery': 'Instant Delivery - all active deliveries finish instantly',
     'repairAll':       'Repair All Transport - fully repairs all vehicles',
+    'truckRental':      'Rent a Truck with Trailer - 200 capacity for 12 hours',
     'lottery':         'Lottery - spin the wheel and win coins or jackpot!',
     'weather_sunny':   'Weather Change - Sunny for 30 minutes',
     'weather_cloudy':  'Weather Change - Cloudy for 30 minutes',
@@ -80,6 +81,7 @@ BOOST_LABELS = {
     'turboPack':       '📦 Мгновенная упаковка',
     'instantDelivery': '🚀 Мгновенная доставка',
     'repairAll':       '🔧 Ремонт всего транспорта',
+    'truckRental':      '🚛 Грузовик с прицепом (аренда 12ч, вместимость 200)',
     'lottery':         '🎰 Лотерея',
     'weather_sunny':   '☀️ Погода: Ясно',
     'weather_cloudy':  '🌥 Погода: Облачно',
@@ -90,6 +92,7 @@ BOOST_LABELS = {
 # Цена в Stars за буст — по умолчанию 1, для отдельных бустов можно переопределить
 BOOST_PRICES = {
     'repairAll': 2,
+    'truckRental': 5,
 }
 
 SUPPORT_GROUP_ID = -5478312122

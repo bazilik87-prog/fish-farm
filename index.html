@@ -215,6 +215,8 @@ var TRANSPORTS = [
   {id:'car',  name:'Машина',   emoji:'🚗',capacity:40, cost:50000, time:1500,repairCost:5000 },
   {id:'truck',name:'Грузовик', emoji:'🚛',capacity:100,cost:300000,time:2400,repairCost:30000}
 ];
+// Арендованный грузовик с прицепом — временный буст за ⭐, не покупается за монеты
+var RENTAL_TRUCK = {id:'rentalTruck', name:'Грузовик с прицепом (аренда)', emoji:'🚛🚚', capacity:200, cost:0, time:900, repairCost:0};
 
 var UPGRADES = [
   {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за улов и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
@@ -285,7 +287,7 @@ var state = {
   selectedItems:[],
   driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,driverSaltOrder:0,driverKnifeOrder:0,
   drying:[],driedFish:[],
-  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false},
+  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
   knife:0, knifeOrder:0, cutting:[], filets:[],
@@ -502,6 +504,9 @@ function getLoc(id) {
 }
 function getTr(id) {
   var tid = id||state.transport;
+  if (tid === 'rentalTruck') {
+    return (state.boosts.truckRental > Date.now()) ? RENTAL_TRUCK : TRANSPORTS[0];
+  }
   for (var i=0;i<TRANSPORTS.length;i++) if (TRANSPORTS[i].id===tid) return TRANSPORTS[i];
   return TRANSPORTS[0];
 }
@@ -667,7 +672,7 @@ function load() {
     state.totalEarned       = s.totalEarned || 0;
     state.drying            = s.drying    || [];
     state.driedFish         = s.driedFish || [];
-    state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0};
+    state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0};
     state.quests            = s.quests       || [];
     state.questsDate        = s.questsDate   || 0;
     state.questProgress     = s.questProgress|| {};
@@ -1165,6 +1170,7 @@ function bulkSell(type) {
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function renderMarket() {
+  if (state.transport==='rentalTruck' && state.boosts.truckRental<=Date.now()) { state.transport='bike'; save(); }
   if (state.marketSubpage === 'driver') { renderDriver(); return; }
   var tr=getTr(), dlv=state.delivery;
   var next=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000));
@@ -1223,6 +1229,15 @@ function renderMarket() {
     if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+t.id+'\')">'+t.emoji+' '+t.name+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
     else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+t.id+'\')" '+(canBuy?'':'disabled')+'>'+t.emoji+' 🪙'+fmt(t.cost)+'</button>';
   }
+  var rentalActive = state.boosts.truckRental > Date.now();
+  if (rentalActive) {
+    var rentalSelected = state.transport==='rentalTruck';
+    var rentalSecs = Math.round((state.boosts.truckRental-Date.now())/1000);
+    var rh = Math.floor(rentalSecs/3600), rm = Math.floor((rentalSecs%3600)/60);
+    trBtns += '<button class="btn '+(rentalSelected?'btn-green':'')+'" onclick="selectTransport(\'rentalTruck\')">🚛 Аренда'+(rentalSelected?' ✓':'')+' · <span id="rental-timer">'+rh+'ч '+rm+'м</span></button>';
+  } else {
+    trBtns += '<button class="btn btn-gold" onclick="buyBoost(\'truckRental\')">🚛 Арендовать ⭐5</button>';
+  }
   html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🚚 Транспорт</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+trBtns+'</div>'
     +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+tr.name+' · '+tr.capacity+' рыб · '+fmtTime(dt)+'</div>'
@@ -1252,7 +1267,7 @@ function renderMarket() {
       for (var si=0; si<state.selectedItems.length; si++) totalSel += state.selectedItems[si].qty;
       var roomLeft = tr.capacity - totalSel;
       html+='<div style="font-size:12px;color:#90caf9;margin-bottom:8px;display:flex;justify-content:space-between">'
-        +'<span>📦 Загрузка: <b style="color:#FFD700">'+totalSel+'/'+tr.capacity+'</b></span>'
+        +'<span>📦 Загрузка: <b style="color:#FFD700">'+totalSel+'/'+tr.capacity+'</b>'+(state.boosts.truckRental>Date.now()?' <span style="color:#6ddc6d">(🚛 аренда)</span>':'')+'</span>'
         +'<span style="color:'+(roomLeft>0?'#6ddc6d':'#e57373')+'">Место: '+roomLeft+'</span></div>';
 
       html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 Свежая рыба:</div>';
@@ -1953,6 +1968,7 @@ function renderQuests() {
   document.getElementById('content').innerHTML=html;
 }
 function renderDriver() {
+  if (state.driverTransport==='rentalTruck' && state.boosts.truckRental<=Date.now()) { state.driverTransport=null; save(); }
   var dlv = state.delivery;
   var dlv2 = state.delivery2;
   var html = '<div style="display:flex;gap:6px;margin-bottom:8px">'
@@ -1976,6 +1992,7 @@ function renderDriver() {
   // Выбор транспорта для водителя
   var busyTransportId = dlv ? dlv.transportId : state.transport;
   var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== busyTransportId; });
+  if (state.boosts.truckRental > Date.now() && busyTransportId !== 'rentalTruck') hireCandidates.push('rentalTruck');
 
   html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
     +'<div style="font-size:14px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
@@ -2216,7 +2233,7 @@ function renderBoosts() {
       +'<div style="font-size:14px;font-weight:600;color:#fff">'+bst.name+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+bst.desc+'</div>'
       +(bst.active && bst.timeLeft>0
-        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен · осталось '+bst.timeLeft+' мин</div>'
+        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен · осталось '+(bst.timeLeft>=60?(Math.floor(bst.timeLeft/60)+'ч '+(bst.timeLeft%60)+'м'):(bst.timeLeft+' мин'))+'</div>'
         : bst.active
         ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен</div>'
         : '')
@@ -2273,6 +2290,7 @@ function buyBoost(id) {
               showNotif('✅ Бустер активирован!');
             }
             if(currentTab==='boosts') renderBoosts();
+            if(currentTab==='market') renderMarket();
           }
         });
       } catch(err) {
@@ -2377,6 +2395,10 @@ function activateBoost(id) {
   }
 
   if (id==='luckyRod') state.boosts.luckyRod = now + 1800000;
+  if (id==='truckRental') {
+    state.boosts.truckRental = now + 43200000; // 12 часов
+    showNotif('🚛 Грузовик с прицепом арендован на 12 часов! Вместимость доставки: 200');
+  }
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
   if (id==='repairAll') {
     for (var trk in state.durability) state.durability[trk] = 100;
@@ -2829,6 +2851,11 @@ function getRefLink() {
 function activateBoostWithTime(id, elapsed) {
   var now = Date.now();
   var remaining = 3600000 - elapsed; // вычитаем уже прошедшее время
+  if (id==='truckRental') {
+    var remainingRental = 43200000 - elapsed; // у аренды своя длительность — 12 часов
+    if (remainingRental > 0) state.boosts.truckRental = now + remainingRental;
+    return;
+  }
   if (remaining <= 0) return; // буст уже истёк
   if (id==='doubleTap')  state.boosts.doubleTap  = now + remaining;
   if (id==='luckyRod')   state.boosts.luckyRod   = now + Math.min(remaining, 1800000);
@@ -3138,7 +3165,8 @@ function showInstructions() {
     +'🛵 Мопед — 5000🪙 · 15 рыб · 15 мин<br>'
     +'🚗 Машина — 50000🪙 · 40 рыб · 25 мин<br>'
     +'🚛 Грузовик — 300000🪙 · 100 рыб · 40 мин<br>'
-    +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br><br>'
+    +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br>'
+    +'🚛 Грузовик с прицепом (аренда, ⭐5 на рынке рядом со списком транспорта) — 200 рыб · 15 мин · не изнашивается, действует 12 часов<br><br>'
     +'<b style="color:#fff">⬆️ Улучшения</b><br>'
     +'🎣 Удочка — увеличивает монеты за улов и шанс улова<br>'
     +'🕸 Сеть — +0.1 к автодобычи в минуту (макс 5 ур.)<br>'
@@ -3382,7 +3410,7 @@ function sendDelivery() {
   if ((saltCost+knifeCost)>state.coins) { showNotif('Не хватает монет на заказ!'); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
-  state.durability[tr.id]=Math.max(0,dur-10);
+  if (tr.id !== 'rentalTruck') state.durability[tr.id]=Math.max(0,dur-10);
   state.delivery={transportId:tr.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   state.saltOrder=0; state.knifeOrder=0;
   state.selectedItems=[]; state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
@@ -3479,8 +3507,9 @@ function sendDriverDelivery() {
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
   var secs=delivTime(tr2);
-  state.durability[tr2.id]=Math.max(0,dur2-10);
+  if (tr2.id !== 'rentalTruck') state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
+  addQuestProgress('deliver', 1);
   // Сбрасываем состояние водителя
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.marketSubpage=null;
@@ -3541,8 +3570,9 @@ function hireDriver(transportId) {
   }
   earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
   var secs=delivTime(tr2);
-  state.durability[tr2.id]=Math.max(0,dur2-10);
+  if (tr2.id !== 'rentalTruck') state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
+  addQuestProgress('deliver', 1);
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
   updateUI(); save();
@@ -3559,7 +3589,9 @@ function repairTr(id) {
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function selectTransport(id) {
-  if (state.unlockedTransports.indexOf(id)<0) return;
+  if (id==='rentalTruck') {
+    if (state.boosts.truckRental <= Date.now()) return; // аренда истекла
+  } else if (state.unlockedTransports.indexOf(id)<0) return;
   state.transport=id; save(); renderMarket();
 }
 function buyTransport(id) {
@@ -3614,7 +3646,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],upgLevels:{}};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],upgLevels:{}};
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
   tapped=false; scareFactor=1.0;
@@ -3690,6 +3722,16 @@ function tick() {
     updateWeatherUI();
     var te=document.getElementById('mkt-timer');
     if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
+    var rte=document.getElementById('rental-timer');
+    if (rte) {
+      var rLeft = state.boosts.truckRental - Date.now();
+      if (rLeft > 0) {
+        var rh2=Math.floor(rLeft/3600000), rm2=Math.floor((rLeft%3600000)/60000);
+        rte.textContent = rh2+'ч '+rm2+'м';
+      } else if (currentTab==='market') {
+        renderMarket(); // аренда истекла — перерисовать, чтобы вернулась кнопка "Арендовать"
+      }
+    }
   } catch(e) { console.error('tick error:', e); }
   setTimeout(tick,500);
 }
@@ -3749,7 +3791,7 @@ function applyState(s) {
   state.totalEarned       = s.totalEarned || 0;
   state.drying            = s.drying    || [];
   state.driedFish         = s.driedFish || [];
-  state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0};
+  state.boosts            = s.boosts    || {doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0};
   state.quests            = s.quests       || [];
   state.questsDate        = s.questsDate   || 0;
   state.questProgress     = s.questProgress|| {};
