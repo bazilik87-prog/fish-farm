@@ -1058,6 +1058,7 @@ function renderContent() {
     if (settingsSubpage==='instructions') showInstructions();
     else if (settingsSubpage==='notiflog') showNotifLog();
     else if (settingsSubpage==='news') showNews();
+    else if (settingsSubpage==='newsArchive') showNewsArchive();
     else renderSettings();
   }
 }
@@ -2760,6 +2761,41 @@ function renderNewsHtml(data) {
     for (var i = 0; i < items.length; i++) {
       var n = items[i];
       html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
+        + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
+        + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
+        + '</div>';
+    }
+  }
+  html += '<button class="btn btn-full" onclick="showNewsArchive()" style="background:#3a2a5c;margin-top:4px">📚 Архив новостей</button>';
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+function showNewsArchive() {
+  settingsSubpage = 'newsArchive';
+  if (!firebaseDB) return;
+  if (window._newsArchiveCacheLoaded) {
+    renderNewsArchiveHtml(window._newsArchiveCache);
+    return;
+  }
+  document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка архива...</div></div>';
+  firebaseDB.ref('news').orderByKey().limitToLast(200).once('value', function(snap) {
+    window._newsArchiveCache = snap.val();
+    window._newsArchiveCacheLoaded = true;
+    renderNewsArchiveHtml(window._newsArchiveCache);
+  });
+}
+
+function renderNewsArchiveHtml(data) {
+  var html = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📚 Архив новостей</div>';
+  if (!data) {
+    html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
+  } else {
+    var items = Object.values(data).reverse();
+    for (var i = 0; i < items.length; i++) {
+      var n = items[i];
+      html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #6a4fc2">'
         + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
         + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
         + '</div>';
