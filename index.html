@@ -1070,11 +1070,12 @@ function renderUpgrades() {
     var u=UPGRADES[i], maxed=u.bought>=u.max;
     var cost=maxed?0:upgCost(u,u.bought), canBuy=!maxed&&state.coins>=cost;
     var extra='';
+    var lm = (getLoc(state.currentLoc)||{}).tapMult || 1;
     if (u.id==='rod') {
-      var cur=ROD_TAP[u.bought]||0.1;
+      var cur=Math.round((ROD_TAP[u.bought]||0.1)*lm*10)/10;
       var chance=Math.round(Math.min(0.65,0.20+u.bought*0.09)*100);
       if (!maxed) {
-        var nextCur=ROD_TAP[u.bought+1]||cur;
+        var nextCur=Math.round((ROD_TAP[u.bought+1]||ROD_TAP[u.bought])*lm*10)/10;
         var nextChance=Math.round(Math.min(0.65,0.20+(u.bought+1)*0.09)*100);
         extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% · 🪙'+cur+'/улов</span>'
              +' <span style="color:#555;font-size:10px">→</span>'
@@ -1084,35 +1085,39 @@ function renderUpgrades() {
       }
     }
     if (u.id==='net') {
-      var curVal=Math.round(0.1*u.bought*10)/10;
+      var curVal=Math.round(0.1*u.bought*lm*10)/10;
       if (!maxed) {
-        var nextVal=Math.round(0.1*(u.bought+1)*10)/10;
+        var nextVal=Math.round(0.1*(u.bought+1)*lm*10)/10;
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
       } else {
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
       }
     }
     if (u.id==='boat') {
-      var curVal=Math.round(0.3*u.bought*10)/10;
+      var curVal=Math.round(0.3*u.bought*lm*10)/10;
       if (!maxed) {
-        var nextVal=Math.round(0.3*(u.bought+1)*10)/10;
+        var nextVal=Math.round(0.3*(u.bought+1)*lm*10)/10;
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
       } else {
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
       }
     }
     if (u.id==='sonar') {
-      var curVal=Math.round(0.5*u.bought*10)/10;
+      var curVal=Math.round(0.5*u.bought*lm*10)/10;
       if (!maxed) {
-        var nextVal=Math.round(0.5*(u.bought+1)*10)/10;
+        var nextVal=Math.round(0.5*(u.bought+1)*lm*10)/10;
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
       } else {
         extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
       }
     }
+    var descText = u.desc;
+    if (u.id==='net') descText = '+'+(Math.round(0.1*lm*100)/100)+' к автодобычи за уровень';
+    if (u.id==='boat') descText = '+'+(Math.round(0.3*lm*100)/100)+' к автодобычи за уровень';
+    if (u.id==='sonar') descText = '+'+(Math.round(0.5*lm*100)/100)+' к автодобычи за уровень';
     html+='<div class="upg"><span class="ico">'+u.emoji+'</span>'
       +'<div class="inf"><div class="n">'+u.name+(u.bought>0?' <span class="badge">ур.'+u.bought+'</span>':'')+extra+'</div>'
-      +'<div class="d">'+u.desc+'</div></div>'
+      +'<div class="d">'+descText+'</div></div>'
       +'<button class="btn" onclick="buyUpgrade(\''+u.id+'\')" '+(canBuy?'':'disabled')+'>'+(maxed?'Макс ✓':'🪙 '+cost)+'</button></div>';
   }
   document.getElementById('content').innerHTML=html;
