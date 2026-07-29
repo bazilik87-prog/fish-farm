@@ -1126,6 +1126,21 @@ async def pre_checkout(query: PreCheckoutQuery):
 async def successful_payment(message: types.Message):
     payload = message.successful_payment.invoice_payload
 
+    # Уведомление о любой оплате звёздами — независимо от того, за что платили
+    if ADMIN_ID:
+        try:
+            amount = message.successful_payment.total_amount
+            payer_username = message.from_user.username
+            payer_name = f"@{payer_username}" if payer_username else (message.from_user.first_name or f"ID:{message.from_user.id}")
+            label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
+                    ('Обмен на TON Fish' if payload.startswith('ex:') else payload)
+            await bot.send_message(
+                ADMIN_ID,
+                f"⭐ Новая оплата!\n👤 {payer_name}\n💰 {amount}⭐\n📦 {label}"
+            )
+        except Exception:
+            pass
+
     if payload.startswith('bo:'):
         parts    = payload.split(':')
         boost_id = parts[1] if len(parts) > 1 else ''
