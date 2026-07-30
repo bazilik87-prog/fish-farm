@@ -517,6 +517,12 @@ function getLoc(id) {
   for (var i=0;i<LOCATIONS.length;i++) if (LOCATIONS[i].id===lid) return LOCATIONS[i];
   return LOCATIONS[0];
 }
+// Рыба принадлежит той локации, где была поймана — на рынке другой локации она не отображается
+function fishBelongsToLoc(name, locId) {
+  var list = FISH[locId||state.currentLoc] || [];
+  for (var i=0;i<list.length;i++) if (list[i].name===name) return true;
+  return false;
+}
 function getTr(id) {
   var tid = id||state.transport;
   if (tid === 'rentalTruck') {
@@ -967,7 +973,8 @@ function renderLocBar() {
 }
 function updateUI() {
   document.getElementById('s-coins').textContent=fmt(state.coins);
-  document.getElementById('s-live').textContent=state.liveFish.length;
+  var liveCount=0; for (var lci=0;lci<state.liveFish.length;lci++) if (fishBelongsToLoc(state.liveFish[lci].name)) liveCount++;
+  document.getElementById('s-live').textContent=liveCount;
   document.getElementById('s-tap').textContent='+'+state.tapPower.toFixed(1);
   var autoBoostActive = state.boosts.doubleTap > Date.now();
   var autoEl = document.getElementById('s-auto');
@@ -1130,13 +1137,14 @@ function renderAquarium() {
   var tot=0; for (var j=0;j<pool.length;j++) tot+=pool[j].rate;
 
   // Оптовая продажа
-  var totalLive=state.liveFish.length;
-  var totalDried=state.driedFish.length;
+  var totalLive=0; for (var tli=0;tli<state.liveFish.length;tli++) if (fishBelongsToLoc(state.liveFish[tli].name)) totalLive++;
+  var totalDried=0; for (var tdi=0;tdi<state.driedFish.length;tdi++) if (fishBelongsToLoc(state.driedFish[tdi].name)) totalDried++;
   var totalFilet=0;
-  for (var bfi=0;bfi<(state.filets||[]).length;bfi++) if(!state.filets[bfi].packingEndsAt) totalFilet+=(state.filets[bfi].packets||1);
-  var liveEarn=Math.round(totalLive*0.01*100)/100;
-  var driedEarn=Math.round(totalDried*0.03*100)/100;
-  var filetEarn=Math.round(totalFilet*0.05*100)/100;
+  for (var bfi=0;bfi<(state.filets||[]).length;bfi++) if(!state.filets[bfi].packingEndsAt && fishBelongsToLoc(state.filets[bfi].name)) totalFilet+=(state.filets[bfi].packets||1);
+  var lmA=(getLoc(state.currentLoc)||{}).tapMult||1;
+  var liveEarn=Math.round(totalLive*0.01*lmA*100)/100;
+  var driedEarn=Math.round(totalDried*0.03*lmA*100)/100;
+  var filetEarn=Math.round(totalFilet*0.05*lmA*100)/100;
 
   var html='';
   if (totalLive>0 || totalDried>0 || totalFilet>0) {
@@ -1173,10 +1181,15 @@ function renderAquarium() {
 
 function bulkSell(type) {
   if (type==='dried') {
-    var count=state.driedFish.length;
+    var restD=[], count=0;
+    for (var di=0;di<state.driedFish.length;di++) {
+      if (fishBelongsToLoc(state.driedFish[di].name)) count++;
+      else restD.push(state.driedFish[di]);
+    }
     if (!count) return;
-    var earn=Math.round(count*0.03*100)/100;
-    state.driedFish=[];
+    var lmB=(getLoc(state.currentLoc)||{}).tapMult||1;
+    var earn=Math.round(count*0.03*lmB*100)/100;
+    state.driedFish=restD;
     state.coins=Math.round((state.coins+earn)*100)/100;
     addQuestProgress('earn', earn);
     showNotif('💰 Продано '+count+' пакетов · +🪙'+earn);
@@ -1184,20 +1197,26 @@ function bulkSell(type) {
     var countF=0;
     var restFilets=[];
     for (var i=0;i<(state.filets||[]).length;i++) {
-      if (!state.filets[i].packingEndsAt) countF+=(state.filets[i].packets||1);
+      if (!state.filets[i].packingEndsAt && fishBelongsToLoc(state.filets[i].name)) countF+=(state.filets[i].packets||1);
       else restFilets.push(state.filets[i]);
     }
     if (!countF) return;
-    var earnF=Math.round(countF*0.02*100)/100;
+    var lmB2=(getLoc(state.currentLoc)||{}).tapMult||1;
+    var earnF=Math.round(countF*0.02*lmB2*100)/100;
     state.filets=restFilets;
     state.coins=Math.round((state.coins+earnF)*100)/100;
     addQuestProgress('earn', earnF);
     showNotif('💰 Продано '+countF+' пакетов филе · +🪙'+earnF);
   } else {
-    var count2=state.liveFish.length;
+    var restL=[], count2=0;
+    for (var li=0;li<state.liveFish.length;li++) {
+      if (fishBelongsToLoc(state.liveFish[li].name)) count2++;
+      else restL.push(state.liveFish[li]);
+    }
     if (!count2) return;
-    var earn2=Math.round(count2*0.01*100)/100;
-    state.liveFish=[];
+    var lmB3=(getLoc(state.currentLoc)||{}).tapMult||1;
+    var earn2=Math.round(count2*0.01*lmB3*100)/100;
+    state.liveFish=restL;
     state.coins=Math.round((state.coins+earn2)*100)/100;
     addQuestProgress('earn', earn2);
     addQuestProgress('bulk', count2);
@@ -1212,11 +1231,11 @@ function renderMarket() {
   var tr=getTr(), dlv=state.delivery;
   var next=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000));
   grouped={};
-  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; if (fishBelongsToLoc(n)) grouped[n]=(grouped[n]||0)+1; }
   driedGrouped={};
-  for (var di=0;di<state.driedFish.length;di++) { var dn=state.driedFish[di].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
+  for (var di=0;di<state.driedFish.length;di++) { var dn=state.driedFish[di].name; if (fishBelongsToLoc(dn)) driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
   filetGrouped2={};
-  for (var fi2=0;fi2<(state.filets||[]).length;fi2++) { var ff2=state.filets[fi2]; if(!ff2.packingEndsAt) filetGrouped2[ff2.name]=(filetGrouped2[ff2.name]||0)+(ff2.packets||1); }
+  for (var fi2=0;fi2<(state.filets||[]).length;fi2++) { var ff2=state.filets[fi2]; if(!ff2.packingEndsAt && fishBelongsToLoc(ff2.name)) filetGrouped2[ff2.name]=(filetGrouped2[ff2.name]||0)+(ff2.packets||1); }
   if (!state.selectedItems) state.selectedItems = [];
   var totalFish=state.liveFish.length;
   var dur=getDur(tr.id), broken=dur<=0;
@@ -2062,9 +2081,9 @@ function renderDriver() {
 
   // Группируем рыбу
   var grouped={}, driedGrouped={}, filetGrouped2={};
-  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
-  for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
-  for (var k=0;k<(state.filets||[]).length;k++) { var ff=state.filets[k]; if (!ff.packingEndsAt) filetGrouped2[ff.name]=(filetGrouped2[ff.name]||0)+(ff.packets||1); }
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; if (fishBelongsToLoc(n)) grouped[n]=(grouped[n]||0)+1; }
+  for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; if (fishBelongsToLoc(dn)) driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
+  for (var k=0;k<(state.filets||[]).length;k++) { var ff=state.filets[k]; if (!ff.packingEndsAt && fishBelongsToLoc(ff.name)) filetGrouped2[ff.name]=(filetGrouped2[ff.name]||0)+(ff.packets||1); }
   var hasFresh=Object.keys(grouped).length>0;
   var hasDried=Object.keys(driedGrouped).length>0;
   var hasFilets=Object.keys(filetGrouped2).length>0;
