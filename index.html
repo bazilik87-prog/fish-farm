@@ -2537,8 +2537,8 @@ function renderBank() {
   loadWithdrawalsLog();
 }
 function shortWallet(w) {
-  if (!w || w.length < 12) return w||'';
-  return w.slice(0,4) + '….' + w.slice(-4);
+  if (!w || w.length < 10) return w||'';
+  return w.slice(0,3) + '…' + w.slice(-4);
 }
 function loadWithdrawalsLog() {
   var el = document.getElementById('withdrawals-log');
