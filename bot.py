@@ -296,23 +296,38 @@ async def start(message: types.Message):
     user = message.from_user
     user_id = str(user.id)
 
-    # Уведомляем админа о новом игроке
+    # Уведомляем админа о НОВОМ игроке — только если он правда жмёт /start впервые
     if ADMIN_ID and user.id != ADMIN_ID:
-        def esc_md(s):
-            if not s:
-                return s
-            for ch in ('_', '*', '`', '['):
-                s = s.replace(ch, '\\' + ch)
-            return s
-        name = f"@{esc_md(user.username)}" if user.username else esc_md(user.first_name or 'Без имени')
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        is_new = True
         try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"🆕 *Новый игрок!*\n👤 {name}\n🆔 `{user.id}`",
-                parse_mode="Markdown"
-            )
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/known_starts/{user_id}.json{FB_AUTH}") as resp:
+                    already_known = await resp.json()
+                if already_known:
+                    is_new = False
+                else:
+                    await session.put(f"{base}/known_starts/{user_id}.json{FB_AUTH}", json=True)
         except Exception:
-            pass
+            pass  # если Firebase недоступен — на всякий случай считаем новым, лучше лишнее уведомление чем пропуск
+
+        if is_new:
+            def esc_md(s):
+                if not s:
+                    return s
+                for ch in ('_', '*', '`', '['):
+                    s = s.replace(ch, '\\' + ch)
+                return s
+            name = f"@{esc_md(user.username)}" if user.username else esc_md(user.first_name or 'Без имени')
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🆕 *Новый игрок!*\n👤 {name}\n🆔 `{user.id}`",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
 
     # Обрабатываем реферальную ссылку
     args = message.text.split() if message.text else []
