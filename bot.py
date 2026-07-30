@@ -1181,6 +1181,16 @@ async def successful_payment(message: types.Message):
 
         username_safe = esc_md(str(username)) if username else None
 
+        # Публичная лента выводов — для баннера "История выплат" в игре
+        try:
+            import aiohttp, time as time_mod
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            entry = {"amount": int(coins), "wallet": wallet, "ts": int(time_mod.time() * 1000)}
+            async with aiohttp.ClientSession() as session:
+                await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
+        except Exception:
+            pass
+
         await message.answer(
             f"✅ *Заявка принята!*\n\n"
             f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet}`\n\n"

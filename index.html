@@ -2531,7 +2531,34 @@ function renderBank() {
     +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Напиши боту эту команду:</div>'
     +'<div id="bank-cmd" style="font-size:12px;color:#FFD700;font-family:monospace;word-break:break-all;margin-bottom:10px"></div>'
     +'<div style="font-size:11px;color:#90caf9">Бот пришлёт кнопку оплаты ⭐ прямо в чат</div>'
-    +'</div>';
+    +'</div>'
+    +'<div class="card"><div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px">📜 История выплат</div>'
+    +'<div id="withdrawals-log">⏳ Загрузка...</div></div>';
+  loadWithdrawalsLog();
+}
+function shortWallet(w) {
+  if (!w || w.length < 12) return w||'';
+  return w.slice(0,4) + '….' + w.slice(-4);
+}
+function loadWithdrawalsLog() {
+  var el = document.getElementById('withdrawals-log');
+  if (!el || !firebaseDB) return;
+  firebaseDB.ref('withdrawals_log').orderByKey().limitToLast(15).once('value', function(snap) {
+    var data = snap.val();
+    var el2 = document.getElementById('withdrawals-log');
+    if (!el2) return;
+    if (!data) { el2.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px">Пока нет выплат</div>'; return; }
+    var items = Object.values(data).sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+    var html = '';
+    for (var i=0;i<items.length;i++) {
+      var it = items[i];
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px">'
+        + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
+        + '<span style="color:#6ddc6d;font-weight:600">🐟 '+fmt(it.amount||0)+'</span>'
+        + '</div>';
+    }
+    el2.innerHTML = html;
+  });
 }
 function updateBankPreview() {
   var input=document.getElementById('ex-amount');
