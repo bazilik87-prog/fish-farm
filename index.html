@@ -2249,11 +2249,11 @@ function renderBoosts() {
     +'</div>';
 
   // Лотерея — загружаем текущий джекпот
-  var jackpotDisplay = window._jackpotCache || 10;
+  var jackpotDisplay = window._jackpotCache || 50;
   if (firebaseDB && !window._jackpotCache) {
     firebaseDB.ref('jackpot/amount').once('value', function(snap) {
       var v = snap.val();
-      if (!v || v > 1000) { v = 10; firebaseDB.ref('jackpot/amount').set(10); } // миграция со старой (монетной) системы
+      if (!v || v < 50 || v > 1000) { v = 50; firebaseDB.ref('jackpot/amount').set(50); } // минимум 50 — таков порог покупки звёзд
       window._jackpotCache = v;
       setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
     });
@@ -2429,8 +2429,8 @@ function activateBoost(id) {
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
         if (won.isJackpot) {
-          firebaseDB.ref('jackpot/amount').set(10);
-          window._jackpotCache = 10;
+          firebaseDB.ref('jackpot/amount').set(50);
+          window._jackpotCache = 50;
           showLotteryResult('⭐ ДЖЕКПОТ!', Math.floor(jackpot)+' Stars', '#FFD700', true);
           showNotif('⭐ ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+' Stars — жди перевода от администратора!');
           var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
@@ -2457,7 +2457,7 @@ function activateBoost(id) {
     if (firebaseDB) {
       firebaseDB.ref('jackpot/amount').once('value', function(snap) {
         var j = snap.val();
-        if (!j || j > 1000) j = 10; // миграция со старой (монетной) системы
+        if (!j || j < 50 || j > 1000) j = 50; // минимум 50 — таков порог покупки звёзд
         doLottery(j);
       });
     } else {
@@ -3359,7 +3359,7 @@ function showInstructions() {
     +'🚀 Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно<br>'
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
     +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы: 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · ⭐ Джекпот в Stars (~0.5-1%).<br>'
-    +'Джекпот стартует с 10⭐ и растёт на +0.7⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
+    +'Джекпот стартует с 50⭐ и растёт на +0.7⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish (курс 1:1). Укажи сумму и TON кошелёк — токены отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен.<br><br>'
     +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
     +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
