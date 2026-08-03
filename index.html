@@ -1711,11 +1711,12 @@ function startCutting(name) {
 function startPacking(idx) {
   var slot=state.cutting[idx];
   if (!slot||Date.now()<slot.endsAt) return;
-  // Начинаем упаковку (1 час)
   var packTime = (DRY_TIME[slot.name] || 3600) * 1000;
   state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+packTime});
   state.cutting.splice(idx,1);
-  showNotif('📦 '+slot.name+' отправлена на упаковку — 1 час!');
+  var packMin = Math.round(packTime/60000);
+  var packLabel = packMin>=60 ? (Math.floor(packMin/60)+'ч '+(packMin%60?packMin%60+'м':'')) : packMin+'мин';
+  showNotif('📦 '+slot.name+' отправлена на упаковку — '+packLabel+'!');
   updateUI(); save();
 }
 
