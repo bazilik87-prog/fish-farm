@@ -2404,7 +2404,7 @@ function activateBoost(id) {
         {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:15},
         {label:'🧂 15 соли на склад', coins:0, salt:15, weight:10},
         {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
-        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:1},
+        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:0.1},
       ];
       var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
       var r=Math.random()*total, acc=0, won=prizes[0];
