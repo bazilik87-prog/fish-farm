@@ -65,6 +65,7 @@ html{overflow-x:hidden;width:100%}
 .notif.dead{border-color:#c0392b}
 @keyframes slideup{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
 @keyframes fadeout{to{opacity:0}}
+@keyframes chestPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
 .day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:12px}
 .day-cell{background:#0f3460;border:1px solid #1a2a5a;border-radius:8px;padding:5px 2px;text-align:center}
 .day-cell.done{background:#0a2a0a;border-color:#2d6a4f}
@@ -101,6 +102,7 @@ html{overflow-x:hidden;width:100%}
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Топ →</div>
 </div>
 <div id="loc-bar"></div>
+<div id="next-loc-progress"></div>
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
   <div class="st"><b id="s-live">0</b><span>🐠 живых</span></div>
@@ -973,8 +975,27 @@ function renderLocBar() {
   }
   document.getElementById('loc-bar').innerHTML=html;
 }
+function updateNextLocProgress() {
+  var el = document.getElementById('next-loc-progress');
+  if (!el) return;
+  var next = null;
+  for (var i=0;i<LOCATIONS.length;i++) { if (!LOCATIONS[i].unlocked) { next = LOCATIONS[i]; break; } }
+  if (!next) { el.innerHTML=''; return; }
+  var pct = Math.min(100, Math.floor(state.coins/next.cost*100));
+  if (pct >= 100) {
+    el.innerHTML = '<div onclick="showTab(\'locations\')" style="margin:0 12px 8px;padding:8px 12px;background:linear-gradient(90deg,#1a5a1a,#2d8a2d);border-radius:10px;text-align:center;font-size:12px;font-weight:600;color:#aef5ae;cursor:pointer;animation:chestPulse 1.4s ease-in-out infinite">✅ Можешь открыть '+next.emoji+' '+next.name+'! Жми, чтобы перейти →</div>';
+  } else {
+    el.innerHTML = '<div style="margin:0 12px 8px;padding:6px 12px;background:#0f2040;border-radius:10px;font-size:11px;color:#90caf9">'
+      + '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+      + '<span>'+next.emoji+' До '+next.name+'</span><span>'+fmt(state.coins)+' / '+fmt(next.cost)+' ('+pct+'%)</span>'
+      + '</div>'
+      + '<div style="background:#1a1a2e;border-radius:6px;height:6px"><div style="background:linear-gradient(90deg,#1565c0,#4fc3f7);height:6px;border-radius:6px;width:'+pct+'%"></div></div>'
+      + '</div>';
+  }
+}
 function updateUI() {
   document.getElementById('s-coins').textContent=fmt(state.coins);
+  updateNextLocProgress();
   var liveCount=0; for (var lci=0;lci<state.liveFish.length;lci++) if (fishBelongsToLoc(state.liveFish[lci].name)) liveCount++;
   document.getElementById('s-live').textContent=liveCount;
   document.getElementById('s-tap').textContent='+'+state.tapPower.toFixed(1);
