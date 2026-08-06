@@ -1249,6 +1249,8 @@ async def successful_payment(message: types.Message):
 async def any_message(message: types.Message):
     if message.chat.type != 'private':
         return  # web_app-кнопки нельзя отправлять в группах — просто игнорируем
+    if ADMIN_ID and message.from_user.id == ADMIN_ID:
+        return  # админу не нужен этот фолбэк — он и так знает, что делать
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
     ]])
