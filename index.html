@@ -3988,6 +3988,7 @@ function tick() {
 load();
 calcStats();
 processOffline();
+save();
 initFirebase();
 setTimeout(loadWeather, 2000);
 setTimeout(listenWeather, 2000);
@@ -4012,6 +4013,7 @@ function loadFromFirebase(callback) {
       localStorage.setItem(SAVE_KEY, JSON.stringify(fbData));
       calcStats();
       processOffline();
+      save();
       updateUI();
       showNotif('🔄 Прогресс синхронизирован с облака');
     }
