@@ -3915,7 +3915,11 @@ function checkDeaths() {
   }
   if (dead.length) {
     state.liveFish=live;
-    for (var j=0;j<dead.length;j++) showNotif('💀 '+dead[j].emoji+' '+dead[j].name+' погибла!',true);
+    if (dead.length===1) {
+      showNotif('💀 '+dead[0].emoji+' '+dead[0].name+' погибла!',true);
+    } else {
+      showNotif('💀 Погибло '+dead.length+' рыб!',true);
+    }
     save();
   }
 }
