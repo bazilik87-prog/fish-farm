@@ -521,27 +521,31 @@ async def refcontest_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     await message.answer("⏳ Загружаю рейтинг реферального конкурса...")
-    import aiohttp
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
     try:
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/ref_contest/scores.json{FB_AUTH}") as resp:
-                scores = await resp.json()
+            async with session.get(f"{base}/ref_contest.json{FB_AUTH}") as resp:
+                rc = await resp.json() or {}
             async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 lb = await resp.json()
 
+        scores = rc.get('scores') or {}
+        ends_at = rc.get('endsAt', 0)
+        now_ms = int(time.time() * 1000)
+        is_active = bool(rc.get('active')) and ends_at > now_ms
+        status = "🟢 Активен" if is_active else "🔴 Завершён"
+        header = f"🏆 Реферальный конкурс — {status}"
+        if is_active:
+            ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
+            header += f"\nДо {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК"
+
         if not scores:
-            await message.answer("Пока нет результатов.")
+            await message.answer(header + "\n\nПока нет результатов.")
             return
 
         # Строим словарь userId -> username
-        def esc_md(s):
-            if not s:
-                return s
-            for ch in ('_', '*', '`', '['):
-                s = s.replace(ch, '\\' + ch)
-            return s
-
         id_to_name = {}
         if lb:
             for v in lb.values():
@@ -549,9 +553,9 @@ async def refcontest_command(message: types.Message):
                 username = v.get('username', '')
                 first_name = v.get('firstName', '')
                 if username:
-                    id_to_name[uid] = f"@{esc_md(username)}"
+                    id_to_name[uid] = f"@{username}"
                 elif first_name:
-                    id_to_name[uid] = esc_md(first_name)
+                    id_to_name[uid] = first_name
                 else:
                     id_to_name[uid] = f"ID:{uid}"
 
@@ -563,11 +567,84 @@ async def refcontest_command(message: types.Message):
             name = id_to_name.get(uid, f"ID:{uid}")
             lines.append(f"{medal} {name} — {count} активных рефералов")
 
-        text = "🏆 *Реферальный конкурс — текущий рейтинг:*\n\n" + "\n".join(lines)
-        try:
-            await message.answer(text, parse_mode="Markdown")
-        except Exception:
-            await message.answer(text.replace('*', ''))
+        text = header + "\n\n" + "\n".join(lines)
+        await message.answer(text)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('startrefconcurs'))
+async def startrefcontest_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Запускаю реферальный конкурс...")
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    started_at = int(time.time() * 1000)
+    ends_at = started_at + 14 * 24 * 3600 * 1000  # 14 дней
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/ref_contest.json{FB_AUTH}", json={
+                "active": True,
+                "startedAt": started_at,
+                "endsAt": ends_at,
+                "scores": {}
+            })
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                players = await resp.json()
+
+        ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
+        await message.answer(
+            f"✅ Реферальный конкурс запущен!\n"
+            f"⏱ 14 дней — до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК\n"
+            f"Через 14 дней он сам пометится как завершённый (или останови раньше через /stoprefconcurs).\n"
+            f"Игроки увидят баннер с таймером и своим результатом прямо в игре."
+        )
+
+        if not players:
+            return
+
+        text = (
+            "🎗️ РЕФЕРАЛЬНЫЙ КОНКУРС СТАРТУЕТ!\n\n"
+            "14 дней на то, чтобы привести как можно больше активных друзей!\n\n"
+            "Условие: очко засчитывается, когда твой реферал впервые запрашивает вывод от 1000 монет.\n\n"
+            "Призы:\n"
+            "🥇 1 место — 15 GRAM\n"
+            "🥈 2 место — 10 GRAM\n"
+            "🥉 3 место — 5 GRAM\n\n"
+            "Скопируй свою реферальную ссылку в Настройках и зови друзей!\n"
+            "Следи за своим прогрессом прямо в игре — там появится баннер конкурса."
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        sent = 0
+        for v in players.values():
+            user_id = v.get('userId')
+            if not user_id:
+                continue
+            try:
+                await bot.send_message(user_id, text, reply_markup=keyboard)
+                sent += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await message.answer(f"📨 Анонс отправлен {sent} игрокам.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('stoprefconcurs'))
+async def stoprefcontest_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/ref_contest.json{FB_AUTH}", json={"active": False})
+        await message.answer("✅ Реферальный конкурс остановлен досрочно. Итоги — командой /refcontest")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -759,6 +836,8 @@ async def comm_command(message: types.Message):
         "/players — список всех игроков (файл .txt)\n"
         "/referrals — реферальная система (файл .txt)\n"
         "/refcontest — рейтинг реферального конкурса\n"
+        "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
+        "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате TON Fish\n"

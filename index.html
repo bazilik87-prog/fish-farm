@@ -101,6 +101,16 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Топ →</div>
 </div>
+<div id="refcontest-banner" onclick="showRefContestInfo()" style="display:none;background:linear-gradient(135deg,#0f3a2a,#24aa6a,#0f3a2a);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">🎗️</div>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#fff">Реферальный конкурс</div>
+      <div id="refcontest-timer" style="font-size:11px;color:#c8f0dc;margin-top:2px">Осталось: —</div>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Мой счёт →</div>
+</div>
 <div id="loc-bar"></div>
 <div id="next-loc-progress"></div>
 <div id="stats">
@@ -2688,6 +2698,14 @@ function exchangeCoins() {
                 amount: bonus,
                 from: fromName
               });
+              // Реферальный конкурс: очко засчитывается один раз — когда реферал впервые запросил вывод от 1000 монет
+              firebaseDB.ref('ref_contest/withdrawal_done/' + userId).once('value', function(snap3) {
+                if (snap3.val()) return;
+                firebaseDB.ref('ref_contest/withdrawal_done/' + userId).set(true);
+                firebaseDB.ref('ref_contest/scores/' + referrerId).transaction(function(current) {
+                  return (current || 0) + 1;
+                });
+              });
             });
           }
         }
@@ -2934,6 +2952,77 @@ function updateTournamentBanner() {
   var m = Math.floor((msLeft%3600000)/60000);
   var timerEl = document.getElementById('tournament-timer');
   if (timerEl) timerEl.textContent = 'Осталось: '+h+'ч '+m+'м';
+}
+
+var refContestData = {active:false, endsAt:0};
+function checkRefContest() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('ref_contest').once('value', function(snap) {
+    var rc = snap.val();
+    if (!rc) { refContestData = {active:false, endsAt:0}; }
+    else { refContestData = {active: !!rc.active, endsAt: rc.endsAt||0}; }
+    updateRefContestBanner();
+  });
+}
+
+function updateRefContestBanner() {
+  var el = document.getElementById('refcontest-banner');
+  if (!el) return;
+  var now = Date.now();
+  var isLive = refContestData.active && refContestData.endsAt > now;
+  if (!isLive) { el.style.display='none'; return; }
+  el.style.display='flex';
+  var msLeft = refContestData.endsAt - now;
+  var d = Math.floor(msLeft/86400000);
+  var h = Math.floor((msLeft%86400000)/3600000);
+  var timerEl = document.getElementById('refcontest-timer');
+  if (timerEl) timerEl.textContent = 'Осталось: '+d+'д '+h+'ч';
+}
+
+function showRefContestInfo() {
+  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var myId = tgUser ? tgUser.id : 0;
+  var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+    + '<div style="text-align:center;margin-bottom:16px">'
+    + '<div style="font-size:40px;margin-bottom:6px">🎗️</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#fff">Реферальный конкурс</div>'
+    + '</div>'
+    + '<div id="refcontest-info-body"><div style="text-align:center;color:#90caf9;padding:20px">⏳ Загрузка...</div></div>'
+    + '</div>';
+  document.getElementById('content').innerHTML = html;
+
+  if (!firebaseDB || !myId) return;
+  firebaseDB.ref('ref_contest').once('value', function(snap) {
+    var rc = snap.val() || {};
+    var scores = rc.scores || {};
+    var myScore = scores[myId] || 0;
+    var now = Date.now();
+    var isLive = rc.active && rc.endsAt > now;
+    var statusHtml = '';
+    if (isLive) {
+      var msLeft = rc.endsAt - now;
+      var d = Math.floor(msLeft/86400000), h = Math.floor((msLeft%86400000)/3600000);
+      statusHtml = '<div style="background:#0a2a1a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#6ddc6d;font-weight:600">🟢 Активен · осталось '+d+'д '+h+'ч</div>';
+    } else {
+      statusHtml = '<div style="background:#2a0a0a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#e57373;font-weight:600">🔴 Сейчас конкурс не идёт</div>';
+    }
+    var body = statusHtml
+      + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
+      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">📋 Условия</div>'
+      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.6">Приглашай друзей в игру по своей реферальной ссылке. Очко засчитывается, когда твой друг <b>впервые запрашивает вывод от 1000 монет</b>.</div>'
+      + '</div>'
+      + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
+      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🏆 Призы</div>'
+      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.8">🥇 1 место — 15 GRAM<br>🥈 2 место — 10 GRAM<br>🥉 3 место — 5 GRAM</div>'
+      + '</div>'
+      + '<div style="background:linear-gradient(135deg,#0f3a2a,#1a5a3a);border-radius:10px;padding:16px;text-align:center">'
+      + '<div style="font-size:12px;color:#c8f0dc;margin-bottom:6px">Твой результат</div>'
+      + '<div style="font-size:32px;font-weight:700;color:#aef5ae">'+myScore+'</div>'
+      + '<div style="font-size:11px;color:#90caf9;margin-top:2px">активных рефералов</div>'
+      + '</div>';
+    var bodyEl = document.getElementById('refcontest-info-body');
+    if (bodyEl) bodyEl.innerHTML = body;
+  });
 }
 
 function checkDailyNews() {
@@ -3452,9 +3541,8 @@ function buyUpgrade(id) {
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
   }
-  // Реферальный конкурс: фиксируем покупку сети ур.1
+  // Акция на покупку Сети (если активна)
   if (id==='net' && u.bought===1) {
-    notifyRefContestNetPurchase();
     checkNetBonus();
   }
   calcStats(); unlockFish(); updateUI(); save();
@@ -3474,24 +3562,6 @@ function checkNetBonus() {
   });
 }
 
-function notifyRefContestNetPurchase() {
-  if (!userId || !firebaseDB) return;
-  // Проверяем есть ли реферер
-  firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
-    var referrerId = snap.val();
-    if (!referrerId) return;
-    // Проверяем не засчитали ли уже
-    firebaseDB.ref('ref_contest/net1_done/' + userId).once('value', function(snap2) {
-      if (snap2.val()) return;
-      // Фиксируем что реферал купил сеть
-      firebaseDB.ref('ref_contest/net1_done/' + userId).set(true);
-      // Увеличиваем счётчик реферера
-      firebaseDB.ref('ref_contest/scores/' + referrerId).transaction(function(current) {
-        return (current || 0) + 1;
-      });
-    });
-  });
-}
 function changeKnifeOrder(delta) {
   var tr=getTr();
   state.knifeOrder=Math.max(0,Math.min(tr.capacity,(state.knifeOrder||0)+delta));
@@ -4095,6 +4165,9 @@ function startGame() {
       checkTournament();
       setInterval(checkTournament, 60000);
       setInterval(updateTournamentBanner, 30000);
+      checkRefContest();
+      setInterval(checkRefContest, 60000);
+      setInterval(updateRefContestBanner, 30000);
     });
   }, 800);
 
