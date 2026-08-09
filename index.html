@@ -1035,7 +1035,7 @@ function updateUI() {
     }
   }
   // Полную перерисовку вкладки троттлим — на каждый тап достаточно обновить только цифры выше
-  if (currentTab!=='leaders' && currentTab!=='bank') {
+  if (currentTab!=='leaders' && currentTab!=='bank' && !window._specialScreenOpen) {
     var nowTs = Date.now();
     if (!window._lastFullRender || nowTs - window._lastFullRender > 400) {
       window._lastFullRender = nowTs;
@@ -1076,6 +1076,7 @@ function checkNameInput() {
 
 function showTab(tab) {
   currentTab=tab;
+  window._specialScreenOpen=false;
   if (tab==='leaders') leadersLoaded=false;
   var tabs=document.querySelectorAll('.tab');
   var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','locations','settings'];
@@ -2980,9 +2981,10 @@ function updateRefContestBanner() {
 }
 
 function showRefContestInfo() {
+  window._specialScreenOpen=true;
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var myId = tgUser ? tgUser.id : 0;
-  var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+  var html = '<div class="card"><button class="btn btn-full" onclick="showTab(\'settings\')" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
     + '<div style="text-align:center;margin-bottom:16px">'
     + '<div style="font-size:40px;margin-bottom:6px">🎗️</div>'
     + '<div style="font-size:16px;font-weight:700;color:#fff">Реферальный конкурс</div>'
