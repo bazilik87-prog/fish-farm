@@ -1351,17 +1351,13 @@ async def main():
     await web.TCPSite(runner, '0.0.0.0', PORT).start()
     print(f"API запущен на порту {PORT}")
 
-    # Снятие webhook может временно упасть по таймауту сети — не даём этому убить весь бот
-    for attempt in range(5):
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            break
-        except Exception as e:
-            print(f"delete_webhook не удался (попытка {attempt+1}/5): {e}")
-            if attempt < 4:
-                await asyncio.sleep(3)
+    # Снятие webhook — не критично для работы бота, не должно блокировать запуск.
+    # Одна попытка с коротким таймаутом, при любой ошибке просто идём дальше.
+    try:
+        await bot.delete_webhook(drop_pending_updates=True, request_timeout=10)
+    except Exception as e:
+        print(f"delete_webhook не удался, продолжаем без него: {e}")
 
-    await asyncio.sleep(3)
     print("Бот запущен!")
     await dp.start_polling(bot)
 
