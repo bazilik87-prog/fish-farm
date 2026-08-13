@@ -3,11 +3,13 @@ import os
 import json
 import hashlib
 import hmac
+import secrets
 import time as time_module
 from urllib.parse import parse_qsl
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo, LabeledPrice, PreCheckoutQuery
@@ -17,6 +19,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
 ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
 PORT      = int(os.getenv("PORT", "8080"))
+PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")  # публичный URL сервиса в Railway, для webhook
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_SECRET = secrets.token_hex(16)  # генерируется заново при каждом старте — это ок, т.к. используется вместе с set_webhook в этом же запуске
 FIREBASE_DB_SECRET = os.getenv("FIREBASE_DB_SECRET", "")
 # Добавляется ко всем запросам бота к Firebase — даёт админский доступ в обход правил безопасности,
 # которые теперь можно спокойно ужесточать для обычных клиентов (игры в браузере), не боясь сломать бота.
@@ -1416,20 +1421,40 @@ async def main():
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_get('/health', health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    await web.TCPSite(runner, '0.0.0.0', PORT).start()
-    print(f"API запущен на порту {PORT}")
 
-    # Снятие webhook — не критично для работы бота, не должно блокировать запуск.
-    # Одна попытка с коротким таймаутом, при любой ошибке просто идём дальше.
-    try:
-        await bot.delete_webhook(drop_pending_updates=True, request_timeout=10)
-    except Exception as e:
-        print(f"delete_webhook не удался, продолжаем без него: {e}")
+    if PUBLIC_URL:
+        # Webhook-режим: Telegram сам присылает апдейты на наш URL —
+        # никакого long-polling, а значит и никакого TelegramConflictError
+        # при пересечении старого и нового контейнера во время деплоя.
+        webhook_url = f"{PUBLIC_URL}{WEBHOOK_PATH}"
+        SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET).register(app, path=WEBHOOK_PATH)
+        setup_application(app, dp, bot=bot)
 
-    print("Бот запущен!")
-    await dp.start_polling(bot)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, '0.0.0.0', PORT).start()
+        print(f"API запущен на порту {PORT}")
+
+        try:
+            await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True, request_timeout=10)
+            print(f"Webhook установлен: {webhook_url}")
+        except Exception as e:
+            print(f"Не удалось установить webhook: {e}")
+
+        print("Бот запущен!")
+        await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
+    else:
+        # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, '0.0.0.0', PORT).start()
+        print(f"API запущен на порту {PORT}")
+        try:
+            await bot.delete_webhook(drop_pending_updates=True, request_timeout=10)
+        except Exception as e:
+            print(f"delete_webhook не удался, продолжаем без него: {e}")
+        print("Бот запущен! (PUBLIC_URL не задан — используется polling)")
+        await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
