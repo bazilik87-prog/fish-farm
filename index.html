@@ -2329,7 +2329,7 @@ function renderBoosts() {
     +'<div style="flex:1">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
-    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">300🪙 · 500🪙 · 🐟100 · 🧂15 · 🔪15 · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+fmt(Math.round(300*maxUnlockedMult()))+'🪙 · '+fmt(Math.round(500*maxUnlockedMult()))+'🪙 · 🐟'+fmt(Math.round(100*maxUnlockedMult()))+' · 🧂'+fmt(Math.round(15*maxUnlockedMult()))+' · 🔪'+fmt(Math.round(15*maxUnlockedMult()))+' · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
     +'</div>'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?'💎 Бесплатно':'⭐ '+premiumPrice(1))+'</button>'
     +'</div></div>';
@@ -2471,12 +2471,14 @@ function activateBoost(id) {
   if (id==='lottery') {
     // Загружаем текущий джекпот из Firebase
     var doLottery = function(jackpot) {
+      var lMult = maxUnlockedMult();
+      var c1=Math.round(300*lMult), c2=Math.round(500*lMult), f1=Math.round(100*lMult), s1=Math.round(15*lMult), k1=Math.round(15*lMult);
       var prizes = [
-        {label:'🪙 300 монет', coins:300, weight:40},
-        {label:'🪙 500 монет', coins:500, weight:25},
-        {label:'🐟 100 рыб на склад', coins:0, fish:100, weight:15},
-        {label:'🧂 15 соли на склад', coins:0, salt:15, weight:10},
-        {label:'🔪 15 ножей на склад', coins:0, fish:0, knife:15, weight:7},
+        {label:'🪙 '+fmt(c1)+' монет', coins:c1, weight:40},
+        {label:'🪙 '+fmt(c2)+' монет', coins:c2, weight:25},
+        {label:'🐟 '+fmt(f1)+' рыб на склад', coins:0, fish:f1, weight:15},
+        {label:'🧂 '+fmt(s1)+' соли на склад', coins:0, salt:s1, weight:10},
+        {label:'🔪 '+fmt(k1)+' ножей на склад', coins:0, fish:0, knife:k1, weight:7},
         {label:'🚛 Билет на аренду грузовика (12ч)', coins:0, truckTicket:true, weight:3},
         {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:1},
       ];
@@ -3558,7 +3560,7 @@ function showInstructions() {
     +'📦 Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно<br>'
     +'🚀 Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно<br>'
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
-    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы: 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
+    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
     +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM (курс 100,000 монет = 1 GRAM). Укажи сумму (минимум 10,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен (⭐1 для Premium).<br><br>'
     +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐50/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, -20% на все бустеры, комиссию банка ⭐1, защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
