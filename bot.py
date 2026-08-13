@@ -207,8 +207,16 @@ async def referral_notify(request):
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
 
-    if not validate_init_data(data.get('init_data', '')):
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        ref_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        ref_user = {}
+    ref_username = ref_user.get('username')
+    ref_first_name = ref_user.get('first_name')
+    ref_name = f"@{ref_username}" if ref_username else (ref_first_name or 'Твой реферал')
 
     referrer_id = data.get('referrer_id')
     notify_type = data.get('type')
@@ -220,9 +228,8 @@ async def referral_notify(request):
         if notify_type == 'rod2':
             await bot.send_message(
                 int(referrer_id),
-                "🎣 *Твой реферал купил удочку 2-го уровня!*\n\n"
+                f"🎣 {ref_name} купил(а) удочку 2-го уровня!\n\n"
                 "🪙 +1000 монет уже ждут тебя в игре!",
-                parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
                 ]])
