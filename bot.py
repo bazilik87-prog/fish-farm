@@ -94,10 +94,23 @@ BOOST_PRICES = {
     'repairAll': 2,
     'truckRental': 5,
 }
+PREMIUM_PRICE = 50  # ⭐/месяц
+PREMIUM_BOOST_DISCOUNT = 0.2  # -20% на бустеры для подписчиков
 
 SUPPORT_GROUP_ID = -5478312122
 
 
+async def is_premium(user_id):
+    """Проверяет, активна ли премиум-подписка игрока прямо сейчас."""
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/premium/tg_{user_id}.json{FB_AUTH}") as resp:
+                until = await resp.json()
+        return bool(until) and until > int(time.time() * 1000)
+    except Exception:
+        return False
 
 
 async def create_invoice(request):
@@ -133,12 +146,13 @@ async def create_invoice(request):
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
+            fee = 1 if await is_premium(user_id) else 3
             link = await bot.create_invoice_link(
-                title="TON Fish Exchange",
-                description=f"{coins} coins to TON Fish",
+                title="GRAM Exchange",
+                description=f"{coins} coins to GRAM",
                 payload=payload,
                 currency="XTR",
-                prices=[LabeledPrice(label="Fee", amount=3)],
+                prices=[LabeledPrice(label="Fee", amount=fee)],
                 provider_token="",
             )
             return web.json_response({'link': link}, headers=CORS)
@@ -148,6 +162,8 @@ async def create_invoice(request):
             user_id  = real_user_id  # берём из проверенной подписи, а не из тела запроса
             name = BOOST_NAMES.get(boost_id, 'Boost')
             price = BOOST_PRICES.get(boost_id, 1)
+            if await is_premium(user_id):
+                price = max(1, round(price * (1 - PREMIUM_BOOST_DISCOUNT)))
             payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,
@@ -156,6 +172,20 @@ async def create_invoice(request):
                 currency="XTR",
                 prices=[LabeledPrice(label="Boost", amount=price)],
                 provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
+        elif action == 'subscribe':
+            user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
+            payload = f"sub:{user_id}"
+            link = await bot.create_invoice_link(
+                title="FishFarm Premium",
+                description="Премиум-подписка на 30 дней: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
+                provider_token="",
+                subscription_period=2592000,
             )
             return web.json_response({'link': link}, headers=CORS)
 
@@ -223,16 +253,9 @@ async def jackpot_broadcast(request):
     username = real_user.get('username') or real_user.get('first_name') or data.get('username', 'Игрок')
     amount = data.get('amount', 0)
 
-    def esc_md(s):
-        if not s:
-            return s
-        for ch in ('_', '*', '`', '['):
-            s = s.replace(ch, '\\' + ch)
-        return s
-
     text = (
-        f"🎰⭐ *ДЖЕКПОТ ВЫИГРАН!*\n\n"
-        f"@{esc_md(username)} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
+        f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n\n"
+        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
         f"Крути колесо и попробуй свою удачу!"
     )
 
@@ -258,14 +281,10 @@ async def jackpot_broadcast(request):
         if not user_id:
             continue
         try:
-            await bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=keyboard)
+            await bot.send_message(user_id, text, reply_markup=keyboard)
             sent += 1
         except Exception:
-            try:
-                await bot.send_message(user_id, text.replace('*', ''), reply_markup=keyboard)
-                sent += 1
-            except Exception:
-                pass
+            pass
         await asyncio.sleep(0.05)
 
     return web.json_response({'ok': True, 'sent': sent}, headers=CORS)
@@ -284,7 +303,7 @@ async def start(message: types.Message):
         "🌍 Открывать локации от Пруда до Космоса — каждая выгоднее прошлой\n"
         "📦 Продавать улов на рынке (свежий, вяленый или филе) и нанимать водителя, чтобы возить рыбу, пока ты занят\n"
         "🎰 Крутить лотерею и ловить джекпот в Stars ⭐\n"
-        "🏦 Обменивать монеты на TON Fish в Банке\n"
+        "🏦 Обменивать монеты на GRAM в Банке\n"
         "🏆 Участвовать в турнирах недели с призами в Stars\n"
         "👥 Приглашать друзей — бонусы обоим\n"
         "💬 Общаться с другими игроками в чате\n\n"
@@ -313,18 +332,11 @@ async def start(message: types.Message):
             pass  # если Firebase недоступен — на всякий случай считаем новым, лучше лишнее уведомление чем пропуск
 
         if is_new:
-            def esc_md(s):
-                if not s:
-                    return s
-                for ch in ('_', '*', '`', '['):
-                    s = s.replace(ch, '\\' + ch)
-                return s
-            name = f"@{esc_md(user.username)}" if user.username else esc_md(user.first_name or 'Без имени')
+            name = f"@{user.username}" if user.username else (user.first_name or 'Без имени')
             try:
                 await bot.send_message(
                     ADMIN_ID,
-                    f"🆕 *Новый игрок!*\n👤 {name}\n🆔 `{user.id}`",
-                    parse_mode="Markdown"
+                    f"🆕 Новый игрок!\n👤 {name}\n🆔 {user.id}"
                 )
             except Exception:
                 pass
@@ -365,19 +377,12 @@ async def start(message: types.Message):
                               json=100)
 
         # Уведомляем реферера
-        def esc_md2(s):
-            if not s:
-                return s
-            for ch in ('_', '*', '`', '['):
-                s = s.replace(ch, '\\' + ch)
-            return s
-        ref_name = f"@{esc_md2(user.username)}" if user.username else esc_md2(user.first_name or 'Новый игрок')
+        ref_name = f"@{user.username}" if user.username else (user.first_name or 'Новый игрок')
         try:
             await bot.send_message(
                 int(referrer_id),
-                f"🎉 *По твоей ссылке пришёл {ref_name}!*\n\n"
+                f"🎉 По твоей ссылке пришёл {ref_name}!\n\n"
                 f"🪙 +100 монет уже ждут тебя в игре!",
-                parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
                 ]])
@@ -749,13 +754,6 @@ async def tournamentstats_command(message: types.Message):
 
         baseline = t.get('baseline') or {}
 
-        def esc_md(s):
-            if not s:
-                return s
-            for ch in ('_', '*', '`', '['):
-                s = s.replace(ch, '\\' + ch)
-            return s
-
         results = []
         for pid, v in players.items():
             uid = v.get('userId')
@@ -769,9 +767,9 @@ async def tournamentstats_command(message: types.Message):
             username = v.get('username')
             first_name = v.get('firstName')
             if username:
-                display = f"@{esc_md(username)}"
+                display = f"@{username}"
             elif first_name:
-                display = esc_md(first_name)
+                display = first_name
             else:
                 display = f"ID:{uid}"
             results.append((display, delta))
@@ -788,11 +786,8 @@ async def tournamentstats_command(message: types.Message):
             lines.append(f"{medal} {name} — {delta:,} монет")
 
         status = "🟢 Активен" if t.get('active') and t.get('endsAt', 0) > int(time.time() * 1000) else "🔴 Завершён"
-        text = f"🏆 *Турнир недели — {status}*\n\n" + "\n".join(lines)
-        try:
-            await message.answer(text, parse_mode="Markdown")
-        except Exception:
-            await message.answer(text.replace('*', ''))
+        text = f"🏆 Турнир недели — {status}\n\n" + "\n".join(lines)
+        await message.answer(text)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -840,8 +835,9 @@ async def comm_command(message: types.Message):
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
         "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
-        "/pay @username СУММА — уведомить игрока о выплате TON Fish\n"
+        "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
@@ -857,6 +853,61 @@ async def comm_command(message: types.Message):
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="Markdown"
     )
+
+
+@dp.message(Command('premium'))
+async def premium_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n"
+            "`/premium @username` — проверить статус\n"
+            "`/premium @username 30` — выдать/продлить на N дней вручную\n"
+            "`/premium @username 0` — отозвать подписку",
+            parse_mode="Markdown"
+        )
+        return
+    username = args[1].lstrip('@').lower()
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+            uid = None
+            if lb:
+                for v in lb.values():
+                    if str(v.get('username', '')).lower() == username:
+                        uid = v.get('userId')
+                        break
+            if not uid:
+                await message.answer(f"❌ Игрок @{username} не найден.")
+                return
+
+            if len(args) >= 3:
+                days = int(args[2])
+                if days <= 0:
+                    await session.delete(f"{base}/premium/tg_{uid}.json{FB_AUTH}")
+                    await message.answer(f"✅ Подписка @{username} отозвана.")
+                else:
+                    until = int(time.time() * 1000) + days * 24 * 3600 * 1000
+                    await session.put(f"{base}/premium/tg_{uid}.json{FB_AUTH}", json=until)
+                    until_dt = datetime.fromtimestamp(until / 1000, tz=timezone(timedelta(hours=3)))
+                    await message.answer(f"✅ @{username} получил Premium до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+            else:
+                async with session.get(f"{base}/premium/tg_{uid}.json{FB_AUTH}") as resp2:
+                    until = await resp2.json()
+                now_ms = int(time.time() * 1000)
+                if until and until > now_ms:
+                    until_dt = datetime.fromtimestamp(until / 1000, tz=timezone(timedelta(hours=3)))
+                    await message.answer(f"💎 @{username} — Premium активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+                else:
+                    await message.answer(f"— @{username} не подписан на Premium")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('ban'))
@@ -916,7 +967,7 @@ async def pay_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/pay @username СУММА`\n\nПример:\n`/pay @Metelegram12 127`",
+            "Использование:\n`/pay @username СУММА`\n\nПример:\n`/pay @Metelegram12 0.073`",
             parse_mode="Markdown"
         )
         return
@@ -941,14 +992,14 @@ async def pay_command(message: types.Message):
         await bot.send_message(
             user_id,
             f"✅ *Выплата выполнена!*\n\n"
-            f"🐟 {amount} TON Fish отправлены на твой кошелёк.\n\n"
+            f"💎 {amount} GRAM отправлены на твой кошелёк.\n\n"
             f"Спасибо что играешь в FishFarm! 🎣",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount} TON Fish")
+        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount} GRAM")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -1233,7 +1284,8 @@ async def successful_payment(message: types.Message):
             payer_username = message.from_user.username
             payer_name = f"@{payer_username}" if payer_username else (message.from_user.first_name or f"ID:{message.from_user.id}")
             label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
-                    ('Обмен на TON Fish' if payload.startswith('ex:') else payload)
+                    ('Обмен на GRAM' if payload.startswith('ex:') else
+                     'Premium подписка' if payload.startswith('sub:') else payload)
             await bot.send_message(
                 ADMIN_ID,
                 f"⭐ Новая оплата!\n👤 {payer_name}\n💰 {amount}⭐\n📦 {label}"
@@ -1256,25 +1308,47 @@ async def successful_payment(message: types.Message):
         except Exception:
             pass
 
+    elif payload.startswith('sub:'):
+        # Срабатывает и на первую оплату, и на каждое ежемесячное автопродление —
+        # каждый раз просто ставим срок действия на 30 дней вперёд от текущего момента.
+        parts = payload.split(':')
+        user_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
+        import aiohttp, time
+        try:
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            until = int((time.time() + 30 * 24 * 3600) * 1000)
+            async with aiohttp.ClientSession() as session:
+                await session.put(f"{base}/premium/tg_{user_id}.json{FB_AUTH}", json=until)
+        except Exception:
+            pass
+        try:
+            await message.answer(
+                "🎉 Premium активирован на 30 дней!\n\n"
+                "✅ +25% к автодоходу\n"
+                "✅ -20% на все бустеры\n"
+                "✅ Комиссия банка снижена до ⭐1\n"
+                "✅ Защита стрика ежедневного бонуса\n"
+                "✅ Бесплатная крутка лотереи раз в день\n"
+                "✅ Корона рядом с именем в лидерборде\n\n"
+                "Подписка продлевается автоматически каждые 30 дней."
+            )
+        except Exception:
+            pass
+
     elif payload.startswith('ex:'):
         parts = payload.split(':', 4)
         # ex:{user_id}:{coins}:{wallet}:{username}
         if len(parts) < 4:
-            await message.answer("✅ Оплата получена! Свяжись с администратором для получения TON Fish.")
+            await message.answer("✅ Оплата получена! Свяжись с администратором для получения GRAM.")
             return
         user_id  = parts[1]
         coins    = parts[2]
         wallet   = parts[3]
         username = parts[4] if len(parts) > 4 else ''
-
-        def esc_md(s):
-            if not s:
-                return s
-            for ch in ('_', '*', '`', '['):
-                s = s.replace(ch, '\\' + ch)
-            return s
-
-        username_safe = esc_md(str(username)) if username else None
+        try:
+            gram_amount = round(int(coins) / 100000, 5)
+        except ValueError:
+            gram_amount = 0
 
         # Публичная лента выводов — для баннера "История выплат" в игре
         try:
@@ -1287,42 +1361,31 @@ async def successful_payment(message: types.Message):
             pass
 
         await message.answer(
-            f"✅ *Заявка принята!*\n\n"
-            f"🪙 Монет: `{coins}`\n🐟 TON Fish: `{coins}`\n👛 `{wallet}`\n\n"
-            f"⏳ Отправим в течение 24 часов.",
-            parse_mode="Markdown"
+            f"✅ Заявка принята!\n\n"
+            f"🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n"
+            f"⏳ Отправим в течение 24 часов."
         )
         if ADMIN_ID:
-            ul = f"@{username_safe}" if username_safe else f"ID: {user_id}"
+            ul = f"@{username}" if username else f"ID: {user_id}"
             try:
                 sent = await bot.send_message(
                     ADMIN_ID,
-                    f"💰 *Новый обмен!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Отправь токены!",
-                    parse_mode="Markdown"
+                    f"💰 Новый обмен!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Отправь токены!"
                 )
             except Exception:
-                sent = await bot.send_message(
-                    ADMIN_ID,
-                    f"💰 Новый обмен!\n👤 {ul}\n🪙 {coins}\n👛 {wallet}\n\n⭐ Отправь токены!"
-                )
-            try:
-                await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
-            except Exception:
-                pass
+                sent = None
+            if sent:
+                try:
+                    await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
+                except Exception:
+                    pass
             try:
                 await bot.send_message(
                     SUPPORT_GROUP_ID,
-                    f"💰 *Новый запрос на вывод!*\n👤 {ul}\n🪙 `{coins}`\n👛 `{wallet}`\n\n⭐ Требует выплаты!",
-                    parse_mode="Markdown"
+                    f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
                 )
             except Exception:
-                try:
-                    await bot.send_message(
-                        SUPPORT_GROUP_ID,
-                        f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 {coins}\n👛 {wallet}\n\n⭐ Требует выплаты!"
-                    )
-                except Exception:
-                    pass
+                pass
 
 
 @dp.message()

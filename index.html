@@ -86,7 +86,7 @@ html{overflow-x:hidden;width:100%}
     <div style="font-size:28px">🏦</div>
     <div>
       <div style="font-size:14px;font-weight:700;color:#fff">Банк FishFarm</div>
-      <div style="font-size:11px;color:#90caf9;margin-top:2px">Обменяй монеты на 🐟 TON Fish за ⭐</div>
+      <div style="font-size:11px;color:#90caf9;margin-top:2px">Обменяй монеты на 💎 GRAM за ⭐</div>
     </div>
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Открыть →</div>
@@ -529,6 +529,17 @@ function getLoc(id) {
   var lid = id||state.currentLoc;
   for (var i=0;i<LOCATIONS.length;i++) if (LOCATIONS[i].id===lid) return LOCATIONS[i];
   return LOCATIONS[0];
+}
+// Множитель самой продвинутой РАЗЛОЧЕННОЙ локации игрока (не текущей!) —
+// используется для ежедневных бонусов и квестов, чтобы прогресс игрока не зависел
+// от того, в какой локации он физически стоит в момент получения награды
+function maxUnlockedMult() {
+  var best = 1;
+  for (var i=0;i<state.unlockedLocs.length;i++) {
+    var loc = getLoc(state.unlockedLocs[i]);
+    if (loc && loc.tapMult > best) best = loc.tapMult;
+  }
+  return best;
 }
 // Рыба принадлежит той локации, где была поймана — на рынке другой локации она не отображается
 function fishBelongsToLoc(name, locId) {
@@ -1970,20 +1981,23 @@ function getQuest(id) {
 }
 function addQuestProgress(type, amount) {
   generateQuests();
+  var qMult=maxUnlockedMult();
   var changed=false;
   var allDoneBefore=true;
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
-    if ((state.questProgress[q.id]||0) < q.goal) allDoneBefore=false;
+    var goal=Math.round(q.goal*qMult);
+    if ((state.questProgress[q.id]||0) < goal) allDoneBefore=false;
   }
   if (allDoneBefore) return; // уже все выполнены
 
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
+    var goal=Math.round(q.goal*qMult);
     if (q.type===type) {
       var prev=state.questProgress[q.id]||0;
-      if (prev<q.goal) {
-        state.questProgress[q.id]=Math.min(q.goal, prev+(amount||1));
+      if (prev<goal) {
+        state.questProgress[q.id]=Math.min(goal, prev+(amount||1));
         changed=true;
       }
     }
@@ -1994,12 +2008,15 @@ function addQuestProgress(type, amount) {
     var allDone=true;
     for (var j=0;j<state.quests.length;j++) {
       var qq=getQuest(state.quests[j]); if(!qq) continue;
-      if ((state.questProgress[qq.id]||0)<qq.goal) { allDone=false; break; }
+      var qqGoal=Math.round(qq.goal*qMult);
+      if ((state.questProgress[qq.id]||0)<qqGoal) { allDone=false; break; }
     }
     if (allDone) {
-      state.coins=Math.round((state.coins+500)*100)/100;
-      state.totalEarned=Math.round((state.totalEarned+300)*100)/100;
-      showNotif('🏆 Все квесты выполнены! +🪙500', true);
+      var lm=maxUnlockedMult();
+      var questBonus=Math.round(500*lm*100)/100;
+      state.coins=Math.round((state.coins+questBonus)*100)/100;
+      state.totalEarned=Math.round((state.totalEarned+questBonus)*100)/100;
+      showNotif('🏆 Все квесты выполнены! +🪙'+fmt(questBonus), true);
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
     updateUI(); save();
@@ -2020,22 +2037,25 @@ function renderQuests() {
     +'</div>';
 
   var completed=0;
+  var qMultR=maxUnlockedMult();
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
+    var goal=Math.round(q.goal*qMultR);
+    var qText=qMultR>1?q.text.replace(new RegExp('\\b'+q.goal+'\\b'),goal):q.text;
     var prog=state.questProgress[q.id]||0;
-    var done=prog>=q.goal;
+    var done=prog>=goal;
     if(done) completed++;
-    var pct=Math.min(100,Math.round(prog/q.goal*100));
+    var pct=Math.min(100,Math.round(prog/goal*100));
     html+='<div class="card" style="'+(done?'background:#0a2a0a;border:1px solid #2d6a4f':'background:#0f3460')+'">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-      +'<div style="font-size:13px;font-weight:600;color:'+(done?'#6ddc6d':'#fff')+'">'+q.text+'</div>'
+      +'<div style="font-size:13px;font-weight:600;color:'+(done?'#6ddc6d':'#fff')+'">'+qText+'</div>'
       +(done?'<div style="font-size:16px">✅</div>':'')
       +'</div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px">'
       +'<div style="background:'+(done?'#6ddc6d':'#1565c0')+';height:6px;border-radius:4px;width:'+pct+'%"></div>'
       +'</div>'
-      +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+prog+'/'+q.goal+'</div>'
+      +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+prog+'/'+goal+'</div>'
       +'</div>'
       +'</div>';
   }
@@ -2047,9 +2067,11 @@ function renderQuests() {
       +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Возвращайся завтра за новыми!</div>'
       +'</div>';
   } else {
+    var lmQ=maxUnlockedMult();
+    var questBonusPreview=Math.round(500*lmQ*100)/100;
     html+='<div class="card" style="background:#0a1a2e;text-align:center">'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:4px">Выполни все 5 квестов и получи</div>'
-      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 500 монет</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 '+fmt(questBonusPreview)+' монет</div>'
       +'<div style="font-size:11px;color:#666;margin-top:4px">Выполнено: '+completed+'/5</div>'
       +'</div>';
   }
@@ -2563,31 +2585,31 @@ function renderBank() {
     '<div class="card" style="text-align:center;padding:20px">'
       +'<div style="font-size:32px;margin-bottom:8px">🏦</div>'
       +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">Банк FishFarm</div>'
-      +'<div style="font-size:12px;color:#90caf9">Обменяй монеты на TON Fish токены</div>'
+      +'<div style="font-size:12px;color:#90caf9">Обменяй монеты на GRAM</div>'
     +'</div>'
     +'<div class="card">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">Монеты</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
         +'<div style="font-size:24px;color:#90caf9">→</div>'
-        +'<div style="text-align:center;flex:1"><div style="font-size:28px">🐟</div><div style="font-size:13px;color:#90caf9;margin-top:4px">TON Fish</div><div style="font-size:11px;color:#666;margin-top:2px">tonfish.io</div></div>'
+        +'<div style="text-align:center;flex:1"><div style="font-size:28px">💎</div><div style="font-size:13px;color:#90caf9;margin-top:4px">GRAM</div></div>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Сумма обмена (монеты):</div>'
-      +'<div style="font-size:11px;color:#666;margin-bottom:6px">Минимум 1000 монет</div>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:6px">Минимум 10,000 монет</div>'
       +'<div style="display:flex;gap:8px;margin-bottom:12px">'
-        +'<input id="ex-amount" type="number" min="1000" max="'+coins+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
+        +'<input id="ex-amount" type="number" min="10000" max="'+coins+'" value="'+Math.min(10000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
         +'<button class="btn" onclick="setBankMax()">Макс</button>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Твой TON кошелёк:</div>'
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
         +'<div style="font-size:12px;color:#90caf9">Ты получишь</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#4caf50">🐟 '+Math.min(1000,coins)+' TON Fish</div>'
-        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 1:1 · Отправка вручную в течение 24ч</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(10000,coins)/100000).toFixed(5)+' GRAM</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 100,000 монет = 1 GRAM · Отправка вручную в течение 24ч</div>'
       +'</div>'
       +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: 3 звезды Telegram за каждый обмен</div>'
       +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за 3 звезды Telegram</button>'
     +'</div>'
-    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит TON Fish на указанный кошелёк в течение 24 часов.<br><br><a href="https://www.tonfish.io" style="color:#1565c0">tonfish.io</a></div>'
+    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
     +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Напиши боту эту команду:</div>'
     +'<div id="bank-cmd" style="font-size:12px;color:#FFD700;font-family:monospace;word-break:break-all;margin-bottom:10px"></div>'
@@ -2602,28 +2624,6 @@ function shortWallet(w) {
   return w.slice(0,4) + '…' + w.slice(-4);
 }
 // Исторические выплаты — были до появления публичной ленты, добавлены вручную
-var HISTORICAL_WITHDRAWALS = [
-  {amount:53059, wallet:'UQBN...SgGA'},
-  {amount:115,   wallet:'EQD1...QvMp'},
-  {amount:100,   wallet:'UQAh...zK4F'},
-  {amount:100,   wallet:'UQDo...5NaW'},
-  {amount:100,   wallet:'UQDW...PDJs'},
-  {amount:115,   wallet:'UQCR...Qy4x'},
-  {amount:162,   wallet:'UQCa...mh8C'},
-  {amount:113,   wallet:'UQD3...e6Oj'},
-  {amount:504,   wallet:'UQAb..._MWP'},
-  {amount:14781, wallet:'UQAV...LtnB'},
-  {amount:103,   wallet:'UQCD...RA1S'},
-  {amount:316,   wallet:'UQDV...j97t'},
-  {amount:10269, wallet:'UQDE...kixA'},
-  {amount:220,   wallet:'UQBi...nRu_'},
-  {amount:1176,  wallet:'UQBz...zq9f'},
-  {amount:111,   wallet:'UQDx...j_F2'},
-  {amount:2000,  wallet:'UQBx...2pbl'},
-  {amount:600,   wallet:'UQBx...2pbl'},
-  {amount:100,   wallet:'UQBx...2pbl'},
-  {amount:1810,  wallet:'UQDw...f1ky'}
-];
 function loadWithdrawalsLog() {
   var el = document.getElementById('withdrawals-log');
   if (!el) return;
@@ -2631,14 +2631,14 @@ function loadWithdrawalsLog() {
   function render() {
     var el2 = document.getElementById('withdrawals-log');
     if (!el2) return;
-    var items = liveItems.concat(HISTORICAL_WITHDRAWALS);
-    if (!items.length) { el2.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px">Пока нет выплат</div>'; return; }
+    if (!liveItems.length) { el2.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px">Пока нет выплат</div>'; return; }
     var html = '';
-    for (var i=0;i<items.length;i++) {
-      var it = items[i];
+    for (var i=0;i<liveItems.length;i++) {
+      var it = liveItems[i];
+      var gram = ((it.amount||0)/100000).toFixed(5);
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px">'
         + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
-        + '<span style="color:#6ddc6d;font-weight:600">🐟 '+fmt(it.amount||0)+'</span>'
+        + '<span style="color:#6ddc6d;font-weight:600">💎 '+gram+' GRAM</span>'
         + '</div>';
     }
     el2.innerHTML = html;
@@ -2653,8 +2653,9 @@ function loadWithdrawalsLog() {
 function updateBankPreview() {
   var input=document.getElementById('ex-amount');
   var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
+  var gram=(val/100000).toFixed(5);
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">🐟 '+val+' TON Fish</div><div style="font-size:11px;color:#666;margin-top:4px">Курс 1:1 · Отправка вручную в течение 24ч</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">Курс 100,000 монет = 1 GRAM · Отправка вручную в течение 24ч</div>';
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
@@ -2664,7 +2665,7 @@ function exchangeCoins() {
   var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
   var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
   var wallet=wi?wi.value.trim():'';
-  if(amount<1000){showNotif('❌ Минимальная сумма вывода — 1000 монет!');return;}
+  if(amount<10000){showNotif('❌ Минимальная сумма вывода — 10,000 монет!');return;}
   if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
   if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
   if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
@@ -2684,7 +2685,7 @@ function exchangeCoins() {
       tg.openInvoice(invLink2, function(status){
         if(status==='paid') {
           state.coins=Math.round((state.coins-amount)*100)/100;
-          showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! TON Fish придут в течение 24ч', true);
+          showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! GRAM придут в течение 24ч', true);
           updateUI(); save();
           // Начисляем рефереру 50% от суммы вывода
           if (userId && firebaseDB) {
@@ -2722,6 +2723,7 @@ function exchangeCoins() {
 }
 function renderDaily() {
   var st=getDailyStatus();
+  var lm=maxUnlockedMult();
   var html='<div class="card" style="text-align:center">'
     +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">🎁 Ежедневный бонус</div>'
     +'<div style="font-size:12px;color:#90caf9">Заходи каждый день за растущей наградой!</div></div>';
@@ -2729,15 +2731,16 @@ function renderDaily() {
   for (var i=0;i<7;i++) {
     var isDone=!st.canClaim&&i<state.dailyDay;
     var isCur=st.canClaim&&i===st.day;
+    var dayReward=Math.round(DAILY[i]*lm*100)/100;
     html+='<div class="day-cell'+(isDone?' done':isCur?' current':'')+'">'
       +'<div style="font-size:9px;color:#666">День '+(i+1)+'</div>'
-      +'<div style="font-size:11px;font-weight:600;color:'+(isDone?'#6ddc6d':isCur?'#FFD700':'#90caf9')+'">🪙'+fmt(DAILY[i])+'</div>'
+      +'<div style="font-size:11px;font-weight:600;color:'+(isDone?'#6ddc6d':isCur?'#FFD700':'#90caf9')+'">🪙'+fmt(dayReward)+'</div>'
       +'<div style="font-size:10px">'+(isDone?'✅':isCur?'👆':'🔒')+'</div></div>';
   }
   html+='</div>';
   if (st.missed) html+='<div class="card" style="background:#3d1a0a;text-align:center;font-size:12px;color:#ff9944">⚠️ Пропустил день — серия сброшена</div>';
   if (st.canClaim) {
-    html+='<button class="btn btn-full" onclick="claimDaily()" style="background:#FFD700;color:#1a1a2e;font-size:15px;font-weight:700;padding:14px">🎁 Забрать 🪙'+fmt(DAILY[st.day])+'</button>';
+    html+='<button class="btn btn-full" onclick="claimDaily()" style="background:#FFD700;color:#1a1a2e;font-size:15px;font-weight:700;padding:14px">🎁 Забрать 🪙'+fmt(Math.round(DAILY[st.day]*lm*100)/100)+'</button>';
   } else {
     html+='<div class="card" style="text-align:center"><div style="font-size:13px;color:#90caf9">Следующий бонус через</div>'
       +'<div style="font-size:22px;font-weight:700;color:#FFD700;margin-top:4px">'+st.nextIn+' ч</div></div>';
@@ -3481,7 +3484,7 @@ function showInstructions() {
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
     +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы: 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
     +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на TON Fish (курс 1:1). Укажи сумму и TON кошелёк — токены отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен.<br><br>'
+    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM (курс 100,000 монет = 1 GRAM). Укажи сумму (минимум 10,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен.<br><br>'
     +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
     +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
@@ -3950,7 +3953,8 @@ function getDailyStatus() {
 function claimDaily() {
   var st=getDailyStatus(); if (!st.canClaim) return;
   if (st.missed) state.dailyDay=0;
-  var reward=DAILY[state.dailyDay];
+  var lm=maxUnlockedMult();
+  var reward=Math.round(DAILY[state.dailyDay]*lm*100)/100;
   state.coins=Math.round((state.coins+reward)*100)/100;
   state.totalEarned=Math.round((state.totalEarned+reward)*100)/100;
   state.dailyLastClaim=Date.now();
