@@ -2329,7 +2329,7 @@ function renderBoosts() {
     +'<div style="flex:1">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
-    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+fmt(Math.round(300*maxUnlockedMult()))+'🪙 · '+fmt(Math.round(500*maxUnlockedMult()))+'🪙 · 🐟'+fmt(Math.round(100*maxUnlockedMult()))+' · 🧂'+fmt(Math.round(15*maxUnlockedMult()))+' · 🔪'+fmt(Math.round(15*maxUnlockedMult()))+' · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+Math.round(300*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · '+Math.round(500*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · 🐟'+Math.round(100*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🧂'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🔪'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
     +'</div>'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?'💎 Бесплатно':'⭐ '+premiumPrice(1))+'</button>'
     +'</div></div>';
@@ -2474,11 +2474,11 @@ function activateBoost(id) {
       var lMult = maxUnlockedMult();
       var c1=Math.round(300*lMult), c2=Math.round(500*lMult), f1=Math.round(100*lMult), s1=Math.round(15*lMult), k1=Math.round(15*lMult);
       var prizes = [
-        {label:'🪙 '+fmt(c1)+' монет', coins:c1, weight:40},
-        {label:'🪙 '+fmt(c2)+' монет', coins:c2, weight:25},
-        {label:'🐟 '+fmt(f1)+' рыб на склад', coins:0, fish:f1, weight:15},
-        {label:'🧂 '+fmt(s1)+' соли на склад', coins:0, salt:s1, weight:10},
-        {label:'🔪 '+fmt(k1)+' ножей на склад', coins:0, fish:0, knife:k1, weight:7},
+        {label:'🪙 '+c1.toLocaleString('ru-RU')+' монет', coins:c1, weight:40},
+        {label:'🪙 '+c2.toLocaleString('ru-RU')+' монет', coins:c2, weight:25},
+        {label:'🐟 '+f1.toLocaleString('ru-RU')+' рыб на склад', coins:0, fish:f1, weight:15},
+        {label:'🧂 '+s1.toLocaleString('ru-RU')+' соли на склад', coins:0, salt:s1, weight:10},
+        {label:'🔪 '+k1.toLocaleString('ru-RU')+' ножей на склад', coins:0, fish:0, knife:k1, weight:7},
         {label:'🚛 Билет на аренду грузовика (12ч)', coins:0, truckTicket:true, weight:3},
         {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:1},
       ];
