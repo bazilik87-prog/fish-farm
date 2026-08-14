@@ -183,15 +183,27 @@ async def create_invoice(request):
         elif action == 'subscribe':
             user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
             payload = f"sub:{user_id}"
-            link = await bot.create_invoice_link(
-                title="FishFarm Premium",
-                description="Премиум-подписка на 30 дней: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
-                payload=payload,
-                currency="XTR",
-                prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
-                provider_token="",
-                subscription_period=2592000,
-            )
+            try:
+                link = await bot.create_invoice_link(
+                    title="FishFarm Premium",
+                    description="Премиум-подписка на 30 дней: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    payload=payload,
+                    currency="XTR",
+                    prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
+                    provider_token="",
+                    subscription_period=2592000,
+                )
+            except TypeError:
+                # Подписки Stars требуют свежую версию aiogram/Bot API — если сервер ещё не обновлён,
+                # создаём разовый счёт без автопродления, чтобы функция не была полностью недоступна
+                link = await bot.create_invoice_link(
+                    title="FishFarm Premium (30 дней)",
+                    description="Премиум на 30 дней без автопродления: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    payload=payload,
+                    currency="XTR",
+                    prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
+                    provider_token="",
+                )
             return web.json_response({'link': link}, headers=CORS)
 
     except Exception as e:
