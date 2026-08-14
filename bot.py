@@ -100,7 +100,6 @@ BOOST_PRICES = {
     'truckRental': 5,
 }
 PREMIUM_PRICE = 50  # ⭐/месяц
-PREMIUM_BOOST_DISCOUNT = 0.2  # -20% на бустеры для подписчиков
 
 SUPPORT_GROUP_ID = -5478312122
 
@@ -167,8 +166,6 @@ async def create_invoice(request):
             user_id  = real_user_id  # берём из проверенной подписи, а не из тела запроса
             name = BOOST_NAMES.get(boost_id, 'Boost')
             price = BOOST_PRICES.get(boost_id, 1)
-            if await is_premium(user_id):
-                price = max(1, round(price * (1 - PREMIUM_BOOST_DISCOUNT)))
             payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,
@@ -186,7 +183,7 @@ async def create_invoice(request):
             try:
                 link = await bot.create_invoice_link(
                     title="FishFarm Premium",
-                    description="Премиум-подписка на 30 дней: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    description="Премиум-подписка на 30 дней: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
                     payload=payload,
                     currency="XTR",
                     prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
@@ -198,7 +195,7 @@ async def create_invoice(request):
                 # создаём разовый счёт без автопродления, чтобы функция не была полностью недоступна
                 link = await bot.create_invoice_link(
                     title="FishFarm Premium (30 дней)",
-                    description="Премиум на 30 дней без автопродления: +25% к автодоходу, скидка 20% на бустеры, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    description="Премиум на 30 дней без автопродления: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
                     payload=payload,
                     currency="XTR",
                     prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
@@ -1349,7 +1346,7 @@ async def successful_payment(message: types.Message):
             await message.answer(
                 "🎉 Premium активирован на 30 дней!\n\n"
                 "✅ +25% к автодоходу\n"
-                "✅ -20% на все бустеры\n"
+                "✅ Бесплатный ежедневный ремонт транспорта\n"
                 "✅ Комиссия банка снижена до ⭐1\n"
                 "✅ Защита стрика ежедневного бонуса\n"
                 "✅ Бесплатная крутка лотереи раз в день\n"
