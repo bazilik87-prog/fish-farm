@@ -143,14 +143,14 @@ async def create_invoice(request):
             wallet  = str(data.get('wallet', '')).strip()
             user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
             username = str(data.get('username', '')).strip()
-            if coins < 1 or not wallet:
-                return web.json_response({'error': 'invalid'}, status=400, headers=CORS)
+            if coins < 1000 or coins > 50000 or not wallet:
+                return web.json_response({'error': 'сумма должна быть от 1,000 до 50,000 монет'}, status=400, headers=CORS)
             # Зашиваем данные прямо в payload — Telegram вернёт их при оплате,
             # так что рестарт бота между созданием счёта и оплатой ничего не потеряет.
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
-            fee = 1 if await is_premium(user_id) else 3
+            fee = 3 if await is_premium(user_id) else 5
             link = await bot.create_invoice_link(
                 title="GRAM Exchange",
                 description=f"{coins} coins to GRAM",
@@ -183,7 +183,7 @@ async def create_invoice(request):
             try:
                 link = await bot.create_invoice_link(
                     title="FishFarm Premium",
-                    description="Премиум-подписка на 30 дней: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    description="Премиум-подписка на 30 дней: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐3 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
                     payload=payload,
                     currency="XTR",
                     prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
@@ -195,7 +195,7 @@ async def create_invoice(request):
                 # создаём разовый счёт без автопродления, чтобы функция не была полностью недоступна
                 link = await bot.create_invoice_link(
                     title="FishFarm Premium (30 дней)",
-                    description="Премиум на 30 дней без автопродления: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐1 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
+                    description="Премиум на 30 дней без автопродления: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, ⭐3 комиссия банка, защита стрика, бесплатная крутка лотереи в день, корона в лидерборде",
                     payload=payload,
                     currency="XTR",
                     prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
@@ -1347,7 +1347,7 @@ async def successful_payment(message: types.Message):
                 "🎉 Premium активирован на 30 дней!\n\n"
                 "✅ +25% к автодоходу\n"
                 "✅ Бесплатный ежедневный ремонт транспорта\n"
-                "✅ Комиссия банка снижена до ⭐1\n"
+                "✅ Комиссия банка снижена до ⭐3\n"
                 "✅ Защита стрика ежедневного бонуса\n"
                 "✅ Бесплатная крутка лотереи раз в день\n"
                 "✅ Корона рядом с именем в лидерборде\n\n"

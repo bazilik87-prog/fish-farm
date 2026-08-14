@@ -2617,9 +2617,9 @@ function renderBank() {
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">💎</div><div style="font-size:13px;color:#90caf9;margin-top:4px">GRAM</div></div>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Сумма обмена (монеты):</div>'
-      +'<div style="font-size:11px;color:#666;margin-bottom:6px">Минимум 1,000 монет</div>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:6px">От 1,000 до 50,000 монет за один вывод</div>'
       +'<div style="display:flex;gap:8px;margin-bottom:12px">'
-        +'<input id="ex-amount" type="number" min="1000" max="'+coins+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
+        +'<input id="ex-amount" type="number" min="1000" max="'+Math.min(50000,coins)+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
         +'<button class="btn" onclick="setBankMax()">Макс</button>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Твой TON кошелёк:</div>'
@@ -2629,8 +2629,8 @@ function renderBank() {
         +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/100000).toFixed(5)+' GRAM</div>'
         +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 100,000 монет = 1 GRAM · Отправка вручную в течение 24ч</div>'
       +'</div>'
-      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: '+(isPremiumActive()?'1 звезда (Premium)':'3 звезды')+' Telegram за каждый обмен</div>'
-      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за '+(isPremiumActive()?'1 звезду':'3 звезды')+' Telegram</button>'
+      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: '+(isPremiumActive()?'3 звезды (Premium)':'5 звёзд')+' Telegram за каждый обмен</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за '+(isPremiumActive()?'3 звезды':'5 звёзд')+' Telegram</button>'
     +'</div>'
     +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
@@ -2682,13 +2682,14 @@ function updateBankPreview() {
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
-  if(input){input.value=Math.floor(state.coins);updateBankPreview();}
+  if(input){input.value=Math.min(50000,Math.floor(state.coins));updateBankPreview();}
 }
 function exchangeCoins() {
   var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
   var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
   var wallet=wi?wi.value.trim():'';
   if(amount<1000){showNotif('❌ Минимальная сумма вывода — 1,000 монет!');return;}
+  if(amount>50000){showNotif('❌ Максимальная сумма за один вывод — 50,000 монет!');return;}
   if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
   if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
   if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
@@ -3428,12 +3429,12 @@ function renderPremiumCard() {
     return '<div class="card" style="background:linear-gradient(135deg,#3a2a0a,#5c4a1a);border:1.5px solid #FFD700">'
       +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 Premium активен</div>'
       +'<div style="font-size:12px;color:#f0e0b0">Действует до '+dateStr+' · продлевается автоматически</div>'
-      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">✅ +25% к автодоходу<br>✅ Бесплатный ежедневный ремонт транспорта<br>✅ Комиссия банка ⭐1<br>✅ Защита стрика (окно 72ч вместо 48ч)<br>✅ Бесплатная крутка лотереи в день<br>✅ 👑 у имени в лидерборде</div>'
+      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">✅ +25% к автодоходу<br>✅ Бесплатный ежедневный ремонт транспорта<br>✅ Комиссия банка ⭐3<br>✅ Защита стрика (окно 72ч вместо 48ч)<br>✅ Бесплатная крутка лотереи в день<br>✅ 👑 у имени в лидерборде</div>'
       +'</div>';
   }
   return '<div class="card" style="background:linear-gradient(135deg,#1a1a3a,#2a1a4a);border:1.5px solid #9b59b6">'
     +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 FishFarm Premium</div>'
-    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">✨ +25% к автодоходу<br>✨ Бесплатный ежедневный ремонт транспорта<br>✨ Комиссия банка ⭐1 вместо ⭐3<br>✨ Защита стрика ежедневного бонуса<br>✨ Бесплатная крутка лотереи каждый день<br>✨ 👑 у имени в лидерборде</div>'
+    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">✨ +25% к автодоходу<br>✨ Бесплатный ежедневный ремонт транспорта<br>✨ Комиссия банка ⭐3 вместо ⭐5<br>✨ Защита стрика ежедневного бонуса<br>✨ Бесплатная крутка лотереи каждый день<br>✨ 👑 у имени в лидерборде</div>'
     +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 Оформить за ⭐50/мес</button>'
     +'</div>';
 }
@@ -3570,7 +3571,7 @@ function showInstructions() {
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
     +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
     +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM (курс 100,000 монет = 1 GRAM). Укажи сумму (минимум 1,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия ⭐3 Telegram Stars за каждый обмен (⭐1 для Premium).<br><br>'
+    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM (курс 100,000 монет = 1 GRAM). Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия ⭐5 Telegram Stars за каждый обмен (⭐3 для Premium).<br><br>'
     +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐50/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, комиссию банка ⭐1, защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
     +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
     +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
