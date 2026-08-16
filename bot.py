@@ -99,7 +99,7 @@ BOOST_PRICES = {
     'repairAll': 2,
     'truckRental': 5,
 }
-PREMIUM_PRICE = 50  # ⭐/месяц
+PREMIUM_PRICE = 250  # ⭐/месяц
 
 SUPPORT_GROUP_ID = -5478312122
 
@@ -115,6 +115,39 @@ async def is_premium(user_id):
         return bool(until) and until > int(time.time() * 1000)
     except Exception:
         return False
+
+
+LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
+
+
+async def get_location_mult(user_id):
+    """
+    Множитель самой продвинутой РАЗЛОЧЕННОЙ локации игрока — считаем на сервере
+    по данным его сохранения, а не доверяем тому, что мог бы прислать клиент
+    (иначе курс/комиссию легко подделать).
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    mult = 1
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/tg_{user_id}/ulocs.json{FB_AUTH}") as resp:
+                unlocked = await resp.json()
+        if unlocked:
+            for loc_id in unlocked:
+                m = LOCATION_MULT.get(loc_id, 1)
+                if m > mult:
+                    mult = m
+    except Exception:
+        pass
+    return mult
+
+
+async def get_exchange_rate(user_id, mult=None):
+    """Курс обмена (сколько монет за 1 GRAM) растёт вместе с локацией игрока."""
+    if mult is None:
+        mult = await get_location_mult(user_id)
+    return 100000 * mult
 
 
 async def create_invoice(request):
@@ -150,7 +183,9 @@ async def create_invoice(request):
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
-            fee = 3 if await is_premium(user_id) else 5
+            loc_mult = await get_location_mult(user_id)
+            base_fee = 3 if await is_premium(user_id) else 5
+            fee = base_fee * loc_mult
             link = await bot.create_invoice_link(
                 title="GRAM Exchange",
                 description=f"{coins} coins to GRAM",
@@ -1367,7 +1402,8 @@ async def successful_payment(message: types.Message):
         wallet   = parts[3]
         username = parts[4] if len(parts) > 4 else ''
         try:
-            gram_amount = round(int(coins) / 100000, 5)
+            rate = await get_exchange_rate(user_id)
+            gram_amount = round(int(coins) / rate, 5)
         except ValueError:
             gram_amount = 0
 
@@ -1375,7 +1411,7 @@ async def successful_payment(message: types.Message):
         try:
             import aiohttp, time as time_mod
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-            entry = {"amount": int(coins), "wallet": wallet, "ts": int(time_mod.time() * 1000)}
+            entry = {"amount": int(coins), "gram": gram_amount, "wallet": wallet, "ts": int(time_mod.time() * 1000)}
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
         except Exception:

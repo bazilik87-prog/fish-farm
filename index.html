@@ -542,6 +542,18 @@ function maxUnlockedMult() {
   }
   return best;
 }
+// Комиссия банка растёт вместе с самой продвинутой открытой локацией — как и курс обмена
+function bankFeeAmount() {
+  var base = isPremiumActive() ? 3 : 5;
+  return base * maxUnlockedMult();
+}
+function starsWord(n) {
+  var n10 = n % 10, n100 = n % 100;
+  if (n100 >= 11 && n100 <= 14) return 'звёзд';
+  if (n10 === 1) return 'звезда';
+  if (n10 >= 2 && n10 <= 4) return 'звезды';
+  return 'звёзд';
+}
 // Рыба принадлежит той локации, где была поймана — на рынке другой локации она не отображается
 function fishBelongsToLoc(name, locId) {
   var list = FISH[locId||state.currentLoc] || [];
@@ -2626,11 +2638,11 @@ function renderBank() {
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
         +'<div style="font-size:12px;color:#90caf9">Ты получишь</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/100000).toFixed(5)+' GRAM</div>'
-        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс 100,000 монет = 1 GRAM · Отправка вручную в течение 24ч</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/(100000*maxUnlockedMult())).toFixed(5)+' GRAM</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+' монет = 1 GRAM · Отправка вручную в течение 24ч</div>'
       +'</div>'
-      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: '+(isPremiumActive()?'3 звезды (Premium)':'5 звёзд')+' Telegram за каждый обмен</div>'
-      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за '+(isPremiumActive()?'3 звезды':'5 звёзд')+' Telegram</button>'
+      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' за каждый обмен</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</button>'
     +'</div>'
     +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
@@ -2658,7 +2670,7 @@ function loadWithdrawalsLog() {
     var html = '';
     for (var i=0;i<liveItems.length;i++) {
       var it = liveItems[i];
-      var gram = ((it.amount||0)/100000).toFixed(5);
+      var gram = (typeof it.gram === 'number' ? it.gram : (it.amount||0)/100000).toFixed(5);
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px">'
         + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
         + '<span style="color:#6ddc6d;font-weight:600">💎 '+gram+' GRAM</span>'
@@ -2676,9 +2688,10 @@ function loadWithdrawalsLog() {
 function updateBankPreview() {
   var input=document.getElementById('ex-amount');
   var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
-  var gram=(val/100000).toFixed(5);
+  var rate=100000*maxUnlockedMult();
+  var gram=(val/rate).toFixed(5);
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">Курс 100,000 монет = 1 GRAM · Отправка вручную в течение 24ч</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">Курс '+rate.toLocaleString('ru-RU')+' монет = 1 GRAM · Отправка вручную в течение 24ч</div>';
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
@@ -3436,13 +3449,13 @@ function renderPremiumCard() {
     return '<div class="card" style="background:linear-gradient(135deg,#3a2a0a,#5c4a1a);border:1.5px solid #FFD700">'
       +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 Premium активен</div>'
       +'<div style="font-size:12px;color:#f0e0b0">Действует до '+dateStr+' · продлевается автоматически</div>'
-      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">✅ +25% к автодоходу<br>✅ Бесплатный ежедневный ремонт транспорта<br>✅ Комиссия банка ⭐3<br>✅ Защита стрика (окно 72ч вместо 48ч)<br>✅ Бесплатная крутка лотереи в день<br>✅ 👑 у имени в лидерборде</div>'
+      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">✅ +25% к автодоходу<br>✅ Бесплатный ежедневный ремонт транспорта<br>✅ Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)<br>✅ Защита стрика (окно 72ч вместо 48ч)<br>✅ Бесплатная крутка лотереи в день<br>✅ 👑 у имени в лидерборде</div>'
       +'</div>';
   }
   return '<div class="card" style="background:linear-gradient(135deg,#1a1a3a,#2a1a4a);border:1.5px solid #9b59b6">'
     +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 FishFarm Premium</div>'
-    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">✨ +25% к автодоходу<br>✨ Бесплатный ежедневный ремонт транспорта<br>✨ Комиссия банка ⭐3 вместо ⭐5<br>✨ Защита стрика ежедневного бонуса<br>✨ Бесплатная крутка лотереи каждый день<br>✨ 👑 у имени в лидерборде</div>'
-    +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 Оформить за ⭐50/мес</button>'
+    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">✨ +25% к автодоходу<br>✨ Бесплатный ежедневный ремонт транспорта<br>✨ Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)<br>✨ Защита стрика ежедневного бонуса<br>✨ Бесплатная крутка лотереи каждый день<br>✨ 👑 у имени в лидерборде</div>'
+    +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 Оформить за ⭐250/мес</button>'
     +'</div>';
 }
 function buyPremium() {
@@ -3578,8 +3591,8 @@ function showInstructions() {
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
     +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
     +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM (курс 100,000 монет = 1 GRAM). Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия ⭐5 Telegram Stars за каждый обмен (⭐3 для Premium).<br><br>'
-    +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐50/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, комиссию банка ⭐1, защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
+    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.<br><br>'
+    +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
     +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
     +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
     +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
