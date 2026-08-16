@@ -891,6 +891,7 @@ async def comm_command(message: types.Message):
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
         "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/playerinfo @username — развёрнутая статистика игрока\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
@@ -909,6 +910,123 @@ async def comm_command(message: types.Message):
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="Markdown"
     )
+
+
+LOC_NAMES = {'pond': '🌿 Пруд', 'river': '🏞 Река', 'tropics': '🌴 Тропики', 'deep': '🌊 Глубины', 'space': '🚀 Космос'}
+UPG_NAMES = {'rod': 'Удочка', 'net': 'Сеть', 'boat': 'Лодка', 'sonar': 'Сонар'}
+
+
+@dp.message(Command('playerinfo'))
+async def playerinfo_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer("Использование:\n`/playerinfo @username`", parse_mode="Markdown")
+        return
+    username = args[1].lstrip('@').lower()
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+            uid = None
+            lb_entry = None
+            if lb:
+                for v in lb.values():
+                    if str(v.get('username', '')).lower() == username:
+                        uid = v.get('userId')
+                        lb_entry = v
+                        break
+            if not uid:
+                await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
+                return
+
+            pid = f"tg_{uid}"
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+            if not sv:
+                await message.answer(f"❌ Нет сохранения для @{username} (ID: {uid}).")
+                return
+
+            async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
+                referrer_id = await resp.json()
+
+            async with session.get(f"{base}/premium/{pid}.json{FB_AUTH}") as resp:
+                premium_until = await resp.json()
+
+        lines = [f"👤 @{username} (ID: {uid})"]
+
+        loc = sv.get('loc', 'pond')
+        ulocs = sv.get('ulocs', ['pond'])
+        loc_names_str = ', '.join(LOC_NAMES.get(l, l) for l in ulocs)
+        lines.append(f"📍 Сейчас: {LOC_NAMES.get(loc, loc)}")
+        lines.append(f"🗺 Разлочено: {loc_names_str}")
+
+        upg_levels = sv.get('upgLevels') or {}
+        if upg_levels:
+            lines.append("")
+            lines.append("🎣 Прокачка по локациям:")
+            for loc_id in ulocs:
+                lv = upg_levels.get(loc_id, {})
+                parts = [f"{UPG_NAMES.get(k,k)} {lv.get(k,0)}" for k in ['rod', 'net', 'boat', 'sonar']]
+                lines.append(f"  {LOC_NAMES.get(loc_id, loc_id)}: " + ", ".join(parts))
+
+        transport = sv.get('transport', 'bike')
+        dur = sv.get('dur', {})
+        dur_str = ", ".join(f"{k}:{v}%" for k, v in dur.items()) if dur else "—"
+        lines.append("")
+        lines.append(f"🚛 Транспорт: {transport} ({dur_str})")
+
+        coins = sv.get('coins', 0)
+        total_earned = sv.get('totalEarned', 0)
+        caught = sv.get('caught', 0)
+        lines.append(f"🪙 Баланс: {coins:,.0f} · Всего заработано: {total_earned:,.0f} · Поймано: {caught:,}")
+
+        now_ms = int(time.time() * 1000)
+        is_prem = bool(premium_until) and premium_until > now_ms
+        if is_prem:
+            until_dt = datetime.fromtimestamp(premium_until / 1000, tz=timezone(timedelta(hours=3)))
+            lines.append(f"💎 Premium: активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+        else:
+            lines.append("💎 Premium: не активен")
+
+        if referrer_id:
+            lines.append(f"👥 Пришёл по рефералке от ID: {referrer_id}")
+        else:
+            lines.append("👥 Реферер: нет")
+
+        daily_day = sv.get('dailyDay', 0)
+        daily_last = sv.get('dailyLast', 0)
+        if daily_last:
+            days_ago = round((now_ms - daily_last) / 86400000, 1)
+            lines.append(f"🎁 Стрик бонуса: день {daily_day} (последний раз {days_ago}д назад)")
+        else:
+            lines.append("🎁 Стрик бонуса: ни разу не забирал")
+
+        quests = sv.get('quests') or []
+        quest_progress = sv.get('questProgress') or {}
+        done = sum(1 for q in quests if quest_progress.get(q, 0) > 0)
+        lines.append(f"📋 Квесты сегодня: {len(quests)} заданий в списке")
+
+        boosts = sv.get('boosts') or {}
+        active_boosts = []
+        for k, v in boosts.items():
+            if isinstance(v, (int, float)) and v > now_ms:
+                mins_left = round((v - now_ms) / 60000)
+                active_boosts.append(f"{k} ({mins_left}мин)")
+        lines.append(f"⚡ Активные бустеры: {', '.join(active_boosts) if active_boosts else 'нет'}")
+
+        last_seen = sv.get('lastSeen', 0)
+        if last_seen:
+            last_dt = datetime.fromtimestamp(last_seen / 1000, tz=timezone(timedelta(hours=3)))
+            lines.append(f"🕐 Последнее сохранение: {last_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+
+        await message.answer("\n".join(lines))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('premium'))
