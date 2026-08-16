@@ -663,16 +663,39 @@ function migrate(s) {
 
 function flushFirebaseSave(saveData) {
   if (!firebaseDB || !saveData) return;
-  var pid = getPlayerId();
-  // Не даём прогрессу откатиться назад, если пишет устройство с более старым/отставшим состоянием
-  firebaseDB.ref('saves/' + pid).once('value', function(snap) {
-    var cur = snap.val();
-    if (cur) {
-      if (typeof cur.totalEarned === 'number' && cur.totalEarned > saveData.totalEarned) saveData.totalEarned = cur.totalEarned;
-      if (typeof cur.caught === 'number' && cur.caught > saveData.caught) saveData.caught = cur.caught;
-    }
-    firebaseDB.ref('saves/' + pid).set(saveData);
-  });
+  try {
+    var pid = getPlayerId();
+    // Не даём прогрессу откатиться назад, если пишет устройство с более старым/отставшим состоянием
+    firebaseDB.ref('saves/' + pid).once('value', function(snap) {
+      try {
+        var cur = snap.val();
+        if (cur) {
+          if (typeof cur.totalEarned === 'number' && cur.totalEarned > saveData.totalEarned) saveData.totalEarned = cur.totalEarned;
+          if (typeof cur.caught === 'number' && cur.caught > saveData.caught) saveData.caught = cur.caught;
+        }
+        firebaseDB.ref('saves/' + pid).set(saveData)
+          .then(function(){
+            // Успех — снимаем отметку о сбое, если она была выставлена ранее
+            if (window._fbSaveHadError) {
+              window._fbSaveHadError = false;
+              firebaseDB.ref('sync_errors/' + pid).remove();
+            }
+          })
+          .catch(function(err){ logFirebaseSaveError(pid, err); });
+      } catch(err) { logFirebaseSaveError(pid, err); }
+    }, function(err) { logFirebaseSaveError(pid, err); });
+  } catch(err) { logFirebaseSaveError(getPlayerId(), err); }
+}
+
+function logFirebaseSaveError(pid, err) {
+  window._fbSaveHadError = true;
+  console.error('Ошибка сохранения в Firebase:', err);
+  try {
+    firebaseDB.ref('sync_errors/' + pid).set({
+      message: (err && err.message) || String(err),
+      ts: Date.now()
+    });
+  } catch(e) {}
 }
 
 function save() {

@@ -918,6 +918,7 @@ async def comm_command(message: types.Message):
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
         "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
@@ -941,6 +942,54 @@ async def comm_command(message: types.Message):
 
 LOC_NAMES = {'pond': '🌿 Пруд', 'river': '🏞 Река', 'tropics': '🌴 Тропики', 'deep': '🌊 Глубины', 'space': '🚀 Космос'}
 UPG_NAMES = {'rod': 'Удочка', 'net': 'Сеть', 'boat': 'Лодка', 'sonar': 'Сонар'}
+
+
+@dp.message(Command('syncerrors'))
+async def syncerrors_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю список ошибок синхронизации...")
+    import aiohttp, time
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/sync_errors.json{FB_AUTH}") as resp:
+                errors = await resp.json()
+            if not errors:
+                await message.answer("✅ Ошибок синхронизации нет — все игроки сохраняются нормально.")
+                return
+
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+
+        id_to_name = {}
+        if lb:
+            for v in lb.values():
+                pid_key = f"tg_{v.get('userId')}"
+                username = v.get('username', '')
+                first_name = v.get('firstName', '')
+                if username:
+                    id_to_name[pid_key] = f"@{username}"
+                elif first_name:
+                    id_to_name[pid_key] = first_name
+
+        lines = [f"⚠️ Игроков с ошибками синхронизации: {len(errors)}\n"]
+        items = sorted(errors.items(), key=lambda x: x[1].get('ts', 0), reverse=True)
+        for pid, info in items[:30]:
+            name = id_to_name.get(pid, pid)
+            ts = info.get('ts', 0)
+            msg = info.get('message', '—')
+            if ts:
+                dt = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=3)))
+                time_str = dt.strftime('%d.%m %H:%M')
+            else:
+                time_str = '?'
+            lines.append(f"👤 {name} — {time_str} МСК\n   {msg[:100]}")
+
+        await message.answer("\n".join(lines))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('playerinfo'))
