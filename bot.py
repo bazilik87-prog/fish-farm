@@ -19,6 +19,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
 ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
 PORT      = int(os.getenv("PORT", "8080"))
+PARTNER_API_KEY = os.getenv("PARTNER_API_KEY", "")  # секретный ключ для проверки заданий кросс-промо-партнёров
 PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")  # публичный URL сервиса в Railway, для webhook
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = secrets.token_hex(16)  # генерируется заново при каждом старте — это ок, т.к. используется вместе с set_webhook в этом же запуске
@@ -246,6 +247,32 @@ async def create_invoice(request):
 
 async def health(request):
     return web.json_response({'ok': True}, headers=CORS)
+
+
+async def partner_check(request):
+    """
+    Кросс-промо-задание: партнёр спрашивает, поймал ли игрок 200 рыб.
+    GET /api/check?apiKey=...&telegramId=12345
+    """
+    api_key = request.query.get('apiKey', '')
+    telegram_id = request.query.get('telegramId', '')
+
+    if not PARTNER_API_KEY or api_key != PARTNER_API_KEY:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not telegram_id or not telegram_id.isdigit():
+        return web.json_response({'error': 'invalid telegramId'}, status=400, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/tg_{telegram_id}/caught.json{FB_AUTH}") as resp:
+                caught = await resp.json()
+        caught = caught or 0
+        completed = caught >= 200
+        return web.json_response({'completed': completed, 'caught': caught}, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
 
 async def referral_notify(request):
@@ -1584,6 +1611,7 @@ async def main():
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_get('/health', health)
+    app.router.add_get('/api/check', partner_check)
 
     if PUBLIC_URL:
         # Webhook-режим: Telegram сам присылает апдейты на наш URL —
