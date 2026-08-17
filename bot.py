@@ -72,6 +72,7 @@ BOOST_NAMES = {
     'instantDelivery': 'Instant Delivery - all active deliveries finish instantly',
     'repairAll':       'Repair All Transport - fully repairs all vehicles',
     'truckRental':      'Rent a Truck with Trailer - 200 capacity for 12 hours',
+    'energyFull':       'Refill Energy - instantly fills your energy to max',
     'lottery':         'Lottery - spin the wheel and win coins or jackpot!',
     'weather_sunny':   'Weather Change - Sunny for 30 minutes',
     'weather_cloudy':  'Weather Change - Cloudy for 30 minutes',
@@ -88,6 +89,7 @@ BOOST_LABELS = {
     'instantDelivery': '🚀 Мгновенная доставка',
     'repairAll':       '🔧 Ремонт всего транспорта',
     'truckRental':      '🚛 Грузовик с прицепом (аренда 12ч, вместимость 200)',
+    'energyFull':       '⚡ Заполнить энергию',
     'lottery':         '🎰 Лотерея',
     'weather_sunny':   '☀️ Погода: Ясно',
     'weather_cloudy':  '🌥 Погода: Облачно',
@@ -99,6 +101,7 @@ BOOST_LABELS = {
 BOOST_PRICES = {
     'repairAll': 2,
     'truckRental': 5,
+    'energyFull': 5,
 }
 PREMIUM_PRICE = 250  # ⭐/месяц
 
