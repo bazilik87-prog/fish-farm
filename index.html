@@ -2667,8 +2667,8 @@ function buyBoost(id) {
       } catch(err) {
         var dbg = document.createElement('div');
         dbg.style.cssText = 'position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#c0392b;color:#fff;padding:14px;border-radius:10px;font-size:12px;word-break:break-all;max-height:80vh;overflow:auto';
-        dbg.innerHTML = '<b>Ошибка openInvoice:</b> '+err.message+'<br><br><b>link (длина '+(data.link?data.link.length:0)+'):</b><br>'+JSON.stringify(data.link)
-          +'<br><br><button onclick="this.parentNode.remove()" style="padding:8px 14px;border-radius:8px;border:none;background:#fff;color:#c0392b;font-weight:600">Закрыть</button>';
+        dbg.innerHTML = '<b>'+t('Ошибка openInvoice:','openInvoice error:')+'</b> '+err.message+'<br><br><b>'+t('link (длина ','link (length ')+(data.link?data.link.length:0)+'):</b><br>'+JSON.stringify(data.link)
+          +'<br><br><button onclick="this.parentNode.remove()" style="padding:8px 14px;border-radius:8px;border:none;background:#fff;color:#c0392b;font-weight:600">'+t('Закрыть','Close')+'</button>';
         document.body.appendChild(dbg);
       }
     } else if (data.error) {
@@ -3258,12 +3258,12 @@ function showRefContestInfo() {
   window._specialScreenOpen=true;
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var myId = tgUser ? tgUser.id : 0;
-  var html = '<div class="card"><button class="btn btn-full" onclick="showTab(\'settings\')" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
+  var html = '<div class="card"><button class="btn btn-full" onclick="showTab(\'settings\')" style="background:#0f3460;margin-bottom:12px">← '+t('Назад','Back')+'</button>'
     + '<div style="text-align:center;margin-bottom:16px">'
     + '<div style="font-size:40px;margin-bottom:6px">🎗️</div>'
-    + '<div style="font-size:16px;font-weight:700;color:#fff">Реферальный конкурс</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#fff">'+t('Реферальный конкурс','Referral contest')+'</div>'
     + '</div>'
-    + '<div id="refcontest-info-body"><div style="text-align:center;color:#90caf9;padding:20px">⏳ Загрузка...</div></div>'
+    + '<div id="refcontest-info-body"><div style="text-align:center;color:#90caf9;padding:20px">⏳ '+t('Загрузка...','Loading...')+'</div></div>'
     + '</div>';
   document.getElementById('content').innerHTML = html;
 
@@ -3278,23 +3278,23 @@ function showRefContestInfo() {
     if (isLive) {
       var msLeft = rc.endsAt - now;
       var d = Math.floor(msLeft/86400000), h = Math.floor((msLeft%86400000)/3600000);
-      statusHtml = '<div style="background:#0a2a1a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#6ddc6d;font-weight:600">🟢 Активен · осталось '+d+'д '+h+'ч</div>';
+      statusHtml = '<div style="background:#0a2a1a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#6ddc6d;font-weight:600">🟢 '+t('Активен · осталось','Active · left')+' '+d+t('д ','d ')+h+t('ч','h')+'</div>';
     } else {
-      statusHtml = '<div style="background:#2a0a0a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#e57373;font-weight:600">🔴 Сейчас конкурс не идёт</div>';
+      statusHtml = '<div style="background:#2a0a0a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#e57373;font-weight:600">🔴 '+t('Сейчас конкурс не идёт','No contest running right now')+'</div>';
     }
     var body = statusHtml
       + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
-      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">📋 Условия</div>'
-      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.6">Приглашай друзей в игру по своей реферальной ссылке. Очко засчитывается, когда твой друг <b>впервые запрашивает вывод от 1000 монет</b>.<br><br>⚠️ Сам факт приглашения очков не даёт — только активность реферала.</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">📋 '+t('Условия','Rules')+'</div>'
+      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.6">'+t('Приглашай друзей в игру по своей реферальной ссылке. Очко засчитывается, когда твой друг <b>впервые запрашивает вывод от 1000 монет</b>.<br><br>⚠️ Сам факт приглашения очков не даёт — только активность реферала.','Invite friends to the game with your referral link. A point is awarded when your friend <b>first requests a withdrawal of 1000+ coins</b>.<br><br>⚠️ Just inviting doesn\'t give points — only your referral\'s activity does.')+'</div>'
       + '</div>'
       + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
-      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🏆 Призы</div>'
-      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.8">🥇 1 место — 15 GRAM<br>🥈 2 место — 10 GRAM<br>🥉 3 место — 5 GRAM</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🏆 '+t('Призы','Prizes')+'</div>'
+      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.8">🥇 '+t('1 место','1st place')+' — 15 GRAM<br>🥈 '+t('2 место','2nd place')+' — 10 GRAM<br>🥉 '+t('3 место','3rd place')+' — 5 GRAM</div>'
       + '</div>'
       + '<div style="background:linear-gradient(135deg,#0f3a2a,#1a5a3a);border-radius:10px;padding:16px;text-align:center">'
-      + '<div style="font-size:12px;color:#c8f0dc;margin-bottom:6px">Твой результат</div>'
+      + '<div style="font-size:12px;color:#c8f0dc;margin-bottom:6px">'+t('Твой результат','Your score')+'</div>'
       + '<div style="font-size:32px;font-weight:700;color:#aef5ae">'+myScore+'</div>'
-      + '<div style="font-size:11px;color:#90caf9;margin-top:2px">активных рефералов</div>'
+      + '<div style="font-size:11px;color:#90caf9;margin-top:2px">'+t('активных рефералов','active referrals')+'</div>'
       + '</div>';
     var bodyEl = document.getElementById('refcontest-info-body');
     if (bodyEl) bodyEl.innerHTML = body;

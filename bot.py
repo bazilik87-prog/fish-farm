@@ -969,8 +969,7 @@ async def comm_command(message: types.Message):
         "/tournamentstats — рейтинг турнира\n"
         "/comm — список команд\n\n"
         "🎮 *Команды для всех:*\n\n"
-        "/start — запустить игру\n"
-        "/boost — купить бустер за ⭐\n\n"
+        "/start — запустить игру\n\n"
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="Markdown"
     )
@@ -1605,43 +1604,6 @@ async def pushcomeback_command(message: types.Message):
         await message.answer(f"✅ Таргетированный пуш отправлен {sent} из {len(targets)} игроков (заходили 1-3 дня назад).")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('boost'))
-async def boost_command(message: types.Message):
-    buttons = [[InlineKeyboardButton(text=label, callback_data=f"boost:{bid}")]
-               for bid, label in BOOST_LABELS.items()]
-    buttons.append([InlineKeyboardButton(text="🎣 В игру", web_app=WebAppInfo(url=GAME_URL))])
-    await message.answer(
-        "⚡ *Бустеры за ⭐ Stars*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
-
-
-@dp.callback_query(F.data.startswith('boost:'))
-async def boost_callback(callback: types.CallbackQuery):
-    boost_id = callback.data.split(':')[1]
-    name  = BOOST_NAMES.get(boost_id, 'Boost')
-    label = BOOST_LABELS.get(boost_id, name)
-    price = BOOST_PRICES.get(boost_id, 1)
-    user_id = callback.from_user.id
-    link = await bot.create_invoice_link(
-        title=name, description=name,
-        payload=f"bo:{boost_id}:{user_id}",
-        currency="XTR",
-        prices=[LabeledPrice(label="Boost", amount=price)],
-        provider_token="",
-    )
-    stars_word = 'звезду' if price == 1 else ('звезды' if price in (2,3,4) else 'звёзд')
-    await callback.message.answer(
-        f"⚡ *{label}*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=f"⭐ Купить за {price} {stars_word}", url=link)
-        ]])
-    )
-    await callback.answer()
 
 
 @dp.pre_checkout_query()
