@@ -261,11 +261,20 @@ var TRANSPORTS = [
 var RENTAL_TRUCK = {id:'rentalTruck', name:'Грузовик с прицепом (аренда)', emoji:'🚛🚚', capacity:200, cost:0, time:900, repairCost:0};
 
 var UPGRADES = [
-  {id:'rod',  name:t('Удочка','Rod'),emoji:'🎣',desc:t('Увеличивает монеты за улов и шанс улова','Increases coins per catch and catch chance'), costs:[200,800,3000,10000,30000], bought:0,max:5},
-  {id:'net',  name:t('Сеть','Net'),  emoji:'🕸',desc:t('+0.1 к автодобычи за уровень','+0.1 auto-income per level'), costs:[500,2000,8000,30000,100000],            bought:0,max:5},
-  {id:'boat', name:t('Лодка','Boat'), emoji:'⛵',desc:t('+0.3 к автодобычи за уровень','+0.3 auto-income per level'), costs:[1500,10000,25000,80000,250000],           bought:0,max:5},
-  {id:'sonar',name:t('Сонар','Sonar'), emoji:'📡',desc:t('+0.5 к автодобычи за уровень','+0.5 auto-income per level'),costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
+  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за улов и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
+  {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к автодобычи за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
+  {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к автодобычи за уровень', costs:[1500,10000,25000,80000,250000],           bought:0,max:5},
+  {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к автодобычи за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
 ];
+// Название апгрейда пересчитывается заново при каждой отрисовке (а не один раз при загрузке),
+// чтобы переключение языка применялось мгновенно, без перезахода в игру
+function upgName(id) {
+  if (id==='rod') return t('Удочка','Rod');
+  if (id==='net') return t('Сеть','Net');
+  if (id==='boat') return t('Лодка','Boat');
+  if (id==='sonar') return t('Сонар','Sonar');
+  return id;
+}
 
 var ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7];
 
@@ -1282,11 +1291,12 @@ function renderUpgrades() {
       }
     }
     var descText = u.desc;
+    if (u.id==='rod') descText = t('Увеличивает монеты за улов и шанс улова','Increases coins per catch and catch chance');
     if (u.id==='net') descText = '+'+(Math.round(0.1*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
     if (u.id==='boat') descText = '+'+(Math.round(0.3*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
     if (u.id==='sonar') descText = '+'+(Math.round(0.5*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
     html+='<div class="upg"><span class="ico">'+u.emoji+'</span>'
-      +'<div class="inf"><div class="n">'+u.name+(u.bought>0?' <span class="badge">'+t('ур.','lvl')+u.bought+'</span>':'')+extra+'</div>'
+      +'<div class="inf"><div class="n">'+upgName(u.id)+(u.bought>0?' <span class="badge">'+t('ур.','lvl')+u.bought+'</span>':'')+extra+'</div>'
       +'<div class="d">'+descText+'</div></div>'
       +'<button class="btn" onclick="buyUpgrade(\''+u.id+'\')" '+(canBuy?'':'disabled')+'>'+(maxed?t('Макс ✓','Max ✓'):'🪙 '+cost)+'</button></div>';
   }
