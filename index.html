@@ -1465,13 +1465,13 @@ function renderMarket() {
   // Транспорт
   var trBtns='';
   for (var ti=0;ti<TRANSPORTS.length;ti++) {
-    var t=TRANSPORTS[ti];
-    var owned=state.unlockedTransports.indexOf(t.id)>=0;
-    var active=state.transport===t.id;
-    var canBuy=!owned&&state.coins>=t.cost;
-    var td=getDur(t.id), tbroken=td<=0;
-    if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+t.id+'\')">'+t.emoji+' '+trName(t.id)+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
-    else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+t.id+'\')" '+(canBuy?'':'disabled')+'>'+t.emoji+' 🪙'+fmt(t.cost)+'</button>';
+    var trItem=TRANSPORTS[ti];
+    var owned=state.unlockedTransports.indexOf(trItem.id)>=0;
+    var active=state.transport===trItem.id;
+    var canBuy=!owned&&state.coins>=trItem.cost;
+    var td=getDur(trItem.id), tbroken=td<=0;
+    if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+trItem.id+'\')">'+trItem.emoji+' '+trName(trItem.id)+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
+    else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+trItem.id+'\')" '+(canBuy?'':'disabled')+'>'+trItem.emoji+' 🪙'+fmt(trItem.cost)+'</button>';
   }
   var rentalActive = state.boosts.truckRental > Date.now();
   if (rentalActive) {
@@ -3525,9 +3525,9 @@ function renderLeaders() {
 
   var myPid = getPlayerId();
   firebaseDB.ref('tournament').once('value', function(tSnap) {
-    var t = tSnap.val();
-    var tournamentLive = !!(t && t.active && t.endsAt > Date.now());
-    var baseline = (t && t.baseline) || {};
+    var tourn = tSnap.val();
+    var tournamentLive = !!(tourn && tourn.active && tourn.endsAt > Date.now());
+    var baseline = (tourn && tourn.baseline) || {};
 
     firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
       var entries = [];
@@ -3546,7 +3546,7 @@ function renderLeaders() {
         }).filter(function(e){ return e.delta > 0; });
         tEntries.sort(function(a,b){ return b.delta - a.delta; });
 
-        var msLeft = t.endsAt - Date.now();
+        var msLeft = tourn.endsAt - Date.now();
         var th = Math.floor(msLeft/3600000), tm = Math.floor((msLeft%3600000)/60000);
 
         var tHtml = '<div class="card" style="background:linear-gradient(135deg,#3a0f5c,#5c1a8e);border:1.5px solid #b794f6;margin-bottom:10px">'
