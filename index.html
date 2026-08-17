@@ -1103,7 +1103,7 @@ function updateEnergyBar() {
   var max = getEnergyMax();
   var pct = Math.round(state.energy/max*100);
   var color = state.energy<=0 ? '#e53935' : (pct<30 ? '#ff9944' : '#4fc3f7');
-  var label = state.energy<=0 ? 'Нет энергии — восстанавливается' : (state.energy+'/'+max+' ⚡ энергия');
+  var label = state.energy<=0 ? t('Нет энергии — восстанавливается','No energy — recovering') : (state.energy+'/'+max+t(' ⚡ энергия',' ⚡ energy'));
   el.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:10px;color:#90caf9;margin-bottom:3px"><span>'+label+'</span></div>'
     + '<div style="background:#1a1a2e;border-radius:5px;height:6px"><div style="background:'+color+';height:6px;border-radius:5px;width:'+pct+'%;transition:width 0.3s"></div></div>';
 }
@@ -3679,8 +3679,8 @@ function renderSettings() {
     +'<div class="card">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🌐 Язык / Language</div>'
     +'<div style="display:flex;gap:8px">'
-    +'<button class="btn" onclick="setLanguage(\'ru\')" style="flex:1;'+(LANG==='ru'?'background:#1565c0':'')+'">🇷🇺 Русский</button>'
-    +'<button class="btn" onclick="setLanguage(\'en\')" style="flex:1;'+(LANG==='en'?'background:#1565c0':'')+'">🇬🇧 English</button>'
+    +'<button class="btn" onclick="setLanguage(\'ru\')" style="flex:1;'+(LANG==='ru'?'background:#2d8a4f;border:2px solid #6ddc6d':'background:#333;opacity:0.6')+'">🇷🇺 Русский</button>'
+    +'<button class="btn" onclick="setLanguage(\'en\')" style="flex:1;'+(LANG==='en'?'background:#2d8a4f;border:2px solid #6ddc6d':'background:#333;opacity:0.6')+'">🇬🇧 English</button>'
     +'</div>'
     +'</div>'
     +renderPremiumCard()
