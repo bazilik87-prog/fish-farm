@@ -448,6 +448,19 @@ async def start(message: types.Message):
             if already_used:
                 return  # реферал уже был использован
 
+            # Защита от циклических реферальных цепочек: A пригласил B, B пригласил A
+            # (или длиннее: A→B→C→A) — идём вверх по цепочке рефереров от referrer_id
+            # и проверяем, не встретится ли там user_id.
+            chain_id = referrer_id
+            for _ in range(15):  # разумный предел глубины цепочки
+                if chain_id == user_id:
+                    return  # цикл найден — регистрацию отклоняем молча
+                async with session.get(f"{base}/referrals/used/{chain_id}.json{FB_AUTH}") as resp:
+                    next_id = await resp.json()
+                if not next_id:
+                    break
+                chain_id = str(next_id)
+
             # Сохраняем связь реферал → реферер
             await session.put(f"{base}/referrals/used/{user_id}.json{FB_AUTH}",
                               json=referrer_id)
@@ -924,6 +937,7 @@ async def comm_command(message: types.Message):
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
+        "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
@@ -1160,6 +1174,53 @@ async def premium_command(message: types.Message):
                     await message.answer(f"💎 @{username} — Premium активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
                 else:
                     await message.answer(f"— @{username} не подписан на Premium")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('breakref'))
+async def breakref_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n`/breakref @username`\n\n"
+            "Убирает связь «кем был приглашён» у указанного игрока — "
+            "используется для разрыва круговых реферальных цепочек (A пригласил B, B пригласил A).",
+            parse_mode="Markdown"
+        )
+        return
+    username = args[1].lstrip('@').lower()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+
+            target_uid = None
+            if lb:
+                for v in lb.values():
+                    if str(v.get('username', '')).lower() == username:
+                        target_uid = str(v.get('userId', ''))
+                        break
+
+            if not target_uid:
+                await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
+                return
+
+            async with session.get(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}") as resp:
+                old_referrer = await resp.json()
+
+            if not old_referrer:
+                await message.answer(f"— У @{username} и так нет реферера, разрывать нечего.")
+                return
+
+            await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
+            await session.delete(f"{base}/referrals/by/{old_referrer}/{target_uid}.json{FB_AUTH}")
+
+        await message.answer(f"✅ Связь разорвана: @{username} больше не считается рефералом ID:{old_referrer}.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
