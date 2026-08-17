@@ -251,7 +251,7 @@ async def health(request):
 
 async def partner_check(request):
     """
-    Кросс-промо-задание: партнёр спрашивает, поймал ли игрок 200 рыб.
+    Кросс-промо-задание: партнёр спрашивает, поймал ли игрок 20 рыб.
     GET /api/check?apiKey=...&telegramId=12345
     """
     api_key = request.query.get('apiKey', '')
@@ -269,7 +269,7 @@ async def partner_check(request):
             async with session.get(f"{base}/saves/tg_{telegram_id}/caught.json{FB_AUTH}") as resp:
                 caught = await resp.json()
         caught = caught or 0
-        completed = caught >= 200
+        completed = caught >= 20
         return web.json_response({'completed': completed, 'caught': caught}, headers=CORS)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
