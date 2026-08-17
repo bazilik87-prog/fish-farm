@@ -76,7 +76,7 @@ html{overflow-x:hidden;width:100%}
 <body>
 <div id="sky" style="height:60px;transition:background 2s ease"></div>
 <div id="ocean" ontouchstart="tapOcean(event)" onclick="tapOcean(event)">
-  <div id="hint">🎣 Тапай чтобы ловить рыбу!</div>
+  <div id="hint">🎣 <span id="hint-text">Тапай чтобы ловить рыбу!</span></div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
   <div id="mood-label" style="position:absolute;top:10px;right:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);pointer-events:none"></div>
   <div id="weather-indicator" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.3);padding:3px 10px;border-radius:10px;pointer-events:none">☀️ Ясно</div>
@@ -115,10 +115,10 @@ html{overflow-x:hidden;width:100%}
 <div id="loc-bar"></div>
 <div id="next-loc-progress"></div>
 <div id="stats">
-  <div class="st"><b id="s-coins">0</b><span>🪙 монет</span></div>
-  <div class="st"><b id="s-live">0</b><span>🐠 живых</span></div>
-  <div class="st"><b id="s-tap">+0.1</b><span>за улов</span></div>
-  <div class="st"><b id="s-auto">0</b><span>🪙 авто/мин</span></div>
+  <div class="st"><b id="s-coins">0</b><span id="lbl-coins">🪙 монет</span></div>
+  <div class="st"><b id="s-live">0</b><span id="lbl-live">🐠 живых</span></div>
+  <div class="st"><b id="s-tap">+0.1</b><span id="lbl-tap">за улов</span></div>
+  <div class="st"><b id="s-auto">0</b><span id="lbl-auto">🪙 авто/мин</span></div>
 </div>
 <div id="energy-bar" style="padding:6px 10px;background:#16213e"></div>
 <div id="tabs">
@@ -157,6 +157,32 @@ document.addEventListener('touchstart', function(e) {
 
 var tg = window.Telegram && window.Telegram.WebApp;
 var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+var LANG = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code === 'ru') ? 'ru' : 'en';
+try {
+  var langOverride = localStorage.getItem('fishfarm_lang_override');
+  if (langOverride === 'ru' || langOverride === 'en') LANG = langOverride;
+} catch(e) {}
+// t('русский текст', 'english text') — возвращает нужный вариант по языку игрока (авто из Telegram)
+function t(ru, en) {
+  return LANG === 'en' ? (en!==undefined ? en : ru) : ru;
+}
+function setLanguage(lang) {
+  LANG = lang;
+  try { localStorage.setItem('fishfarm_lang_override', lang); } catch(e) {}
+  applyStaticTranslations();
+  renderContent();
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+}
+function applyStaticTranslations() {
+  var map = {
+    'hint-text': t('Тапай чтобы ловить рыбу!', 'Tap to catch fish!'),
+    'lbl-coins': t('🪙 монет', '🪙 coins'),
+    'lbl-live': t('🐠 живых', '🐠 alive'),
+    'lbl-tap': t('за улов', 'per catch'),
+    'lbl-auto': t('🪙 авто/мин', '🪙 auto/min')
+  };
+  for (var id in map) { var el=document.getElementById(id); if(el) el.textContent=map[id]; }
+}
 if (tg) {
   tg.ready();
   tg.expand();
@@ -234,10 +260,10 @@ var TRANSPORTS = [
 var RENTAL_TRUCK = {id:'rentalTruck', name:'Грузовик с прицепом (аренда)', emoji:'🚛🚚', capacity:200, cost:0, time:900, repairCost:0};
 
 var UPGRADES = [
-  {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за улов и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
-  {id:'net',  name:'Сеть',  emoji:'🕸',desc:'+0.1 к автодобычи за уровень', costs:[500,2000,8000,30000,100000],            bought:0,max:5},
-  {id:'boat', name:'Лодка', emoji:'⛵',desc:'+0.3 к автодобычи за уровень', costs:[1500,10000,25000,80000,250000],           bought:0,max:5},
-  {id:'sonar',name:'Сонар', emoji:'📡',desc:'+0.5 к автодобычи за уровень',costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
+  {id:'rod',  name:t('Удочка','Rod'),emoji:'🎣',desc:t('Увеличивает монеты за улов и шанс улова','Increases coins per catch and catch chance'), costs:[200,800,3000,10000,30000], bought:0,max:5},
+  {id:'net',  name:t('Сеть','Net'),  emoji:'🕸',desc:t('+0.1 к автодобычи за уровень','+0.1 auto-income per level'), costs:[500,2000,8000,30000,100000],            bought:0,max:5},
+  {id:'boat', name:t('Лодка','Boat'), emoji:'⛵',desc:t('+0.3 к автодобычи за уровень','+0.3 auto-income per level'), costs:[1500,10000,25000,80000,250000],           bought:0,max:5},
+  {id:'sonar',name:t('Сонар','Sonar'), emoji:'📡',desc:t('+0.5 к автодобычи за уровень','+0.5 auto-income per level'),costs:[5000,25000,100000,300000,1000000],  bought:0,max:5}
 ];
 
 var ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7];
@@ -1213,51 +1239,55 @@ function renderUpgrades() {
     if (u.id==='rod') {
       var cur=Math.round((ROD_TAP[u.bought]||0.1)*lm*10)/10;
       var chance=Math.round(Math.min(0.65,0.20+u.bought*0.09)*100);
+      var perCatchLbl = t('/улов','/catch');
       if (!maxed) {
         var nextCur=Math.round((ROD_TAP[u.bought+1]||ROD_TAP[u.bought])*lm*10)/10;
         var nextChance=Math.round(Math.min(0.65,0.20+(u.bought+1)*0.09)*100);
-        extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% · 🪙'+cur+'/улов</span>'
+        extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% · 🪙'+cur+perCatchLbl+'</span>'
              +' <span style="color:#555;font-size:10px">→</span>'
-             +' <span class="badge" style="background:#0a3a1a;color:#aef5ae">'+nextChance+'% · 🪙'+nextCur+'/улов</span>';
+             +' <span class="badge" style="background:#0a3a1a;color:#aef5ae">'+nextChance+'% · 🪙'+nextCur+perCatchLbl+'</span>';
       } else {
-        extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+'% улов · 🪙'+cur+'/улов</span>';
+        extra=' <span class="badge" style="background:#0a2a1a;color:#6ddc6d">'+chance+t('% улов · 🪙','% catch · 🪙')+cur+perCatchLbl+'</span>';
       }
     }
     if (u.id==='net') {
       var curVal=Math.round(0.1*u.bought*lm*10)/10;
+      var perMinLbl = t('/мин','/min');
       if (!maxed) {
         var nextVal=Math.round(0.1*(u.bought+1)*lm*10)/10;
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+perMinLbl+'</span>';
       } else {
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span>';
       }
     }
     if (u.id==='boat') {
       var curVal=Math.round(0.3*u.bought*lm*10)/10;
+      var perMinLbl = t('/мин','/min');
       if (!maxed) {
         var nextVal=Math.round(0.3*(u.bought+1)*lm*10)/10;
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+perMinLbl+'</span>';
       } else {
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span>';
       }
     }
     if (u.id==='sonar') {
       var curVal=Math.round(0.5*u.bought*lm*10)/10;
+      var perMinLbl = t('/мин','/min');
       if (!maxed) {
         var nextVal=Math.round(0.5*(u.bought+1)*lm*10)/10;
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span> <span style="color:#555;font-size:10px">→</span> <span class="badge" style="background:#0a1a3a;color:#c0e8ff">🪙'+nextVal+perMinLbl+'</span>';
       } else {
-        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+'/мин</span>';
+        extra=' <span class="badge" style="background:#0a1a2a;color:#90caf9">🪙'+curVal+perMinLbl+'</span>';
       }
     }
     var descText = u.desc;
-    if (u.id==='net') descText = '+'+(Math.round(0.1*lm*100)/100)+' к автодобычи за уровень';
-    if (u.id==='boat') descText = '+'+(Math.round(0.3*lm*100)/100)+' к автодобычи за уровень';
-    if (u.id==='sonar') descText = '+'+(Math.round(0.5*lm*100)/100)+' к автодобычи за уровень';
+    if (u.id==='net') descText = '+'+(Math.round(0.1*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
+    if (u.id==='boat') descText = '+'+(Math.round(0.3*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
+    if (u.id==='sonar') descText = '+'+(Math.round(0.5*lm*100)/100)+t(' к автодобычи за уровень',' auto-income per level');
     html+='<div class="upg"><span class="ico">'+u.emoji+'</span>'
-      +'<div class="inf"><div class="n">'+u.name+(u.bought>0?' <span class="badge">ур.'+u.bought+'</span>':'')+extra+'</div>'
+      +'<div class="inf"><div class="n">'+u.name+(u.bought>0?' <span class="badge">'+t('ур.','lvl')+u.bought+'</span>':'')+extra+'</div>'
       +'<div class="d">'+descText+'</div></div>'
-      +'<button class="btn" onclick="buyUpgrade(\''+u.id+'\')" '+(canBuy?'':'disabled')+'>'+(maxed?'Макс ✓':'🪙 '+cost)+'</button></div>';
+      +'<button class="btn" onclick="buyUpgrade(\''+u.id+'\')" '+(canBuy?'':'disabled')+'>'+(maxed?t('Макс ✓','Max ✓'):'🪙 '+cost)+'</button></div>';
   }
   document.getElementById('content').innerHTML=html;
 }
@@ -3646,6 +3676,13 @@ function renderSettings() {
     +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
     +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ Сменить имя <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||'не задано')+'</span></button>'
     +'</div>'
+    +'<div class="card">'
+    +'<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🌐 Язык / Language</div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button class="btn" onclick="setLanguage(\'ru\')" style="flex:1;'+(LANG==='ru'?'background:#1565c0':'')+'">🇷🇺 Русский</button>'
+    +'<button class="btn" onclick="setLanguage(\'en\')" style="flex:1;'+(LANG==='en'?'background:#1565c0':'')+'">🇬🇧 English</button>'
+    +'</div>'
+    +'</div>'
     +renderPremiumCard()
     +'<div class="card" style="background:#0a2a1a">'
     +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 Пригласить друга</div>'
@@ -4324,6 +4361,7 @@ function tick() {
 }
 
 // ── Запуск ────────────────────────────────────────────
+applyStaticTranslations();
 load();
 calcStats();
 processOffline();
