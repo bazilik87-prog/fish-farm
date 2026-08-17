@@ -79,38 +79,38 @@ html{overflow-x:hidden;width:100%}
   <div id="hint">🎣 <span id="hint-text">Тапай чтобы ловить рыбу!</span></div>
   <div id="loc-label" style="position:absolute;top:10px;left:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);pointer-events:none"></div>
   <div id="mood-label" style="position:absolute;top:10px;right:12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);pointer-events:none"></div>
-  <div id="weather-indicator" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.3);padding:3px 10px;border-radius:10px;pointer-events:none">☀️ Ясно</div>
+  <div id="weather-indicator" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.3);padding:3px 10px;border-radius:10px;pointer-events:none">☀️ <span id="weather-text">Ясно</span></div>
   <div id="rare-fish-indicator" style="display:none;position:absolute;top:28px;right:12px;font-size:18px;pointer-events:none"></div>
 </div>
 <div id="bank-banner" onclick="showTab('bank')" style="background:linear-gradient(135deg,#0a2a5a,#1565c0,#0a3d6b);margin:0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">🏦</div>
     <div>
-      <div style="font-size:14px;font-weight:700;color:#fff">Банк FishFarm</div>
-      <div style="font-size:11px;color:#90caf9;margin-top:2px">Обменяй монеты на 💎 GRAM за ⭐</div>
+      <div style="font-size:14px;font-weight:700;color:#fff" id="bank-banner-title">Банк FishFarm</div>
+      <div style="font-size:11px;color:#90caf9;margin-top:2px" id="bank-banner-sub">Обменяй монеты на 💎 GRAM за ⭐</div>
     </div>
   </div>
-  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Открыть →</div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bank-banner-btn">Открыть →</div>
 </div>
 <div id="tournament-banner" onclick="showTab('leaders')" style="display:none;background:linear-gradient(135deg,#3a0f5c,#8e24aa,#3a0f5c);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">🏆</div>
     <div>
-      <div style="font-size:14px;font-weight:700;color:#fff">Турнир недели</div>
+      <div style="font-size:14px;font-weight:700;color:#fff" id="tournament-banner-title">Турнир недели</div>
       <div id="tournament-timer" style="font-size:11px;color:#e1bee7;margin-top:2px">Осталось: —</div>
     </div>
   </div>
-  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Топ →</div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="tournament-banner-btn">Топ →</div>
 </div>
 <div id="refcontest-banner" onclick="showRefContestInfo()" style="display:none;background:linear-gradient(135deg,#0f3a2a,#24aa6a,#0f3a2a);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">🎗️</div>
     <div>
-      <div style="font-size:14px;font-weight:700;color:#fff">Реферальный конкурс</div>
+      <div style="font-size:14px;font-weight:700;color:#fff" id="refcontest-banner-title">Реферальный конкурс</div>
       <div id="refcontest-timer" style="font-size:11px;color:#c8f0dc;margin-top:2px">Осталось: —</div>
     </div>
   </div>
-  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Мой счёт →</div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="refcontest-banner-btn">Мой счёт →</div>
 </div>
 <div id="loc-bar"></div>
 <div id="next-loc-progress"></div>
@@ -180,7 +180,15 @@ function applyStaticTranslations() {
     'lbl-coins': t('🪙 монет', '🪙 coins'),
     'lbl-live': t('🐠 живых', '🐠 alive'),
     'lbl-tap': t('за улов', 'per catch'),
-    'lbl-auto': t('🪙 авто/мин', '🪙 auto/min')
+    'lbl-auto': t('🪙 авто/мин', '🪙 auto/min'),
+    'bank-banner-title': t('Банк FishFarm', 'FishFarm Bank'),
+    'bank-banner-sub': t('Обменяй монеты на 💎 GRAM за ⭐', 'Exchange coins for 💎 GRAM with ⭐'),
+    'bank-banner-btn': t('Открыть →', 'Open →'),
+    'tournament-banner-title': t('Турнир недели', 'Weekly tournament'),
+    'tournament-banner-btn': t('Топ →', 'Top →'),
+    'refcontest-banner-title': t('Реферальный конкурс', 'Referral contest'),
+    'refcontest-banner-btn': t('Мой счёт →', 'My score →'),
+    'weather-text': weatherName(currentWeather.id)
   };
   for (var id in map) { var el=document.getElementById(id); if(el) el.textContent=map[id]; }
 }
@@ -392,6 +400,14 @@ var WEATHER_TYPES = [
 var currentWeather = WEATHER_TYPES[0];
 var weatherEndsAt = 0;
 var WEATHER_DURATION = 30 * 60 * 1000; // 30 минут
+function weatherName(id) {
+  if (id==='sunny') return t('Ясно','Clear');
+  if (id==='cloudy') return t('Облачно','Cloudy');
+  if (id==='rain') return t('Дождь','Rain');
+  if (id==='storm') return t('Шторм','Storm');
+  if (id==='perfect') return t('Отличный клёв!','Great bite!');
+  return id;
+}
 
 // ── Редкая рыба ───────────────────────────────────────
 var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 25, life: 0.33}; // цена 25🪙, живёт 10мин
@@ -533,7 +549,7 @@ function listenWeather() {
     if (w && w.id !== currentWeather.id) {
       currentWeather = getWeatherById(w.id);
       weatherEndsAt = w.endsAt;
-      showNotif(currentWeather.emoji + ' Погода изменилась: ' + currentWeather.name);
+      showNotif(currentWeather.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(currentWeather.id));
       updateWeatherUI();
     }
   });
@@ -549,7 +565,7 @@ var SKY_COLORS = {
 
 function updateWeatherUI() {
   var el = document.getElementById('weather-indicator');
-  if (el) el.textContent = currentWeather.emoji + ' ' + currentWeather.name;
+  if (el) el.textContent = currentWeather.emoji + ' ' + weatherName(currentWeather.id);
   var sky = document.getElementById('sky');
   if (sky) sky.style.background = SKY_COLORS[currentWeather.id] || SKY_COLORS.sunny;
   if (Date.now() > weatherEndsAt && weatherEndsAt > 0) {
@@ -1118,7 +1134,7 @@ function renderLocBar() {
     var l=LOCATIONS[i], act=l.id===state.currentLoc;
     var cls=!l.unlocked?'loc-btn locked':act?'loc-btn active':'loc-btn';
     var fn=l.unlocked?"switchLoc('"+l.id+"')"+"":"showTab('locations')";
-    html+='<div class="'+cls+'" onclick="'+fn+'">'+l.emoji+' '+l.name+'</div>';
+    html+='<div class="'+cls+'" onclick="'+fn+'">'+l.emoji+' '+locName(l.id)+'</div>';
   }
   document.getElementById('loc-bar').innerHTML=html;
 }
@@ -1145,7 +1161,7 @@ function updateNextLocProgress() {
   } else {
     el.innerHTML = '<div style="margin:0 12px 8px;padding:6px 12px;background:#0f2040;border-radius:10px;font-size:11px;color:#90caf9">'
       + '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
-      + '<span>'+next.emoji+' До '+next.name+'</span><span>'+fmt(state.coins)+' / '+fmt(next.cost)+' ('+pct+'%)</span>'
+      + '<span>'+next.emoji+' '+t('До ','To ')+locName(next.id)+'</span><span>'+fmt(state.coins)+' / '+fmt(next.cost)+' ('+pct+'%)</span>'
       + '</div>'
       + '<div style="background:#1a1a2e;border-radius:6px;height:6px"><div style="background:linear-gradient(90deg,#1565c0,#4fc3f7);height:6px;border-radius:6px;width:'+pct+'%"></div></div>'
       + '</div>';
@@ -2795,7 +2811,7 @@ function activateBoost(id, growJackpot) {
     currentWeather = wType;
     weatherEndsAt = Date.now() + 30*60*1000;
     if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
-    showNotif(t('🌤 Погода изменена: ','🌤 Weather changed: ')+wType.name+'!', true);
+    showNotif(t('🌤 Погода изменена: ','🌤 Weather changed: ')+weatherName(wType.id)+'!', true);
     updateWeatherUI();
     if(currentTab==='boosts') renderBoosts();
   }
@@ -4531,7 +4547,7 @@ function startGame() {
   var il=getLoc();
   var oc=document.getElementById('ocean');
   oc.style.background=il.bg; oc.style.borderBottomColor=il.border;
-  document.getElementById('loc-label').textContent=il.emoji+' '+il.name;
+  document.getElementById('loc-label').textContent=il.emoji+' '+locName(il.id);
   for (var bi=0;bi<LOCATIONS.length;bi++) if(state.unlockedLocs.indexOf(LOCATIONS[bi].id)>=0) LOCATIONS[bi].unlocked=true;
   spawnBubbles(); renderLocBar(); updateUI(); setTimeout(tick,500);
 }
