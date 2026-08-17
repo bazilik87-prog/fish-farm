@@ -207,6 +207,14 @@ var LOCATIONS = [
   {id:'deep',    name:'Глубины', emoji:'🌊',bg:'#050a2a',border:'#1a1a8a',bubble:'rgba(50,50,200,.15)', cost:1500000, unlocked:false,tapMult:15},
   {id:'space',   name:'Космос',  emoji:'🚀',bg:'#05050f',border:'#4a1a8a',bubble:'rgba(150,50,220,.15)',cost:10000000,unlocked:false,tapMult:50}
 ];
+function locName(id) {
+  if (id==='pond') return t('Пруд','Pond');
+  if (id==='river') return t('Река','River');
+  if (id==='tropics') return t('Тропики','Tropics');
+  if (id==='deep') return t('Глубины','Deep');
+  if (id==='space') return t('Космос','Space');
+  return id;
+}
 
 var FISH = {
   pond:   [{emoji:'🐟',name:'Карась',     rate:1.0,need:0,     life:1 },
@@ -259,6 +267,14 @@ var TRANSPORTS = [
 ];
 // Арендованный грузовик с прицепом — временный буст за ⭐, не покупается за монеты
 var RENTAL_TRUCK = {id:'rentalTruck', name:'Грузовик с прицепом (аренда)', emoji:'🚛🚚', capacity:200, cost:0, time:900, repairCost:0};
+function trName(id) {
+  if (id==='bike') return t('Велосипед','Bike');
+  if (id==='moped') return t('Мопед','Moped');
+  if (id==='car') return t('Машина','Car');
+  if (id==='truck') return t('Грузовик','Truck');
+  if (id==='rentalTruck') return t('Грузовик с прицепом (аренда)','Rental truck with trailer');
+  return id;
+}
 
 var UPGRADES = [
   {id:'rod',  name:'Удочка',emoji:'🎣',desc:'Увеличивает монеты за улов и шанс улова', costs:[200,800,3000,10000,30000], bought:0,max:5},
@@ -318,27 +334,27 @@ var KNIFE_PRICE = {pond:3,  river:6,  tropics:15, deep:45,  space:150};
 var DAILY = [10,25,50,100,200,400,1000];
 
 var QUEST_TEMPLATES = [
-  {id:'catch50',    text:'Поймай 50 рыб',           type:'catch',    goal:50,   reward:30  },
-  {id:'catch100',   text:'Поймай 100 рыб',          type:'catch',    goal:100,  reward:60  },
-  {id:'catch200',   text:'Поймай 200 рыб',          type:'catch',    goal:200,  reward:120 },
-  {id:'sell1',      text:'Отправь 10 доставок',     type:'deliver',  goal:10,   reward:50  },
-  {id:'sell3',      text:'Отправь 20 доставок',     type:'deliver',  goal:20,   reward:150 },
-  {id:'dry1',       text:'Высуши 10 пакетов',       type:'dry',      goal:10,   reward:80  },
-  {id:'dry3',       text:'Высуши 20 пакетов',       type:'dry',      goal:20,   reward:250 },
-  {id:'earn500',    text:'Заработай 250 монет',     type:'earn',     goal:250,  reward:80  },
-  {id:'earn1000',   text:'Заработай 100 монет',     type:'earn',     goal:100,  reward:50  },
-  {id:'catch_rare', text:'Поймай 10 редких рыб',   type:'rare',     goal:10,   reward:200 },
-  {id:'repair1',    text:'Почини транспорт',        type:'repair',   goal:1,    reward:70  },
-  {id:'repair3',    text:'Почини транспорт 3 раза', type:'repair',   goal:3,    reward:70  },
-  {id:'catch20loc', text:'Поймай 20 рыб в локации',type:'catch',    goal:20,   reward:80  },
-  {id:'bulk100',    text:'Продай 100 рыб оптом',    type:'bulk',     goal:100,  reward:120 },
-  {id:'bulk200',    text:'Продай 200 рыб оптом',    type:'bulk',     goal:200,  reward:120 },
-  {id:'filet10',    text:'Разделай 10 коробок филе',type:'filet',    goal:10,   reward:150 },
-  {id:'filet20',    text:'Разделай 20 коробок филе',type:'filet',    goal:20,   reward:250 },
-  {id:'buyknife5',  text:'Купи 5 ножей на рынке',   type:'buyknife', goal:5,    reward:50  },
-  {id:'buyknife10', text:'Купи 10 ножей на рынке',  type:'buyknife', goal:10,   reward:80  },
-  {id:'buysalt15',  text:'Купи 15 соли на рынке',   type:'buysalt',  goal:15,   reward:80  },
-  {id:'boost1',     text:'Активируй любой бустер',   type:'boost',    goal:1,    reward:100 },
+  {id:'catch50',    text:'Поймай 50 рыб',           textEn:'Catch 50 fish',            type:'catch',    goal:50,   reward:30  },
+  {id:'catch100',   text:'Поймай 100 рыб',          textEn:'Catch 100 fish',           type:'catch',    goal:100,  reward:60  },
+  {id:'catch200',   text:'Поймай 200 рыб',          textEn:'Catch 200 fish',           type:'catch',    goal:200,  reward:120 },
+  {id:'sell1',      text:'Отправь 10 доставок',     textEn:'Send 10 deliveries',       type:'deliver',  goal:10,   reward:50  },
+  {id:'sell3',      text:'Отправь 20 доставок',     textEn:'Send 20 deliveries',       type:'deliver',  goal:20,   reward:150 },
+  {id:'dry1',       text:'Высуши 10 пакетов',       textEn:'Dry 10 packets',           type:'dry',      goal:10,   reward:80  },
+  {id:'dry3',       text:'Высуши 20 пакетов',       textEn:'Dry 20 packets',           type:'dry',      goal:20,   reward:250 },
+  {id:'earn500',    text:'Заработай 250 монет',     textEn:'Earn 250 coins',           type:'earn',     goal:250,  reward:80  },
+  {id:'earn1000',   text:'Заработай 100 монет',     textEn:'Earn 100 coins',           type:'earn',     goal:100,  reward:50  },
+  {id:'catch_rare', text:'Поймай 10 редких рыб',   textEn:'Catch 10 rare fish',       type:'rare',     goal:10,   reward:200 },
+  {id:'repair1',    text:'Почини транспорт',        textEn:'Repair transport',         type:'repair',   goal:1,    reward:70  },
+  {id:'repair3',    text:'Почини транспорт 3 раза', textEn:'Repair transport 3 times', type:'repair',   goal:3,    reward:70  },
+  {id:'catch20loc', text:'Поймай 20 рыб в локации',textEn:'Catch 20 fish in this location', type:'catch',    goal:20,   reward:80  },
+  {id:'bulk100',    text:'Продай 100 рыб оптом',    textEn:'Bulk sell 100 fish',       type:'bulk',     goal:100,  reward:120 },
+  {id:'bulk200',    text:'Продай 200 рыб оптом',    textEn:'Bulk sell 200 fish',       type:'bulk',     goal:200,  reward:120 },
+  {id:'filet10',    text:'Разделай 10 коробок филе',textEn:'Cut 10 boxes of filet',    type:'filet',    goal:10,   reward:150 },
+  {id:'filet20',    text:'Разделай 20 коробок филе',textEn:'Cut 20 boxes of filet',    type:'filet',    goal:20,   reward:250 },
+  {id:'buyknife5',  text:'Купи 5 ножей на рынке',   textEn:'Buy 5 knives at the market', type:'buyknife', goal:5,    reward:50  },
+  {id:'buyknife10', text:'Купи 10 ножей на рынке',  textEn:'Buy 10 knives at the market', type:'buyknife', goal:10,   reward:80  },
+  {id:'buysalt15',  text:'Купи 15 соли на рынке',   textEn:'Buy 15 salt at the market', type:'buysalt',  goal:15,   reward:80  },
+  {id:'boost1',     text:'Активируй любой бустер',   textEn:'Activate any booster',     type:'boost',    goal:1,    reward:100 },
 ];
 
 // ── Состояние ─────────────────────────────────────────
@@ -400,7 +416,7 @@ function loadRareFish() {
     rareFishEndsAt = d.endsAt || 0;
     if (d.active && rareFishEndsAt > now) {
       rareFishActive = true;
-      showNotif('🫍 Осетрина рядом! Успей поймать!');
+      showNotif(t('🫍 Осетрина рядом! Успей поймать!','🫍 Sturgeon nearby! Catch it quick!'));
       updateRareFishUI();
     } else if (!d.active && now >= rareFishNextAt) {
       // Время появиться!
@@ -422,7 +438,7 @@ function listenRareFish() {
     rareFishEndsAt = d.endsAt || 0;
     rareFishNextAt = d.nextAt || 0;
     if (!wasActive && rareFishActive) {
-      showNotif('🫍 Редкая рыба появилась! Осетрина рядом!');
+      showNotif(t('🫍 Редкая рыба появилась! Осетрина рядом!','🫍 Rare fish appeared! Sturgeon nearby!'));
     }
     updateRareFishUI();
   });
@@ -879,10 +895,10 @@ function showComebackBonus(coins, days) {
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
   modal.innerHTML = '<div style="background:#0d1b2e;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid #FFD700">'
     +'<div style="font-size:60px;margin-bottom:12px">👋</div>'
-    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:6px">Мы скучали!</div>'
-    +'<div style="font-size:13px;color:#90caf9;margin-bottom:16px">Тебя не было '+days+' '+dayWord(days)+'</div>'
-    +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">+🪙'+fmt(coins)+' монет</div>'
-    +'<button onclick="claimComebackBonus('+coins+');this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:#FFD700;border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">Забрать!</button>'
+    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:6px">'+t('Мы скучали!','We missed you!')+'</div>'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:16px">'+t('Тебя не было ','You were away for ')+days+' '+t(dayWord(days),days===1?'day':'days')+'</div>'
+    +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">+🪙'+fmt(coins)+' '+t('монет','coins')+'</div>'
+    +'<button onclick="claimComebackBonus('+coins+');this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:#FFD700;border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">'+t('Забрать!','Claim!')+'</button>'
     +'</div>';
   document.body.appendChild(modal);
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -950,7 +966,7 @@ function processOffline() {
     if (autoEarned > 0) {
       state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + autoEarned) * 100) / 100;
-      showNotif('🪙 Авто-доход за офлайн: +' + fmt(autoEarned));
+      showNotif(t('🪙 Авто-доход за офлайн: +','🪙 Offline auto-income: +') + fmt(autoEarned));
     }
   }
   for (var d=0;d<state.drying.length;d++) {
@@ -967,7 +983,7 @@ function processOffline() {
     if (state.liveFish[i].dieAt<=now) dead.push(state.liveFish[i]);
     else live.push(state.liveFish[i]);
   }
-  if (dead.length) { state.liveFish=live; showNotif('💀 Пока тебя не было погибло '+dead.length+' рыб!',true); }
+  if (dead.length) { state.liveFish=live; showNotif(t('💀 Пока тебя не было погибло ','💀 While you were away, ')+dead.length+t(' рыб!',' fish died!'),true); }
 }
 
 // ── Расчёты ───────────────────────────────────────────
@@ -1125,7 +1141,7 @@ function updateNextLocProgress() {
   if (!next) { el.innerHTML=''; return; }
   var pct = Math.min(100, Math.floor(state.coins/next.cost*100));
   if (pct >= 100) {
-    el.innerHTML = '<div onclick="showTab(\'locations\')" style="margin:0 12px 8px;padding:8px 12px;background:linear-gradient(90deg,#1a5a1a,#2d8a2d);border-radius:10px;text-align:center;font-size:12px;font-weight:600;color:#aef5ae;cursor:pointer;animation:chestPulse 1.4s ease-in-out infinite">✅ Можешь открыть '+next.emoji+' '+next.name+'! Жми, чтобы перейти →</div>';
+    el.innerHTML = '<div onclick="showTab(\'locations\')" style="margin:0 12px 8px;padding:8px 12px;background:linear-gradient(90deg,#1a5a1a,#2d8a2d);border-radius:10px;text-align:center;font-size:12px;font-weight:600;color:#aef5ae;cursor:pointer;animation:chestPulse 1.4s ease-in-out infinite">✅ '+t('Можешь открыть','You can unlock')+' '+next.emoji+' '+locName(next.id)+'! '+t('Жми, чтобы перейти →','Tap to go →')+'</div>';
   } else {
     el.innerHTML = '<div style="margin:0 12px 8px;padding:6px 12px;background:#0f2040;border-radius:10px;font-size:11px;color:#90caf9">'
       + '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
@@ -1183,11 +1199,11 @@ function showNameInput() {
   overlay.innerHTML =
     '<div style="background:#0f3460;border-radius:16px;padding:24px;width:100%;max-width:340px;text-align:center">'
     +'<div style="font-size:40px;margin-bottom:12px">🎣</div>'
-    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:8px">Добро пожаловать!</div>'
-    +'<div style="font-size:13px;color:#90caf9;margin-bottom:20px">Придумай имя для таблицы лидеров</div>'
-    +'<input id="name-input" type="text" maxlength="16" placeholder="Твоё имя..." '
+    +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:8px">'+t('Добро пожаловать!','Welcome!')+'</div>'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:20px">'+t('Придумай имя для таблицы лидеров','Choose a name for the leaderboard')+'</div>'
+    +'<input id="name-input" type="text" maxlength="16" placeholder="'+t('Твоё имя...','Your name...')+'" '
     +'style="width:100%;padding:12px;border-radius:8px;border:1px solid #1565c0;background:#1a1a3a;color:#fff;font-size:15px;text-align:center;box-sizing:border-box;margin-bottom:16px">'
-    +'<button onclick="saveName()" class="btn btn-green btn-full" style="font-size:15px;padding:14px">✅ Начать играть</button>'
+    +'<button onclick="saveName()" class="btn btn-green btn-full" style="font-size:15px;padding:14px">✅ '+t('Начать играть','Start playing')+'</button>'
     +'</div>';
   document.body.appendChild(overlay);
   setTimeout(function(){ document.getElementById('name-input').focus(); }, 100);
@@ -1196,7 +1212,7 @@ function showNameInput() {
 function saveName() {
   var input = document.getElementById('name-input');
   var name = input ? input.value.trim() : '';
-  if (!name) { showNotif('Введи имя!'); return; }
+  if (!name) { showNotif(t('Введи имя!','Enter a name!')); return; }
   state.playerName = name;
   save();
   var overlay = document.getElementById('name-overlay');
@@ -1321,30 +1337,30 @@ function renderAquarium() {
   var html='';
   if (totalLive>0 || totalDried>0 || totalFilet>0) {
     html+='<div class="card" style="background:#0a2a0a">'
-      +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:10px">💰 Оптовая продажа</div>'
+      +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:10px">💰 '+t('Оптовая продажа','Bulk sell')+'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
       +(totalLive>0
         ? '<button class="btn btn-green" onclick="bulkSell(\'live\')" style="flex:1">🐟 '+totalLive+' · 🪙'+liveEarn+'</button>'
-        : '<button class="btn" disabled style="flex:1">🐟 Нет</button>')
+        : '<button class="btn" disabled style="flex:1">🐟 '+t('Нет','None')+'</button>')
       +(totalDried>0
         ? '<button class="btn btn-green" onclick="bulkSell(\'dried\')" style="flex:1">📦 '+totalDried+' · 🪙'+driedEarn+'</button>'
-        : '<button class="btn" disabled style="flex:1">📦 Нет</button>')
+        : '<button class="btn" disabled style="flex:1">📦 '+t('Нет','None')+'</button>')
       +(totalFilet>0
         ? '<button class="btn btn-green" onclick="bulkSell(\'filet\')" style="flex:1">🍱 '+totalFilet+' · 🪙'+filetEarn+'</button>'
-        : '<button class="btn" disabled style="flex:1">🍱 Нет</button>')
+        : '<button class="btn" disabled style="flex:1">🍱 '+t('Нет','None')+'</button>')
       +'</div></div>';
   }
 
-  html+='<div class="card" style="font-size:12px;color:#90caf9">'+li.emoji+' <b style="color:#fff">'+li.name+'</b> — рыбы локации</div>';
+  html+='<div class="card" style="font-size:12px;color:#90caf9">'+li.emoji+' <b style="color:#fff">'+locName(li.id)+'</b> — '+t('рыбы локации','local fish')+'</div>';
   for (var m=0;m<fish.length;m++) {
     var f=fish[m], isUl=ul.indexOf(f.name)>=0;
-    if (!isUl) { html+='<div class="fish-item locked-item"><span class="ico">🔒</span><div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">???</div><div style="font-size:11px;color:#666">'+(f.need>0?'Нужно '+f.need+' монет':'Открывается на локации')+'</div></div></div>'; continue; }
+    if (!isUl) { html+='<div class="fish-item locked-item"><span class="ico">🔒</span><div class="inf"><div style="font-size:13px;font-weight:600;color:#fff">???</div><div style="font-size:11px;color:#666">'+(f.need>0?t('Нужно ','Need ')+f.need+t(' монет',' coins'):t('Открывается на локации','Unlocks on location'))+'</div></div></div>'; continue; }
     var pct=tot>0?Math.round(f.rate/tot*100):0;
     var alive=0; for (var n=0;n<state.liveFish.length;n++) if(state.liveFish[n].name===f.name) alive++;
     html+='<div class="fish-item"><span class="ico">'+f.emoji+'</span><div class="inf">'
       +'<div style="font-size:13px;font-weight:600;color:#fff">'+f.name
-      +' <span class="badge">'+pct+'% шанс</span>'
-      +(alive>0?' <span class="badge" style="background:#0a2a0a;color:#6ddc6d">🐠 '+alive+'</span>':' <span class="badge" style="background:#2a0a0a;color:#888">нет</span>')
+      +' <span class="badge">'+pct+t('% шанс','% chance')+'</span>'
+      +(alive>0?' <span class="badge" style="background:#0a2a0a;color:#6ddc6d">🐠 '+alive+'</span>':' <span class="badge" style="background:#2a0a0a;color:#888">'+t('нет','none')+'</span>')
       +'</div><div class="bar-bg"><div class="bar-fill" style="width:'+pct+'%;background:'+li.border+'"></div></div>'
       +'</div></div>';
   }
@@ -1364,7 +1380,7 @@ function bulkSell(type) {
     state.driedFish=restD;
     state.coins=Math.round((state.coins+earn)*100)/100;
     addQuestProgress('earn', earn);
-    showNotif('💰 Продано '+count+' пакетов · +🪙'+earn);
+    showNotif(t('💰 Продано ','💰 Sold ')+count+t(' пакетов · +🪙',' packs · +🪙')+earn);
   } else if (type==='filet') {
     var countF=0;
     var restFilets=[];
@@ -1378,7 +1394,7 @@ function bulkSell(type) {
     state.filets=restFilets;
     state.coins=Math.round((state.coins+earnF)*100)/100;
     addQuestProgress('earn', earnF);
-    showNotif('💰 Продано '+countF+' пакетов филе · +🪙'+earnF);
+    showNotif(t('💰 Продано ','💰 Sold ')+countF+t(' пакетов филе · +🪙',' filet packs · +🪙')+earnF);
   } else {
     var restL=[], count2=0;
     for (var li=0;li<state.liveFish.length;li++) {
@@ -1392,7 +1408,7 @@ function bulkSell(type) {
     state.coins=Math.round((state.coins+earn2)*100)/100;
     addQuestProgress('earn', earn2);
     addQuestProgress('bulk', count2);
-    showNotif('💰 Продано '+count2+' рыб · +🪙'+earn2);
+    showNotif(t('💰 Продано ','💰 Sold ')+count2+t(' рыб · +🪙',' fish · +🪙')+earn2);
   }
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -1415,22 +1431,22 @@ function renderMarket() {
 
   var dlv2 = state.delivery2;
   var html='<div style="display:flex;gap:6px;margin-bottom:8px">'
-    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#1565c0;font-size:13px">🏪 Рынок</button>'
-    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🧑‍✈️ Водитель'+(dlv2?' ●':'')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#1565c0;font-size:13px">🏪 '+t('Рынок','Market')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🧑‍✈️ '+t('Водитель','Driver')+(dlv2?' ●':'')+'</button>'
     +'</div>';
   html+='<div class="card" style="display:flex;justify-content:space-between;align-items:center">'
-    +'<span style="font-size:12px;color:#90caf9">🏪 Рынок рыбы</span>'
-    +'<span style="font-size:11px;color:#666">Цены через <b id="mkt-timer" style="color:#FFD700">'+next+'с</b></span></div>';
+    +'<span style="font-size:12px;color:#90caf9">🏪 '+t('Рынок рыбы','Fish market')+'</span>'
+    +'<span style="font-size:11px;color:#666">'+t('Цены через ','Prices in ')+'<b id="mkt-timer" style="color:#FFD700">'+next+t('с','s')+'</b></span></div>';
 
   // Доставка
   if (dlv) {
     var trD = getTr(dlv.transportId || tr.id);
     var left=Math.max(0,Math.ceil((dlv.endsAt-Date.now())/1000));
     var pct=Math.min(100,Math.round((Date.now()-dlv.startedAt)/(dlv.endsAt-dlv.startedAt)*100));
-    html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+trD.emoji+' Доставка в пути...</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv.count+' · Выручка: 🪙'+fmt(dlv.earnings)+'</div>'
+    html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+trD.emoji+' '+t('Доставка в пути...','Delivery in transit...')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv.count+t(' · Выручка: ',' · Revenue: ')+'🪙'+fmt(dlv.earnings)+'</div>'
       +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#1565c0;height:8px;border-radius:6px;width:'+pct+'%"></div></div>'
-      +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left+'с</div></div>';
+      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left+t('с','s')+'</div></div>';
   }
 
   // Доставка водителя (delivery2)
@@ -1438,10 +1454,10 @@ function renderMarket() {
     var tr2 = getTr(dlv2.transportId) || tr;
     var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
     var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
-    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' Водитель в пути...</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−30% водителю)</span></div>'
+    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' '+t('Водитель в пути...','Driver in transit...')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv2.count+t(' · Твоя выручка: ',' · Your revenue: ')+'🪙'+fmt(dlv2.earnings)+' <span style="color:#666">'+t('(−30% водителю)','(−30% to driver)')+'</span></div>'
       +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
-      +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left2+'с</div></div>';
+      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')+'</div></div>';
   }
 
   // Кнопка найма водителя добавится после вычисления hasFresh/hasDried/hasFilets
@@ -1454,7 +1470,7 @@ function renderMarket() {
     var active=state.transport===t.id;
     var canBuy=!owned&&state.coins>=t.cost;
     var td=getDur(t.id), tbroken=td<=0;
-    if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+t.id+'\')">'+t.emoji+' '+t.name+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
+    if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+t.id+'\')">'+t.emoji+' '+trName(t.id)+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
     else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+t.id+'\')" '+(canBuy?'':'disabled')+'>'+t.emoji+' 🪙'+fmt(t.cost)+'</button>';
   }
   var rentalActive = state.boosts.truckRental > Date.now();
@@ -1462,20 +1478,20 @@ function renderMarket() {
     var rentalSelected = state.transport==='rentalTruck';
     var rentalSecs = Math.round((state.boosts.truckRental-Date.now())/1000);
     var rh = Math.floor(rentalSecs/3600), rm = Math.floor((rentalSecs%3600)/60);
-    trBtns += '<button class="btn '+(rentalSelected?'btn-green':'')+'" onclick="selectTransport(\'rentalTruck\')">🚛 Аренда'+(rentalSelected?' ✓':'')+' · <span id="rental-timer">'+rh+'ч '+rm+'м</span></button>';
+    trBtns += '<button class="btn '+(rentalSelected?'btn-green':'')+'" onclick="selectTransport(\'rentalTruck\')">🚛 '+t('Аренда','Rental')+(rentalSelected?' ✓':'')+' · <span id="rental-timer">'+rh+t('ч ','h ')+rm+t('м','m')+'</span></button>';
   } else {
-    trBtns += '<button class="btn btn-gold" onclick="buyBoost(\'truckRental\')">🚛 Арендовать ⭐5</button>';
+    trBtns += '<button class="btn btn-gold" onclick="buyBoost(\'truckRental\')">🚛 '+t('Арендовать ⭐5','Rent ⭐5')+'</button>';
     var hasTicket = (state.truckTickets||0) > 0;
-    trBtns += '<button class="btn '+(hasTicket?'btn-green':'')+'" onclick="useTruckTicket()" '+(hasTicket?'':'disabled')+'>🎫 Аренда за билет ('+(state.truckTickets||0)+')</button>';
+    trBtns += '<button class="btn '+(hasTicket?'btn-green':'')+'" onclick="useTruckTicket()" '+(hasTicket?'':'disabled')+'>🎫 '+t('Аренда за билет (','Rent by ticket (')+(state.truckTickets||0)+')</button>';
   }
-  html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🚚 Транспорт</div>'
+  html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🚚 '+t('Транспорт','Transport')+'</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+trBtns+'</div>'
-    +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+tr.name+' · '+tr.capacity+' рыб · '+fmtTime(dt)+'</div>'
+    +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+trName(tr.id)+' · '+tr.capacity+t(' рыб · ',' fish · ')+fmtTime(dt)+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<span style="font-size:11px;color:'+durColor(dur)+'">🔧 '+(broken?'Сломан!':dur+'%')+'</span>'
+    +'<span style="font-size:11px;color:'+durColor(dur)+'">🔧 '+(broken?t('Сломан!','Broken!'):dur+'%')+'</span>'
     +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px"><div style="background:'+durColor(dur)+';height:6px;border-radius:4px;width:'+dur+'%"></div></div>'
     +(dur<100?'<button class="btn '+(state.coins>=tr.repairCost?'btn-gold':'')+'" onclick="repairTr(\''+tr.id+'\')" '+(state.coins>=tr.repairCost?'':'disabled')+' style="font-size:10px;padding:4px 8px">🔧 🪙'+fmt(tr.repairCost)+'</button>':'')
-    +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ Сломан — нужен ремонт!</div>':'')+'</div>';
+    +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ '+t('Сломан — нужен ремонт!','Broken — needs repair!')+'</div>':'')+'</div>';
 
   // Список рыб с выбором вида
   var hasFresh = Object.keys(grouped).length > 0;
@@ -1486,9 +1502,9 @@ function renderMarket() {
 
 
   if (!hasFresh && !hasDried && !hasFilets) {
-    html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 Нет рыбы на складе</div>';
+    html+='<div style="text-align:center;padding:20px;color:#666;font-size:13px">🐟 '+t('Нет рыбы на складе','No fish in storage')+'</div>';
   } else {
-    html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Выбери что отправить:</div>';
+    html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 '+t('Выбери что отправить:','Choose what to send:')+'</div>';
 
     // Свежая рыба
     if (hasFresh) {
@@ -1497,10 +1513,10 @@ function renderMarket() {
       for (var si=0; si<state.selectedItems.length; si++) totalSel += state.selectedItems[si].qty;
       var roomLeft = tr.capacity - totalSel;
       html+='<div style="font-size:12px;color:#90caf9;margin-bottom:8px;display:flex;justify-content:space-between">'
-        +'<span>📦 Загрузка: <b style="color:#FFD700">'+totalSel+'/'+tr.capacity+'</b>'+(state.boosts.truckRental>Date.now()?' <span style="color:#6ddc6d">(🚛 аренда)</span>':'')+'</span>'
-        +'<span style="color:'+(roomLeft>0?'#6ddc6d':'#e57373')+'">Место: '+roomLeft+'</span></div>';
+        +'<span>📦 '+t('Загрузка: ','Loading: ')+'<b style="color:#FFD700">'+totalSel+'/'+tr.capacity+'</b>'+(state.boosts.truckRental>Date.now()?' <span style="color:#6ddc6d">'+t('(🚛 аренда)','(🚛 rental)')+'</span>':'')+'</span>'
+        +'<span style="color:'+(roomLeft>0?'#6ddc6d':'#e57373')+'">'+t('Место: ','Room: ')+roomLeft+'</span></div>';
 
-      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 Свежая рыба:</div>';
+      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 '+t('Свежая рыба:','Fresh fish:')+'</div>';
       for (var name in grouped) {
         var cnt=grouped[name], def=null;
         for (var dfi=0;dfi<ALL_FISH.length;dfi++) if(ALL_FISH[dfi].name===name) def=ALL_FISH[dfi];
@@ -1518,14 +1534,14 @@ function renderMarket() {
         html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
-          +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+'/шт</span> <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+'</span></div></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+t('/шт','/pc')+'</span> <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+'</span></div></div>'
           +(isSelected?'<span style="color:#FFD700;font-size:14px;font-weight:700">✓'+selQty+'</span>':'')+'</div>';
       }
     }
 
     // Сушёная рыба
     if (hasDried) {
-      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 Сушёная рыба:</div>';
+      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 '+t('Сушёная рыба:','Dried fish:')+'</div>';
       for (var dname in driedGrouped) {
         var dcnt=driedGrouped[dname], ddef=null;
         for (var ddfi=0;ddfi<ALL_FISH.length;ddfi++) if(ALL_FISH[ddfi].name===dname) ddef=ALL_FISH[ddfi];
@@ -1541,15 +1557,15 @@ function renderMarket() {
         var isDrySelected = dSelQty > 0;
         html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#1a1a3a')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(ddef?ddef.emoji:'📦')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dname+' сушёная <span class="badge">x'+dcnt+'</span></div>'
-          +'<div style="font-size:11px;margin-top:2px"><span class="'+dtc+'">'+dti+' '+fmt(dmp.cur)+'/пакет</span> <span style="color:#555">'+(ddiff>0?'+':'')+ddiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(dearn)+' итого</span></div></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dname+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+dtc+'">'+dti+' '+fmt(dmp.cur)+t('/пакет','/pack')+'</span> <span style="color:#555">'+(ddiff>0?'+':'')+ddiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(dearn)+' '+t('итого','total')+'</span></div></div>'
           +(isDrySelected?'<span style="color:#FFD700;font-size:14px;font-weight:700">✓'+dSelQty+'</span>':'')+'</div>';
       }
     }
 
     // Филе рыбы
     if (hasFilets) {
-      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 Филе рыбы:</div>';
+      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 '+t('Филе рыбы:','Fish filet:')+'</div>';
       for (var fname in filetGrouped2) {
         var fcnt2=filetGrouped2[fname], fdef2=null;
         for (var fffi=0;fffi<ALL_FISH.length;fffi++) if(ALL_FISH[fffi].name===fname) fdef2=ALL_FISH[fffi];
@@ -1565,8 +1581,8 @@ function renderMarket() {
         var isFiletSelected = fSelQty > 0;
         html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#1a1a3a')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef2?fdef2.emoji:'🍱')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fname+' филе <span class="badge">x'+fcnt2+'</span></div>'
-          +'<div style="font-size:11px;margin-top:2px"><span class="'+ftc+'">'+fti+' '+fmt(fmp.cur*2)+'/пак</span> <span style="color:#555">'+(fdiff>0?'+':'')+fdiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(fearn)+' итого</span></div></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fname+' '+t('филе','filet')+' <span class="badge">x'+fcnt2+'</span></div>'
+          +'<div style="font-size:11px;margin-top:2px"><span class="'+ftc+'">'+fti+' '+fmt(fmp.cur*2)+t('/пак','/pack')+'</span> <span style="color:#555">'+(fdiff>0?'+':'')+fdiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(fearn)+' '+t('итого','total')+'</span></div></div>'
           +(isFiletSelected?'<span style="color:#6ddc6d;font-size:14px;font-weight:700">✓'+fSelQty+'</span>':'')+'</div>';
       }
     }
@@ -1590,13 +1606,13 @@ function renderMarket() {
 
     html+='<div class="card" style="background:#0a2a0a">';
     if (!sel) {
-      html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 Выбери что отправить</div>';
+      html+='<div style="font-size:12px;color:#666;text-align:center;padding:4px">👆 '+t('Выбери что отправить','Choose what to send')+'</div>';
     } else {
       // Показываем список выбранного
       html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:6px">';
       for (var sv=0; sv<state.selectedItems.length; sv++) {
         var svi = state.selectedItems[sv];
-        html += (svi.filet?'🍱':svi.dried?'📦':'🐟')+' '+svi.name+(svi.filet?' филе':svi.dried?' сушёная':'')+': '+svi.qty+' шт<br>';
+        html += (svi.filet?'🍱':svi.dried?'📦':'🐟')+' '+svi.name+(svi.filet?' '+t('филе','filet'):svi.dried?' '+t('сушёная','dried'):'')+': '+svi.qty+t(' шт<br>',' pcs<br>');
       }
       html += '🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
@@ -1607,23 +1623,23 @@ function renderMarket() {
       var curKnifeOrder = Math.min(state.knifeOrder||0, tr.capacity);
       var knifeCost = curKnifeOrder * knifePrice;
       html+='<div style="background:#0a1a2a;border-radius:8px;padding:10px;margin-bottom:10px">'
-        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 Соль на обратный путь:</div>'
+        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 '+t('Соль на обратный путь:','Salt for the way back:')+'</div>'
         +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         +'<button class="btn" onclick="changeSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
-        +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curSaltOrder+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(saltCost)+'</span></div>'
+        +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curSaltOrder+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(saltCost)+'</span></div>'
         +'<button class="btn" onclick="changeSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
         +'</div>'
-        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 Ножи на обратный путь:</div>'
+        +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 '+t('Ножи на обратный путь:','Knives for the way back:')+'</div>'
         +'<div style="display:flex;align-items:center;gap:8px">'
         +'<button class="btn" onclick="changeKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
-        +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curKnifeOrder+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(knifeCost)+'</span></div>'
+        +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curKnifeOrder+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(knifeCost)+'</span></div>'
         +'<button class="btn" onclick="changeKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
         +'</div>'
-        +(curSaltOrder>0||curKnifeOrder>0?'<div style="font-size:11px;color:#90caf9;margin-top:5px">🧂'+state.salt+' соли · 🔪'+state.knife+' ножей на складе</div>':'')
+        +(curSaltOrder>0||curKnifeOrder>0?'<div style="font-size:11px;color:#90caf9;margin-top:5px">🧂'+state.salt+' '+t('соли','salt')+' · 🔪'+state.knife+' '+t('ножей на складе','knives in storage')+'</div>':'')
         +'</div>';
     }
     html+='<button class="btn btn-full '+((!busy&&!broken&&sel&&selCnt)?'btn-green':'')+'" onclick="sendDelivery()" '+((busy||broken||!sel||!selCnt)?'disabled':'')+'>'
-      +(broken?'🔴 Сломан — почини':busy?tr.emoji+' В пути...':sel&&selCnt?tr.emoji+' Отправить':'Выбери что отправить')
+      +(broken?t('🔴 Сломан — почини','🔴 Broken — repair it'):busy?tr.emoji+' '+t('В пути...','In transit...'):sel&&selCnt?tr.emoji+' '+t('Отправить','Send'):t('Выбери что отправить','Choose what to send'))
       +'</button>';
     html+='</div>';
   }
@@ -1641,16 +1657,16 @@ function renderKitchen() {
 
     var html = '<div class="card" style="text-align:center;padding:16px">'
       +'<div style="font-size:28px;margin-bottom:6px">🍳</div>'
-      +'<div style="font-size:15px;font-weight:600;color:#FFD700">Кухня</div>'
-      +'<div style="font-size:11px;color:#90caf9;margin-top:4px;word-break:break-word">10 рыб + 🧂1 соль → 30мин засолка → сушка → пакет</div>'
-    +'<div style="font-size:11px;color:#90caf9;margin-top:2px;word-break:break-word">10 рыб + 🔪1 нож → 2ч разделка → упаковка → филе</div>'
-      +'<div style="margin-top:8px;font-size:14px;color:'+(state.salt>0?'#6ddc6d':'#f44336')+'">🧂 Соль: <b>'+(state.salt||0)+'</b> · 🔪 Ножи: <b style="color:'+(state.knife>0?'#6ddc6d':'#f44336')+'">'+(state.knife||0)+'</b></div>'
-      +'<div style="font-size:11px;color:#666;margin-top:2px">Купи соль и ножи на рынке при отправке доставки</div>'
+      +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Кухня','Kitchen')+'</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-top:4px;word-break:break-word">'+t('10 рыб + 🧂1 соль → 30мин засолка → сушка → пакет','10 fish + 🧂1 salt → 30min salting → drying → pack')+'</div>'
+    +'<div style="font-size:11px;color:#90caf9;margin-top:2px;word-break:break-word">'+t('10 рыб + 🔪1 нож → 2ч разделка → упаковка → филе','10 fish + 🔪1 knife → 2h cutting → packing → filet')+'</div>'
+      +'<div style="margin-top:8px;font-size:14px;color:'+(state.salt>0?'#6ddc6d':'#f44336')+'">🧂 '+t('Соль','Salt')+': <b>'+(state.salt||0)+'</b> · 🔪 '+t('Ножи','Knives')+': <b style="color:'+(state.knife>0?'#6ddc6d':'#f44336')+'">'+(state.knife||0)+'</b></div>'
+      +'<div style="font-size:11px;color:#666;margin-top:2px">'+t('Купи соль и ножи на рынке при отправке доставки','Buy salt and knives on the market when sending delivery')+'</div>'
       +'</div>';
 
     // Засолка
     if (salting.length > 0) {
-      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🧂 Засаливается:</div>';
+      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🧂 '+t('Засаливается:','Salting:')+'</div>';
       for (var si=0;si<salting.length;si++) {
         var ss=salting[si];
         var sleft=Math.max(0,Math.ceil((ss.endsAt-now)/1000));
@@ -1659,15 +1675,15 @@ function renderKitchen() {
         var sdone=now>=ss.endsAt;
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+(ss.name||'')+' <span class="badge">'+(ss.packets||1)+' пак.</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+(ss.name||'')+' <span class="badge">'+(ss.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(sdone
-            ? '<button class="btn btn-green" onclick="startDryingFromSalt('+si+')" style="font-size:11px;padding:4px 10px">Сушить 🌡</button>'
+            ? '<button class="btn btn-green" onclick="startDryingFromSalt('+si+')" style="font-size:11px;padding:4px 10px">'+t('Сушить 🌡','Dry 🌡')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(sleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
           +'<div style="background:'+(sdone?'#FFD700':'#1565c0')+';height:6px;border-radius:4px;width:'+spct+'%"></div>'
           +'</div>'
-          +(sdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ Готово к сушке!</div>':'')
+          +(sdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к сушке!','Ready to dry!')+'</div>':'')
           +'</div>';
       }
       html += '</div>';
@@ -1675,7 +1691,7 @@ function renderKitchen() {
 
     // Разделка
     if (state.cutting && state.cutting.length > 0) {
-      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🔪 Разделывается:</div>';
+      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🔪 '+t('Разделывается:','Cutting:')+'</div>';
       for (var ci=0;ci<state.cutting.length;ci++) {
         var cs=state.cutting[ci];
         var cleft=Math.max(0,Math.ceil((cs.endsAt-now)/1000));
@@ -1684,15 +1700,15 @@ function renderKitchen() {
         var cdone=now>=cs.endsAt;
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+(cs.name||'')+' <span class="badge">'+(cs.packets||1)+' пак.</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+(cs.name||'')+' <span class="badge">'+(cs.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(cdone
-            ? '<button class="btn btn-green" onclick="startPacking('+ci+')" style="font-size:11px;padding:4px 10px">Упаковать 📦</button>'
+            ? '<button class="btn btn-green" onclick="startPacking('+ci+')" style="font-size:11px;padding:4px 10px">'+t('Упаковать 📦','Pack 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(cleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
           +'<div style="background:'+(cdone?'#FFD700':'#e91e63')+';height:6px;border-radius:4px;width:'+cpct+'%"></div>'
           +'</div>'
-          +(cdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ Готово к упаковке!</div>':'')
+          +(cdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к упаковке!','Ready to pack!')+'</div>':'')
           +'</div>';
       }
       html += '</div>';
@@ -1710,12 +1726,12 @@ function renderKitchen() {
           html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">📦 Упаковывается:</div>'
             +'<div style="background:#1a1a3a;border-radius:10px;padding:10px">'
             +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-            +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fn2.name+' филе <span class="badge">'+(fn2.packets||1)+' пак.</span></span>'
+            +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fn2.name+' '+t('филе','filet')+' <span class="badge">'+(fn2.packets||1)+t(' пак.',' pack.')+'</span></span>'
             +(pdone
-              ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">Забрать 🍱</button>'
+              ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">'+t('Забрать 🍱','Collect 🍱')+'</button>'
               : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(pleft)+'</span>')
             +'</div>'
-            +(pdone && fn2.dieAt ? '<div style="font-size:11px;color:#ff9944">⏳ Истекает через '+Math.max(0,Math.round((fn2.dieAt-now)/3600000*10)/10)+'ч — забери скорее!</div>' : '')
+            +(pdone && fn2.dieAt ? '<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((fn2.dieAt-now)/3600000*10)/10)+t('ч — забери скорее!','h — grab it soon!')+'</div>' : '')
             +'</div></div>';
         } else if (!fn2.packingEndsAt) {
           if (!filetGrouped[fn2.name]) filetGrouped[fn2.name]=0;
@@ -1723,7 +1739,7 @@ function renderKitchen() {
         }
       }
       if (Object.keys(filetGrouped).length>0) {
-        html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🍱 Филе на складе:</div>';
+        html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🍱 '+t('Филе на складе:','Filet in storage:')+'</div>';
         for (var fn3 in filetGrouped) {
           var def3=null; for (var fii=0;fii<ALL_FISH.length;fii++) if(ALL_FISH[fii].name===fn3) def3=ALL_FISH[fii];
           var nearDieF=0;
@@ -1735,15 +1751,15 @@ function renderKitchen() {
           var tLeftF=nearDieF?Math.max(0,Math.round((nearDieF-now)/3600000*10)/10):0;
           html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
             +'<span style="font-size:20px">'+(def3?def3.emoji:'🍱')+'</span>'
-            +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn3+' филе <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
-            +(nearDieF?'<div style="font-size:11px;color:#ff9944">⏳ '+tLeftF+'ч до истечения</div>':'')
+            +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn3+' '+t('филе','filet')+' <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
+            +(nearDieF?'<div style="font-size:11px;color:#ff9944">⏳ '+tLeftF+t('ч до истечения','h until expiry')+'</div>':'')
             +'</div></div>';
         }
         html+='</div>';
       }
     }
     if (state.drying.length > 0) {
-      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🌡 Сушится:</div>';
+      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🌡 '+t('Сушится:','Drying:')+'</div>';
       for (var d=0;d<state.drying.length;d++) {
         var slot=state.drying[d];
         var dleft=Math.max(0,Math.ceil((slot.endsAt-now)/1000));
@@ -1754,15 +1770,15 @@ function renderKitchen() {
         var expireLeft=Math.max(0,Math.round((expiresAt-now)/3600000*10)/10);
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+(slot.name||'')+' сушёная <span class="badge">'+(slot.packets||1)+' пак.</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+(slot.name||'')+' '+t('сушёная','dried')+' <span class="badge">'+(slot.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(ddone
-            ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">Собрать 📦</button>'
+            ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">'+t('Собрать 📦','Collect 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(dleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px;margin-bottom:4px">'
           +'<div style="background:'+(ddone?'#6ddc6d':'#FFD700')+';height:6px;border-radius:4px;width:'+dpct+'%"></div>'
           +'</div>'
-          +(ddone?'<div style="font-size:11px;color:#ff9944">⏳ Истекает через '+expireLeft+'ч — собери скорее!</div>':'')
+          +(ddone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+expireLeft+t('ч — собери скорее!','h — collect it soon!')+'</div>':'')
           +'</div>';
       }
       html += '</div>';
@@ -1770,7 +1786,7 @@ function renderKitchen() {
 
     // Готовые пакеты
     if (Object.keys(driedGrouped).length > 0) {
-      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 Сушёная рыба на складе:</div>';
+      html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">📦 '+t('Сушёная рыба на складе:','Dried fish in storage:')+'</div>';
       for (var dn2 in driedGrouped) {
         var dcnt=driedGrouped[dn2];
         var def2=null; for (var fi=0;fi<ALL_FISH.length;fi++) if(ALL_FISH[fi].name===dn2) def2=ALL_FISH[fi];
@@ -1779,8 +1795,8 @@ function renderKitchen() {
         var tLeft=Math.max(0,Math.round((nearDie-now)/3600000*10)/10);
         html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
           +'<span style="font-size:20px">'+(def2?def2.emoji:'📦')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dn2+' сушёная <span class="badge">x'+dcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#ff9944">⏳ '+tLeft+'ч до истечения</div></div></div>';
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dn2+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#ff9944">⏳ '+tLeft+t('ч до истечения','h until expiry')+'</div></div></div>';
       }
       html += '</div>';
     }
@@ -1789,10 +1805,10 @@ function renderKitchen() {
     var grouped2={};
     for (var i2=0;i2<state.liveFish.length;i2++){var n2=state.liveFish[i2].name;grouped2[n2]=(grouped2[n2]||0)+1;}
     if (Object.keys(grouped2).length===0) {
-      html+='<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 Нет рыбы на складе</div>';
+      html+='<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 '+t('Нет рыбы на складе','No fish in storage')+'</div>';
     } else {
       // Блок 1 — Засолка и сушка
-      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:10px">🧂 Засолка и сушка</div>';
+      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:10px">🧂 '+t('Засолка и сушка','Salting and drying')+'</div>';
       for (var fn in grouped2) {
         var fcnt=grouped2[fn];
         var fdef=null; for (var ffi=0;ffi<ALL_FISH.length;ffi++) if(ALL_FISH[ffi].name===fn) fdef=ALL_FISH[ffi];
@@ -1807,23 +1823,23 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef?fdef.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9">⏱ засолка 30мин + сушка '+fmtTime(dtime)+'</div>'
+          +'<div style="font-size:11px;color:#90caf9">⏱ '+t('засолка 30мин + сушка ','salting 30min + drying ')+fmtTime(dtime)+'</div>'
           +'</div></div>'
           +(canSalt
             ? '<div style="display:flex;align-items:center;gap:6px">'
               +'<button class="btn" onclick="changePacks(\''+fn+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
-              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span> <span style="font-size:10px;color:#90caf9">пак.</span></div>'
+              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span> <span style="font-size:10px;color:#90caf9">'+t('пак.','pack.')+'</span></div>'
               +'<button class="btn" onclick="changePacks(\''+fn+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
               +'<button class="btn '+(hasSalt?'btn-green':'')+'" onclick="startSalting(\''+fn+'\')" style="padding:5px 12px;font-size:12px" '+(hasSalt?'':'disabled')+'>'
-              +(hasSalt?'🧂 Засолить':'🧂 '+state.salt+'/'+saltNeeded)+'</button>'
+              +(hasSalt?t('🧂 Засолить','🧂 Salt it'):'🧂 '+state.salt+'/'+saltNeeded)+'</button>'
               +'</div>'
-            : '<div style="font-size:11px;color:#666">Нужно минимум 10 шт</div>')
+            : '<div style="font-size:11px;color:#666">'+t('Нужно минимум 10 шт','Need at least 10 pcs')+'</div>')
           +'</div>';
       }
       html+='</div>';
 
       // Блок 2 — Разделка на филе
-      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:10px">🔪 Разделка на филе</div>';
+      html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:10px">🔪 '+t('Разделка на филе','Cutting into filet')+'</div>';
       for (var fn2 in grouped2) {
         var fcnt2=grouped2[fn2];
         var fdef2=null; for (var ffi2=0;ffi2<ALL_FISH.length;ffi2++) if(ALL_FISH[ffi2].name===fn2) fdef2=ALL_FISH[ffi2];
@@ -1837,17 +1853,17 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef2?fdef2.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn2+' <span class="badge">x'+fcnt2+'</span></div>'
-          +'<div style="font-size:11px;color:#90caf9">⏱ разделка 2ч + упаковка '+fmtTime(DRY_TIME[fn2]||3600)+'</div>'
+          +'<div style="font-size:11px;color:#90caf9">⏱ '+t('разделка 2ч + упаковка ','cutting 2h + packing ')+fmtTime(DRY_TIME[fn2]||3600)+'</div>'
           +'</div></div>'
           +(canCut
             ? '<div style="display:flex;align-items:center;gap:6px">'
               +'<button class="btn" onclick="changePacks(\''+fn2+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
-              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks2+'</span> <span style="font-size:10px;color:#90caf9">пак.</span></div>'
+              +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks2+'</span> <span style="font-size:10px;color:#90caf9">'+t('пак.','pack.')+'</span></div>'
               +'<button class="btn" onclick="changePacks(\''+fn2+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
               +'<button class="btn '+(hasKnife?'btn-green':'')+'" onclick="startCutting(\''+fn2+'\')" style="padding:5px 12px;font-size:12px" '+(hasKnife?'':'disabled')+'>'
-              +(hasKnife?'🔪 Разделать':'🔪 '+(state.knife||0)+'/'+knifeNeeded)+'</button>'
+              +(hasKnife?t('🔪 Разделать','🔪 Cut it'):'🔪 '+(state.knife||0)+'/'+knifeNeeded)+'</button>'
               +'</div>'
-            : '<div style="font-size:11px;color:#666">Нужно минимум 10 шт</div>')
+            : '<div style="font-size:11px;color:#666">'+t('Нужно минимум 10 шт','Need at least 10 pcs')+'</div>')
           +'</div>';
       }
       html+='</div>';
@@ -1855,7 +1871,7 @@ function renderKitchen() {
 
     document.getElementById('content').innerHTML=html;
   } catch(e) {
-    document.getElementById('content').innerHTML='<div class="card" style="color:#f44336">Ошибка кухни: '+e.message+'</div>';
+    document.getElementById('content').innerHTML='<div class="card" style="color:#f44336">'+t('Ошибка кухни: ','Kitchen error: ')+e.message+'</div>';
   }
 }
 
@@ -1864,8 +1880,8 @@ function startCutting(name) {
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var packs=dryPacks[name]||1, needed=packs*10;
-  if ((grouped[name]||0)<needed) { showNotif('Нужно '+needed+' рыб!'); return; }
-  if ((state.knife||0)<packs) { showNotif('🔪 Не хватает ножей! Нужно '+packs+', есть '+(state.knife||0)); return; }
+  if ((grouped[name]||0)<needed) { showNotif(t('Нужно ','Need ')+needed+t(' рыб!',' fish!')); return; }
+  if ((state.knife||0)<packs) { showNotif(t('🔪 Не хватает ножей! Нужно ','🔪 Not enough knives! Need ')+packs+t(', есть ',', have ')+(state.knife||0)); return; }
   var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
   var taken=0, rest=[];
   for (var j=0;j<state.liveFish.length;j++) {
@@ -1877,7 +1893,7 @@ function startCutting(name) {
   state.cutting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
   addQuestProgress('filet', packs);
   dryPacks[name]=1;
-  showNotif('🔪 '+packs+' пак. '+name+' отправлено на разделку!');
+  showNotif('🔪 '+packs+t(' пак. ',' pack. ')+name+t(' отправлено на разделку!',' sent for cutting!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
@@ -1890,7 +1906,7 @@ function startPacking(idx) {
   state.cutting.splice(idx,1);
   var packMin = Math.round(packTime/60000);
   var packLabel = packMin>=60 ? (Math.floor(packMin/60)+'ч '+(packMin%60?packMin%60+'м':'')) : packMin+'мин';
-  showNotif('📦 '+slot.name+' отправлена на упаковку — '+packLabel+'!');
+  showNotif('📦 '+slot.name+t(' отправлена на упаковку — ',' sent for packing — ')+packLabel+'!');
   updateUI(); save();
 }
 
@@ -1899,7 +1915,7 @@ function collectFilet(idx) {
   if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
   var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
   state.filets[idx]={name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
-  showNotif('🍱 Филе '+slot.name+' готово! Продай на рынке.');
+  showNotif('🍱 '+t('Филе','Filet')+' '+slot.name+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1908,8 +1924,8 @@ function startSalting(name) {
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var packs=dryPacks[name]||1, needed=packs*10;
-  if ((grouped[name]||0)<needed) { showNotif('Нужно '+needed+' рыб!'); return; }
-  if (state.salt<packs) { showNotif('🧂 Не хватает соли! Нужно '+packs+', есть '+state.salt); return; }
+  if ((grouped[name]||0)<needed) { showNotif(t('Нужно ','Need ')+needed+t(' рыб!',' fish!')); return; }
+  if (state.salt<packs) { showNotif(t('🧂 Не хватает соли! Нужно ','🧂 Not enough salt! Need ')+packs+t(', есть ',', have ')+state.salt); return; }
   var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
   // Убираем рыбу со склада и списываем соль
   var taken=0, rest=[];
@@ -1922,7 +1938,7 @@ function startSalting(name) {
   // Добавляем слот засолки (30 мин)
   state.salting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+1800000});
   dryPacks[name]=1;
-  showNotif('🧂 '+packs+' пак. '+name+' отправлено на засолку!');
+  showNotif('🧂 '+packs+t(' пак. ',' pack. ')+name+t(' отправлено на засолку!',' sent for salting!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
@@ -1933,7 +1949,7 @@ function startDryingFromSalt(idx) {
   var dtime=DRY_TIME[slot.name]||3600;
   state.drying.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,startedAt:Date.now(),endsAt:Date.now()+dtime*1000});
   state.salting.splice(idx,1);
-  showNotif('🌡 '+slot.name+' отправлена на сушку!');
+  showNotif('🌡 '+slot.name+t(' отправлена на сушку!',' sent for drying!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1952,7 +1968,7 @@ function startDrying(name) {
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var packs = dryPacks[name]||1;
   var needed = packs*10;
-  if ((grouped[name]||0) < needed) { showNotif('Нужно '+needed+' рыб!'); return; }
+  if ((grouped[name]||0) < needed) { showNotif(t('Нужно ','Need ')+needed+t(' рыб!',' fish!')); return; }
   var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
   var dtime = DRY_TIME[name]||3600;
   // Убираем рыбу со склада
@@ -1979,7 +1995,7 @@ function collectDried(idx) {
   }
   state.drying.splice(idx,1);
   addQuestProgress('dry', packs);
-  showNotif('📦 '+packs+' пак. '+slot.emoji+' '+slot.name+' сушёной готово!');
+  showNotif('📦 '+packs+t(' пак. ',' pack. ')+slot.emoji+' '+slot.name+' '+t('сушёной готово!','dried ready!'));
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1990,7 +2006,7 @@ function checkDrying() {
     var slot=state.drying[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('📦 '+slot.emoji+' '+slot.name+' сушёная готова — зайди на кухню!');
+      showNotif('📦 '+slot.emoji+' '+slot.name+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
       save();
     }
   }
@@ -2001,7 +2017,7 @@ function checkDrying() {
   }
   if (deadDried.length) {
     state.driedFish=liveDried;
-    showNotif('📦 Истёк срок годности: '+deadDried.length+' пакетов выброшено!',true);
+    showNotif(t('📦 Истёк срок годности: ','📦 Expired: ')+deadDried.length+t(' пакетов выброшено!',' packs thrown out!'),true);
     save();
   }
   if (currentTab==='kitchen') renderKitchen();
@@ -2012,7 +2028,7 @@ function checkSalting() {
   for (var i=0;i<state.salting.length;i++) {
     if (now>=state.salting[i].endsAt && !state.salting[i].notified) {
       state.salting[i].notified=true;
-      showNotif('🧂 '+state.salting[i].emoji+' '+state.salting[i].name+' засолена — зайди на кухню!');
+      showNotif('🧂 '+state.salting[i].emoji+' '+state.salting[i].name+' '+t('засолена — зайди на кухню!','salted — check the kitchen!'));
       changed=true;
     }
   }
@@ -2026,7 +2042,7 @@ function checkCutting() {
     var slot=state.cutting[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('🔪 '+slot.emoji+' '+slot.name+' разделана — зайди на кухню!');
+      showNotif('🔪 '+slot.emoji+' '+slot.name+' '+t('разделана — зайди на кухню!','cut — check the kitchen!'));
       changed=true;
     }
   }
@@ -2040,7 +2056,7 @@ function checkCutting() {
       }
       if (!fl.packNotified) {
         fl.packNotified=true;
-        showNotif('🍱 '+fl.emoji+' '+fl.name+' филе готово — продай за 3 часа!');
+        showNotif('🍱 '+fl.emoji+' '+fl.name+' '+t('филе готово — продай за 3 часа!','filet ready — sell within 3 hours!'));
         changed=true;
       }
     }
@@ -2054,7 +2070,7 @@ function checkCutting() {
   }
   if (deadFilets.length) {
     state.filets=liveFilets;
-    showNotif('🍱 Истёк срок годности: '+deadFilets.length+' филе выброшено!', true);
+    showNotif(t('🍱 Истёк срок годности: ','🍱 Expired: ')+deadFilets.length+t(' филе выброшено!',' filets thrown out!'), true);
     changed=true;
   }
   var now=Date.now();
@@ -2062,7 +2078,7 @@ function checkCutting() {
     var slot=state.drying[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('📦 '+slot.emoji+' '+slot.name+' сушёная готова — зайди на кухню!');
+      showNotif('📦 '+slot.emoji+' '+slot.name+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
       save();
     }
   }
@@ -2074,7 +2090,7 @@ function checkCutting() {
   }
   if (deadDried.length) {
     state.driedFish=liveDried;
-    showNotif('📦 Истёк срок годности: '+deadDried.length+' пакетов выброшено!',true);
+    showNotif(t('📦 Истёк срок годности: ','📦 Expired: ')+deadDried.length+t(' пакетов выброшено!',' packs thrown out!'),true);
     save();
   }
   if (currentTab==='kitchen') renderKitchen();
@@ -2143,7 +2159,7 @@ function addQuestProgress(type, amount) {
       var questBonus=Math.round(500*lm*100)/100;
       state.coins=Math.round((state.coins+questBonus)*100)/100;
       state.totalEarned=Math.round((state.totalEarned+questBonus)*100)/100;
-      showNotif('🏆 Все квесты выполнены! +🪙'+fmt(questBonus), true);
+      showNotif(t('🏆 Все квесты выполнены! +🪙','🏆 All quests completed! +🪙')+fmt(questBonus), true);
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
     updateUI(); save();
@@ -2159,8 +2175,8 @@ function renderQuests() {
 
   var html='<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
-    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Ежедневные квесты</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Обновляются через '+hoursLeft+' ч</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Ежедневные квесты','Daily quests')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Обновляются через','Refresh in')+' '+hoursLeft+' '+t('ч','h')+'</div>'
     +'</div>';
 
   var completed=0;
@@ -2168,7 +2184,8 @@ function renderQuests() {
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
     var goal=Math.round(q.goal*qMultR);
-    var qText=qMultR>1?q.text.replace(new RegExp('\\b'+q.goal+'\\b'),goal):q.text;
+    var baseText = t(q.text, q.textEn);
+    var qText=qMultR>1?baseText.replace(new RegExp('\\b'+q.goal+'\\b'),goal):baseText;
     var prog=state.questProgress[q.id]||0;
     var done=prog>=goal;
     if(done) completed++;
@@ -2190,22 +2207,22 @@ function renderQuests() {
   // Итоговая награда
   if (completed===5) {
     html+='<div class="card" style="text-align:center;background:#1a2a0a;border:1.5px solid #6ddc6d">'
-      +'<div style="font-size:14px;font-weight:600;color:#6ddc6d">🎉 Все квесты выполнены!</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Возвращайся завтра за новыми!</div>'
+      +'<div style="font-size:14px;font-weight:600;color:#6ddc6d">🎉 '+t('Все квесты выполнены!','All quests completed!')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Возвращайся завтра за новыми!','Come back tomorrow for more!')+'</div>'
       +'</div>';
   } else {
     var lmQ=maxUnlockedMult();
     var questBonusPreview=Math.round(500*lmQ*100)/100;
     html+='<div class="card" style="background:#0a1a2e;text-align:center">'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:4px">Выполни все 5 квестов и получи</div>'
-      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 '+fmt(questBonusPreview)+' монет</div>'
-      +'<div style="font-size:11px;color:#666;margin-top:4px">Выполнено: '+completed+'/5</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:4px">'+t('Выполни все 5 квестов и получи','Complete all 5 quests and get')+'</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#FFD700">🪙 '+fmt(questBonusPreview)+' '+t('монет','coins')+'</div>'
+      +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Выполнено:','Completed:')+' '+completed+'/5</div>'
       +'</div>';
   }
 
   // Обновляем инструкцию
   html+='<div class="card" style="font-size:11px;color:#666;line-height:1.8">'
-    +'Квесты обновляются каждый день в полночь. Выполняй их чтобы получать монеты!</div>';
+    +t('Квесты обновляются каждый день в полночь. Выполняй их чтобы получать монеты!','Quests refresh every day at midnight. Complete them to earn coins!')+'</div>';
 
   document.getElementById('content').innerHTML=html;
 }
@@ -2214,8 +2231,8 @@ function renderDriver() {
   var dlv = state.delivery;
   var dlv2 = state.delivery2;
   var html = '<div style="display:flex;gap:6px;margin-bottom:8px">'
-    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🏪 Рынок</button>'
-    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderDriver()" style="flex:1;background:#6a4fc2;font-size:13px">🧑‍✈️ Водитель'+(dlv2?' ●':'')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🏪 '+t('Рынок','Market')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderDriver()" style="flex:1;background:#6a4fc2;font-size:13px">🧑‍✈️ '+t('Водитель','Driver')+(dlv2?' ●':'')+'</button>'
     +'</div>';
 
   // Доставка водителя если в пути
@@ -2223,10 +2240,10 @@ function renderDriver() {
     var tr2 = getTr(dlv2.transportId);
     var left2=Math.max(0,Math.ceil((dlv2.endsAt-Date.now())/1000));
     var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
-    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' Водитель в пути...</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Рыб: '+dlv2.count+' · Твоя выручка: 🪙'+fmt(dlv2.earnings)+' <span style="color:#666">(−30% водителю)</span></div>'
+    html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' '+t('Водитель в пути...','Driver in transit...')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv2.count+t(' · Твоя выручка: ',' · Your revenue: ')+'🪙'+fmt(dlv2.earnings)+' <span style="color:#666">'+t('(−30% водителю)','(−30% to driver)')+'</span></div>'
       +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
-      +'<div style="font-size:11px;color:#666;text-align:center">Прибудет через '+left2+'с</div></div>';
+      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')+'</div></div>';
     document.getElementById('content').innerHTML = html;
     return;
   }
@@ -2237,11 +2254,11 @@ function renderDriver() {
   if (state.boosts.truckRental > Date.now() && busyTransportId !== 'rentalTruck') hireCandidates.push('rentalTruck');
 
   html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
-    +'<div style="font-size:14px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ Нанять водителя</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Отправь второй транспорт одновременно! Водитель забирает 30% выручки.</div>';
+    +'<div style="font-size:14px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ '+t('Нанять водителя','Hire a driver')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Отправь второй транспорт одновременно! Водитель забирает 30% выручки.','Send a second transport at the same time! The driver takes 30% of revenue.')+'</div>';
 
   if (hireCandidates.length === 0) {
-    html+='<div style="color:#666;font-size:12px">Нет доступных транспортов для водителя</div>';
+    html+='<div style="color:#666;font-size:12px">'+t('Нет доступных транспортов для водителя','No transport available for a driver')+'</div>';
   } else {
     html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
     for (var hci=0;hci<hireCandidates.length;hci++) {
@@ -2250,7 +2267,7 @@ function renderDriver() {
       var hcd=getDur(hcid);
       var isDriverSelected=state.driverTransport===hcid;
       html+='<button class="btn" onclick="selectDriverTransport(\''+hcid+'\')" '+(hcd<=0?'disabled':'')+' style="background:'+(isDriverSelected?'#6a4fc2':'#3a2a5c')+';border:1.5px solid '+(isDriverSelected?'#b794f6':'transparent')+'">'
-        +hct.emoji+' '+hct.name+(isDriverSelected?' ✓':'')+(hcd<=0?' 🔴':'')+'</button>';
+        +hct.emoji+' '+trName(hcid)+(isDriverSelected?' ✓':'')+(hcd<=0?' 🔴':'')+'</button>';
     }
     html+='</div>';
   }
@@ -2275,13 +2292,13 @@ function renderDriver() {
   var hasFilets=Object.keys(filetGrouped2).length>0;
 
   html+='<div class="card" style="background:#0d1428">';
-  html+='<div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:10px">📦 Выбери что везёт водитель:</div>';
+  html+='<div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:10px">📦 '+t('Выбери что везёт водитель:','Choose what the driver carries:')+'</div>';
 
   if (!hasFresh && !hasDried && !hasFilets) {
-    html+='<div style="color:#666;text-align:center;padding:20px">Нет рыбы на складе</div>';
+    html+='<div style="color:#666;text-align:center;padding:20px">'+t('Нет рыбы на складе','No fish in storage')+'</div>';
   } else {
     if (hasFresh) {
-      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 Свежая рыба:</div>';
+      html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🐟 '+t('Свежая рыба:','Fresh fish:')+'</div>';
       for (var fn in grouped) {
         var fcnt=grouped[fn], fdef=null;
         for (var fi=0;fi<ALL_FISH.length;fi++) if(ALL_FISH[fi].name===fn) fdef=ALL_FISH[fi];
@@ -2292,12 +2309,12 @@ function renderDriver() {
         html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef?fdef.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(fearn)+' твоя · '+fsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(fearn)+' '+t('твоя','yours')+' · '+fsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
     }
     if (hasDried) {
-      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 Сушёная рыба:</div>';
+      html+='<div style="font-size:11px;color:#FFD700;margin-top:8px;margin-bottom:6px">📦 '+t('Сушёная рыба:','Dried fish:')+'</div>';
       for (var dnn in driedGrouped) {
         var dcnt=driedGrouped[dnn], dddef=null;
         for (var ddi=0;ddi<ALL_FISH.length;ddi++) if(ALL_FISH[ddi].name===dnn) dddef=ALL_FISH[ddi];
@@ -2307,13 +2324,13 @@ function renderDriver() {
         var isDrySel=isDriverItemSelected(dnn,true,false);
         html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(dddef?dddef.emoji:'📦')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dnn+' сушёная <span class="badge">x'+dcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ddearn)+' твоя · '+ddsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dnn+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ddearn)+' '+t('твоя','yours')+' · '+ddsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isDrySel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
     }
     if (hasFilets) {
-      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 Филе рыбы:</div>';
+      html+='<div style="font-size:11px;color:#6ddc6d;margin-top:8px;margin-bottom:6px">🍱 '+t('Филе рыбы:','Fish filet:')+'</div>';
       for (var ffn in filetGrouped2) {
         var ffcnt=filetGrouped2[ffn], ffdef=null;
         for (var ffi=0;ffi<ALL_FISH.length;ffi++) if(ALL_FISH[ffi].name===ffn) ffdef=ALL_FISH[ffi];
@@ -2323,8 +2340,8 @@ function renderDriver() {
         var isFiletSel=isDriverItemSelected(ffn,false,true);
         html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(ffdef?ffdef.emoji:'🍱')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+ffn+' филе <span class="badge">x'+ffcnt+'</span></div>'
-          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ffearn)+' твоя · '+ffsend+' шт · ⏱'+fmtTime(ddt)+'</div></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+ffn+' '+t('филе','filet')+' <span class="badge">x'+ffcnt+'</span></div>'
+          +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ffearn)+' '+t('твоя','yours')+' · '+ffsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isFiletSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
     }
@@ -2337,8 +2354,8 @@ function renderDriver() {
   if (dSel) {
     var dRoomLeft = dtr.capacity - dTotalSel;
     html+='<div style="font-size:12px;color:#90caf9;margin-bottom:8px;display:flex;justify-content:space-between">'
-      +'<span>📦 Загрузка: <b style="color:#FFD700">'+dTotalSel+'/'+dtr.capacity+'</b></span>'
-      +'<span style="color:'+(dRoomLeft>0?'#6ddc6d':'#e57373')+'">Место: '+dRoomLeft+'</span></div>';
+      +'<span>📦 '+t('Загрузка:','Loading:')+' <b style="color:#FFD700">'+dTotalSel+'/'+dtr.capacity+'</b></span>'
+      +'<span style="color:'+(dRoomLeft>0?'#6ddc6d':'#e57373')+'">'+t('Место:','Room:')+' '+dRoomLeft+'</span></div>';
   }
 
   // Соль и ножи
@@ -2350,16 +2367,16 @@ function renderDriver() {
     var dCurKnife=state.driverKnifeOrder||0;
     var dKnifeCost=dCurKnife*dKnifePrice;
     html+='<div style="background:#0a0a1e;border-radius:8px;padding:10px;margin-top:8px;margin-bottom:10px">'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 Соль на обратный путь:</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 '+t('Соль на обратный путь:','Salt for the way back:')+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
       +'<button class="btn" onclick="changeDriverSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
-      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurSalt+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(dSaltCost)+'</span></div>'
+      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurSalt+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(dSaltCost)+'</span></div>'
       +'<button class="btn" onclick="changeDriverSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
       +'</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 Ножи на обратный путь:</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 '+t('Ножи на обратный путь:','Knives for the way back:')+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<button class="btn" onclick="changeDriverKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
-      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurKnife+'</span> <span style="font-size:11px;color:#90caf9">шт · 🪙'+fmt(dKnifeCost)+'</span></div>'
+      +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurKnife+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(dKnifeCost)+'</span></div>'
       +'<button class="btn" onclick="changeDriverKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
       +'</div></div>';
   }
@@ -2367,7 +2384,7 @@ function renderDriver() {
   // Кнопка отправки
   var driverBroken=getDur(state.driverTransport)<=0;
   html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBroken||!dSel)?'disabled':'')+' style="background:'+(dSel&&!driverBroken?'#6a4fc2':'#2a1a4a')+';color:#fff">'
-    +(driverBroken?'🔴 Сломан — почини':dSel?dtr.emoji+' Отправить водителя ('+dTotalSel+' шт)':'Выбери что везёт водитель')
+    +(driverBroken?t('🔴 Сломан — почини','🔴 Broken — repair it'):dSel?dtr.emoji+' '+t('Отправить водителя (','Send driver (')+dTotalSel+t(' шт)',' pcs)'):t('Выбери что везёт водитель','Choose what the driver carries'))
     +'</button>';
   html+='</div>';
 
@@ -2382,45 +2399,45 @@ function renderBoosts() {
   var b = state.boosts;
   var boostList = [
     {
-      id:'doubleTap', name:'Авто-буст', emoji:'⚡',
-      desc:'+2 к автодобыче в минуту на 1 час',
+      id:'doubleTap', name:t('Авто-буст','Auto-boost'), emoji:'⚡',
+      desc:t('+2 к автодобыче в минуту на 1 час','+2 auto-income per minute for 1 hour'),
       active: b.doubleTap > now,
       timeLeft: b.doubleTap > now ? Math.ceil((b.doubleTap-now)/60000) : 0
     },
     {
-      id:'turboDry', name:'Мгновенная сушка', emoji:'🌡',
-      desc:'Вся текущая сушка завершается мгновенно',
+      id:'turboDry', name:t('Мгновенная сушка','Instant drying'), emoji:'🌡',
+      desc:t('Вся текущая сушка завершается мгновенно','All current drying finishes instantly'),
       active: false,
       timeLeft: 0
     },
     {
-      id:'luckyRod', name:'Удачная рыбалка', emoji:'🎣',
-      desc:'+50% шанс улова на 30 минут',
+      id:'luckyRod', name:t('Удачная рыбалка','Lucky fishing'), emoji:'🎣',
+      desc:t('+50% шанс улова на 30 минут','+50% catch chance for 30 minutes'),
       active: b.luckyRod > now,
       timeLeft: b.luckyRod > now ? Math.ceil((b.luckyRod-now)/60000) : 0
     },
     {
-      id:'turboSpeed', name:'Турбо скорость', emoji:'🏎',
-      desc:'×2 скорость транспорта на 1 час',
+      id:'turboSpeed', name:t('Турбо скорость','Turbo speed'), emoji:'🏎',
+      desc:t('×2 скорость транспорта на 1 час','×2 transport speed for 1 hour'),
       active: b.turboSpeed > now,
       timeLeft: b.turboSpeed > now ? Math.ceil((b.turboSpeed-now)/60000) : 0
     },
     {
-      id:'turboPack', name:'Мгновенная упаковка', emoji:'📦',
-      desc:'Вся текущая упаковка завершается мгновенно',
+      id:'turboPack', name:t('Мгновенная упаковка','Instant packing'), emoji:'📦',
+      desc:t('Вся текущая упаковка завершается мгновенно','All current packing finishes instantly'),
       active: false,
       timeLeft: 0
     },
     {
-      id:'instantDelivery', name:'Мгновенная доставка', emoji:'🚀',
-      desc:'Все активные доставки (твоя + водителя) завершаются мгновенно',
+      id:'instantDelivery', name:t('Мгновенная доставка','Instant delivery'), emoji:'🚀',
+      desc:t('Все активные доставки (твоя + водителя) завершаются мгновенно','All active deliveries (yours + driver) finish instantly'),
       active: false,
       timeLeft: 0,
       disabled: !state.delivery && !state.delivery2
     },
     {
-      id:'repairAll', name:'Ремонт всего транспорта', emoji:'🔧', price:2,
-      desc:'Полностью чинит все виды транспорта разом',
+      id:'repairAll', name:t('Ремонт всего транспорта','Repair all transport'), emoji:'🔧', price:2,
+      desc:t('Полностью чинит все виды транспорта разом','Fully repairs all vehicles at once'),
       active: false,
       timeLeft: 0,
       disabled: allTransportFull()
@@ -2429,8 +2446,8 @@ function renderBoosts() {
 
   var html = '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">⚡</div>'
-    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Бустеры</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Временные усиления за ⭐ Telegram Stars</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Бустеры','Boosters')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Временные усиления за ⭐ Telegram Stars','Temporary boosts for ⭐ Telegram Stars')+'</div>'
     +'</div>';
 
   // Энергия
@@ -2441,12 +2458,12 @@ function renderBoosts() {
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
     +'<div style="font-size:28px">⚡</div>'
     +'<div style="flex:1">'
-    +'<div style="font-size:14px;font-weight:600;color:#4fc3f7">Энергия</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+state.energy+' / '+eMax+' · тратится 1 за каждые 3 рыбы</div>'
+    +'<div style="font-size:14px;font-weight:600;color:#4fc3f7">'+t('Энергия','Energy')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+state.energy+' / '+eMax+' · '+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</div>'
     +'</div></div>'
     +'<div style="display:flex;gap:8px">'
-    +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐5 Заполнить</button>'
-    +'<button class="btn" onclick="watchAdForEnergy()" style="flex:1;'+(adCooldownLeft>0||state.energy>=eMax?'opacity:0.5':'background:#1565c0')+'" '+(adCooldownLeft>0||state.energy>=eMax?'disabled':'')+'>📺 '+(adCooldownLeft>0?fmtTime(Math.ceil(adCooldownLeft/1000)):'+25 за рекламу')+'</button>'
+    +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐5 '+t('Заполнить','Fill up')+'</button>'
+    +'<button class="btn" onclick="watchAdForEnergy()" style="flex:1;'+(adCooldownLeft>0||state.energy>=eMax?'opacity:0.5':'background:#1565c0')+'" '+(adCooldownLeft>0||state.energy>=eMax?'disabled':'')+'>📺 '+(adCooldownLeft>0?fmtTime(Math.ceil(adCooldownLeft/1000)):t('+25 за рекламу','+25 via ad'))+'</button>'
     +'</div></div>';
 
   // Лотерея — загружаем текущий джекпот
@@ -2463,24 +2480,24 @@ function renderBoosts() {
     +'<div style="display:flex;align-items:center;gap:12px">'
     +'<div style="font-size:32px">🎰</div>'
     +'<div style="flex:1">'
-    +'<div style="font-size:14px;font-weight:600;color:#FFD700">Лотерея</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">Крути колесо — выиграй монеты или джекпот!</div>'
-    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+Math.round(300*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · '+Math.round(500*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · 🐟'+Math.round(100*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🧂'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🔪'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
+    +'<div style="font-size:14px;font-weight:600;color:#FFD700">'+t('Лотерея','Lottery')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+t('Крути колесо — выиграй монеты или джекпот!','Spin the wheel — win coins or the jackpot!')+'</div>'
+    +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+Math.round(300*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · '+Math.round(500*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · 🐟'+Math.round(100*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🧂'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🔪'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🚛 '+t('аренда 12ч','rental 12h')+' · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> '+t('Stars джекпот','Stars jackpot')+'</div>'
     +'</div>'
-    +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?'💎 Бесплатно':'⭐ 1')+'</button>'
+    +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ 1')+'</button>'
     +'</div></div>';
 
   // Смена погоды
   html += '<div class="card" style="background:linear-gradient(135deg,#0a1a2e,#0a2a3a);border:1px solid #1565c0">'
-    +'<div style="font-size:14px;font-weight:600;color:#90caf9;margin-bottom:10px">🌤 Сменить погоду для всех</div>'
-    +'<div style="font-size:12px;color:#666;margin-bottom:10px">Выбери погоду — она изменится для всех игроков на 30 минут!</div>'
+    +'<div style="font-size:14px;font-weight:600;color:#90caf9;margin-bottom:10px">🌤 '+t('Сменить погоду для всех','Change weather for everyone')+'</div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:10px">'+t('Выбери погоду — она изменится для всех игроков на 30 минут!','Pick weather — it changes for all players for 30 minutes!')+'</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:6px">';
   var weathers = [
-    {id:'sunny', label:'☀️ Ясно'},
-    {id:'cloudy', label:'🌥 Облачно'},
-    {id:'rain', label:'🌧 Дождь'},
-    {id:'storm', label:'⛈ Шторм'},
-    {id:'perfect', label:'🌟 Клёв!'},
+    {id:'sunny', label:'☀️ '+t('Ясно','Clear')},
+    {id:'cloudy', label:'🌥 '+t('Облачно','Cloudy')},
+    {id:'rain', label:'🌧 '+t('Дождь','Rain')},
+    {id:'storm', label:'⛈ '+t('Шторм','Storm')},
+    {id:'perfect', label:'🌟 '+t('Клёв!','Bite time!')},
   ];
   for (var wi=0;wi<weathers.length;wi++) {
     var isCurrent = currentWeather.id === weathers[wi].id;
@@ -2488,7 +2505,7 @@ function renderBoosts() {
       +weathers[wi].label+(isCurrent?' ✓':'')+'</button>';
   }
   html += '</div>'
-    +'<div style="font-size:11px;color:#666;margin-top:8px;text-align:right">⭐ 1 за смену</div>'
+    +'<div style="font-size:11px;color:#666;margin-top:8px;text-align:right">⭐ 1 '+t('за смену','per change')+'</div>'
     +'</div>';
 
   for (var i=0;i<boostList.length;i++) {
@@ -2499,20 +2516,20 @@ function renderBoosts() {
       +'<div style="font-size:14px;font-weight:600;color:#fff">'+bst.name+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+bst.desc+'</div>'
       +(bst.active && bst.timeLeft>0
-        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен · осталось '+(bst.timeLeft>=60?(Math.floor(bst.timeLeft/60)+'ч '+(bst.timeLeft%60)+'м'):(bst.timeLeft+' мин'))+'</div>'
+        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ '+t('Активен · осталось','Active · left')+' '+(bst.timeLeft>=60?(Math.floor(bst.timeLeft/60)+t('ч ','h ')+(bst.timeLeft%60)+t('м','m')):(bst.timeLeft+t(' мин',' min')))+'</div>'
         : bst.active
-        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ Активен</div>'
+        ? '<div style="font-size:11px;color:#6ddc6d;margin-top:4px">✅ '+t('Активен','Active')+'</div>'
         : '')
       +'</div>'
       +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+((bst.active||bst.disabled)?'disabled':'')+'>'
-      +(bst.active?'Активен':bst.disabled?(bst.id==='repairAll'?'Всё исправно':'Нет доставок'):(bst.id==='repairAll'&&isPremiumActive()&&state.premiumFreeRepairDate!==getTodayDate()?'💎 Бесплатно':'⭐ '+(bst.price||1)))
+      +(bst.active?t('Активен','Active'):bst.disabled?(bst.id==='repairAll'?t('Всё исправно','All fine'):t('Нет доставок','No deliveries')):(bst.id==='repairAll'&&isPremiumActive()&&state.premiumFreeRepairDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ '+(bst.price||1)))
       +'</button>'
       +'</div>';
   }
 
   html += '<div class="card" style="font-size:11px;color:#666;text-align:center;line-height:1.8">'
-    +'Оплата через Telegram Stars — безопасно и мгновенно.<br>'
-    +'Бустеры не складываются.</div>';
+    +t('Оплата через Telegram Stars — безопасно и мгновенно.','Payment via Telegram Stars — safe and instant.')+'<br>'
+    +t('Бустеры не складываются.','Boosters do not stack.')+'</div>';
 
   document.getElementById('content').innerHTML = html;
 }
@@ -2524,8 +2541,8 @@ function showLotteryResult(title, prize, color, isJackpot) {
     +'<div style="font-size:60px;margin-bottom:12px">'+(isJackpot?'💎':'🎰')+'</div>'
     +'<div style="font-size:18px;font-weight:700;color:'+color+';margin-bottom:10px">'+title+'</div>'
     +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">'+prize+'</div>'
-    +(isJackpot?'<div style="font-size:14px;color:#FFD700;margin-bottom:16px">🎉 Поздравляем! Джекпот твой!</div>':'')
-    +'<button onclick="this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:'+color+';border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">Забрать!</button>'
+    +(isJackpot?'<div style="font-size:14px;color:#FFD700;margin-bottom:16px">🎉 '+t('Поздравляем! Джекпот твой!','Congratulations! The jackpot is yours!')+'</div>':'')
+    +'<button onclick="this.parentElement.parentElement.remove()" style="width:100%;padding:14px;background:'+color+';border:none;border-radius:12px;color:#000;font-size:15px;font-weight:700;cursor:pointer">'+t('Забрать!','Claim!')+'</button>'
     +'</div>';
   document.body.appendChild(modal);
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(isJackpot?'success':'success');
@@ -2542,22 +2559,22 @@ function watchAdForEnergy() {
   if (state.energy >= max) return;
   var cooldownLeft = 600000 - (Date.now() - (state.lastAdEnergyRefill||0));
   if (cooldownLeft > 0) {
-    showNotif('⏳ Реклама будет доступна через ' + fmtTime(Math.ceil(cooldownLeft/1000)));
+    showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
     return;
   }
   if (typeof show_11591936 !== 'function') {
-    showNotif('❌ Реклама пока недоступна, попробуй позже');
+    showNotif(t('❌ Реклама пока недоступна, попробуй позже','❌ Ad not available yet, try later'));
     return;
   }
-  showNotif('📺 Загружаем рекламу...');
+  showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
   show_11591936().then(function(){
     state.energy = Math.min(max, state.energy + 25);
     state.lastAdEnergyRefill = Date.now();
-    showNotif('⚡ +25 энергии за просмотр!');
+    showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
     save(); updateUI();
     if (currentTab==='boosts') renderBoosts();
   }).catch(function(err){
-    showNotif('❌ Реклама недоступна: ' + (err && err.message || 'попробуй позже'));
+    showNotif(t('❌ Реклама недоступна: ','❌ Ad unavailable: ') + (err && err.message || t('попробуй позже','try later')));
   });
 }
 function checkAdMilestone() {
@@ -2572,7 +2589,7 @@ function checkAdMilestone() {
 function buyBoost(id) {
   if (id==='lottery' && isPremiumActive() && state.premiumFreeSpinDate !== getTodayDate()) {
     state.premiumFreeSpinDate = getTodayDate();
-    showNotif('💎 Бесплатная крутка Premium!');
+    showNotif(t('💎 Бесплатная крутка Premium!','💎 Free Premium spin!'));
     activateBoost('lottery');
     if(currentTab==='boosts') renderBoosts();
     save();
@@ -2580,13 +2597,13 @@ function buyBoost(id) {
   }
   if (id==='repairAll' && isPremiumActive() && state.premiumFreeRepairDate !== getTodayDate()) {
     state.premiumFreeRepairDate = getTodayDate();
-    showNotif('💎 Бесплатный ремонт Premium!');
+    showNotif(t('💎 Бесплатный ремонт Premium!','💎 Free Premium repair!'));
     activateBoost('repairAll');
     if(currentTab==='boosts') renderBoosts();
     save();
     return;
   }
-  showNotif('⏳ Создаём счёт...');
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
   var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
   fetch(BOT_API_URL+'/invoice', {
     method:'POST',
@@ -2595,7 +2612,7 @@ function buyBoost(id) {
   }).then(function(r){
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
-    if(!res.ok) { showNotif('Ошибка сервера ('+res.status+'): '+(res.data&&res.data.error||'неизвестная ошибка')); return; }
+    if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
       var invLink = data.link.replace('https://telegram.me/', 'https://t.me/');
@@ -2604,7 +2621,7 @@ function buyBoost(id) {
           if(status==='paid') {
             activateBoost(id);
             if (id !== 'lottery' && !id.startsWith('weather_')) {
-              showNotif('✅ Бустер активирован!');
+              showNotif(t('✅ Бустер активирован!','✅ Booster activated!'));
             }
             if(currentTab==='boosts') renderBoosts();
             if(currentTab==='market') renderMarket();
@@ -2624,9 +2641,9 @@ function buyBoost(id) {
         document.body.appendChild(dbg);
       }
     } else if (data.error) {
-      showNotif('Ошибка сервера: '+data.error);
-    } else { showNotif('Ошибка: нет ссылки на оплату'); }
-  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
+      showNotif(t('Ошибка сервера: ','Server error: ')+data.error);
+    } else { showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link')); }
+  }).catch(function(e){ showNotif(t('Ошибка: ','Error: ')+e.message); });
 }
 
 function activateBoost(id, growJackpot) {
@@ -2636,7 +2653,7 @@ function activateBoost(id, growJackpot) {
   if (id==='energyFull') {
     state.energy = getEnergyMax();
     state.lastEnergyUpdate = now;
-    showNotif('⚡ Энергия заполнена!');
+    showNotif(t('⚡ Энергия заполнена!','⚡ Energy filled!'));
   }
   if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
   if (id==='turboPack') {
@@ -2647,11 +2664,11 @@ function activateBoost(id, growJackpot) {
         state.filets[pi].packingEndsAt = now2;
       }
     }
-    showNotif('📦 Вся упаковка завершена мгновенно! Зайди на кухню.');
+    showNotif(t('📦 Вся упаковка завершена мгновенно! Зайди на кухню.','📦 All packing finished instantly! Check the kitchen.'));
   }
   if (id==='turboDry') {
     for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
-    showNotif('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.');
+    showNotif(t('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.','🌡 All drying finished instantly! Check the kitchen to collect packs.'));
   }
   if (id==='lottery') {
     // Загружаем текущий джекпот из Firebase
@@ -2689,7 +2706,7 @@ function activateBoost(id, growJackpot) {
       }
       if (won.truckTicket) {
         state.truckTickets = (state.truckTickets||0) + 1;
-        showNotif('🎫 Выигран билет на аренду грузовика! Используй его на Рынке');
+        showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
       }
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
@@ -2697,7 +2714,7 @@ function activateBoost(id, growJackpot) {
           firebaseDB.ref('jackpot/amount').set(50);
           window._jackpotCache = 50;
           showLotteryResult('⭐ ДЖЕКПОТ!', Math.floor(jackpot)+' Stars', '#FFD700', true);
-          showNotif('⭐ ДЖЕКПОТ! Выигрыш '+Math.floor(jackpot)+' Stars — жди перевода от администратора!');
+          showNotif(t('⭐ ДЖЕКПОТ! Выигрыш ','⭐ JACKPOT! Won ')+Math.floor(jackpot)+t(' Stars — жди перевода от администратора!',' Stars — wait for admin transfer!'));
           var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
           fetch(BOT_API_URL + '/jackpot_broadcast', {
             method: 'POST',
@@ -2711,11 +2728,11 @@ function activateBoost(id, growJackpot) {
             window._jackpotCache = newJackpot;
           }
           showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
-          showNotif('🎰 Лотерея: '+won.label);
+          showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+won.label);
         }
       } else {
         showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
-        showNotif('🎰 Лотерея: '+won.label);
+        showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+won.label);
       }
       updateUI(); save();
       if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -2735,12 +2752,12 @@ function activateBoost(id, growJackpot) {
   if (id==='luckyRod') state.boosts.luckyRod = now + 1800000;
   if (id==='truckRental') {
     state.boosts.truckRental = now + 43200000; // 12 часов
-    showNotif('🚛 Грузовик с прицепом арендован на 12 часов! Вместимость доставки: 200');
+    showNotif(t('🚛 Грузовик с прицепом арендован на 12 часов! Вместимость доставки: 200','🚛 Truck with trailer rented for 12 hours! Delivery capacity: 200'));
   }
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + 3600000;
   if (id==='repairAll') {
     for (var trk in state.durability) state.durability[trk] = 100;
-    showNotif('🔧 Весь транспорт полностью отремонтирован!');
+    showNotif(t('🔧 Весь транспорт полностью отремонтирован!','🔧 All transport fully repaired!'));
   }
   if (id==='instantDelivery') {
     var earned = 0;
@@ -2778,7 +2795,7 @@ function activateBoost(id, growJackpot) {
     currentWeather = wType;
     weatherEndsAt = Date.now() + 30*60*1000;
     if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
-    showNotif('🌤 Погода изменена: '+wType.name+'!', true);
+    showNotif(t('🌤 Погода изменена: ','🌤 Weather changed: ')+wType.name+'!', true);
     updateWeatherUI();
     if(currentTab==='boosts') renderBoosts();
   }
@@ -2788,39 +2805,39 @@ function renderBank() {
   document.getElementById('content').innerHTML =
     '<div class="card" style="text-align:center;padding:20px">'
       +'<div style="font-size:32px;margin-bottom:8px">🏦</div>'
-      +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">Банк FishFarm</div>'
-      +'<div style="font-size:12px;color:#90caf9">Обменяй монеты на GRAM</div>'
+      +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">'+t('Банк FishFarm','FishFarm Bank')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9">'+t('Обменяй монеты на GRAM','Exchange coins for GRAM')+'</div>'
     +'</div>'
     +'<div class="card">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
-        +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">Монеты</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
+        +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">'+t('Монеты','Coins')+'</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
         +'<div style="font-size:24px;color:#90caf9">→</div>'
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">💎</div><div style="font-size:13px;color:#90caf9;margin-top:4px">GRAM</div></div>'
       +'</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Сумма обмена (монеты):</div>'
-      +'<div style="font-size:11px;color:#666;margin-bottom:6px">От 1,000 до 50,000 монет за один вывод</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма обмена (монеты):','Exchange amount (coins):')+'</div>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:6px">'+t('От 1,000 до 50,000 монет за один вывод','From 1,000 to 50,000 coins per withdrawal')+'</div>'
       +'<div style="display:flex;gap:8px;margin-bottom:12px">'
         +'<input id="ex-amount" type="number" min="1000" max="'+Math.min(50000,coins)+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
-        +'<button class="btn" onclick="setBankMax()">Макс</button>'
+        +'<button class="btn" onclick="setBankMax()">'+t('Макс','Max')+'</button>'
       +'</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">Твой TON кошелёк:</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Твой TON кошелёк:','Your TON wallet:')+'</div>'
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
-        +'<div style="font-size:12px;color:#90caf9">Ты получишь</div>'
+        +'<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div>'
         +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/(100000*maxUnlockedMult())).toFixed(5)+' GRAM</div>'
-        +'<div style="font-size:11px;color:#666;margin-top:4px">Курс '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+' монет = 1 GRAM · Отправка вручную в течение 24ч</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>'
       +'</div>'
-      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ Комиссия: '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' за каждый обмен</div>'
-      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ Обменять за '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</button>'
+      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ '+t('Обменять за','Exchange for')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</button>'
     +'</div>'
-    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.</div>'
+    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 '+t('После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.','After payment, the admin will send GRAM to the specified wallet within 24 hours.')+'</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
-    +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 Напиши боту эту команду:</div>'
+    +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 '+t('Напиши боту эту команду:','Send this command to the bot:')+'</div>'
     +'<div id="bank-cmd" style="font-size:12px;color:#FFD700;font-family:monospace;word-break:break-all;margin-bottom:10px"></div>'
-    +'<div style="font-size:11px;color:#90caf9">Бот пришлёт кнопку оплаты ⭐ прямо в чат</div>'
+    +'<div style="font-size:11px;color:#90caf9">'+t('Бот пришлёт кнопку оплаты ⭐ прямо в чат','The bot will send a ⭐ payment button right in the chat')+'</div>'
     +'</div>'
-    +'<div class="card"><div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px">📜 История выплат</div>'
-    +'<div id="withdrawals-log">⏳ Загрузка...</div></div>';
+    +'<div class="card"><div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px">📜 '+t('История выплат','Payout history')+'</div>'
+    +'<div id="withdrawals-log">⏳ '+t('Загрузка...','Loading...')+'</div></div>';
   loadWithdrawalsLog();
 }
 function shortWallet(w) {
@@ -2835,7 +2852,7 @@ function loadWithdrawalsLog() {
   function render() {
     var el2 = document.getElementById('withdrawals-log');
     if (!el2) return;
-    if (!liveItems.length) { el2.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px">Пока нет выплат</div>'; return; }
+    if (!liveItems.length) { el2.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px">'+t('Пока нет выплат','No payouts yet')+'</div>'; return; }
     var html = '';
     for (var i=0;i<liveItems.length;i++) {
       var it = liveItems[i];
@@ -2860,7 +2877,7 @@ function updateBankPreview() {
   var rate=100000*maxUnlockedMult();
   var gram=(val/rate).toFixed(5);
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">Ты получишь</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">Курс '+rate.toLocaleString('ru-RU')+' монет = 1 GRAM · Отправка вручную в течение 24ч</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>';
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
@@ -2870,12 +2887,12 @@ function exchangeCoins() {
   var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
   var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
   var wallet=wi?wi.value.trim():'';
-  if(amount<1000){showNotif('❌ Минимальная сумма вывода — 1,000 монет!');return;}
-  if(amount>50000){showNotif('❌ Максимальная сумма за один вывод — 50,000 монет!');return;}
-  if(amount<1||state.coins<1){showNotif('Недостаточно монет!');return;}
-  if(!wallet||wallet.length<10){showNotif('Введи TON кошелёк!');return;}
-  if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif('Кошелёк должен начинаться с UQ или EQ');return;}
-  showNotif('⏳ Создаём счёт...');
+  if(amount<1000){showNotif(t('❌ Минимальная сумма вывода — 1,000 монет!','❌ Minimum withdrawal — 1,000 coins!'));return;}
+  if(amount>50000){showNotif(t('❌ Максимальная сумма за один вывод — 50,000 монет!','❌ Maximum per withdrawal — 50,000 coins!'));return;}
+  if(amount<1||state.coins<1){showNotif(t('Недостаточно монет!','Not enough coins!'));return;}
+  if(!wallet||wallet.length<10){showNotif(t('Введи TON кошелёк!','Enter your TON wallet!'));return;}
+  if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif(t('Кошелёк должен начинаться с UQ или EQ','Wallet must start with UQ or EQ'));return;}
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
   var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
   var username = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||'') : '';
   fetch(BOT_API_URL+'/invoice', {
@@ -2885,14 +2902,14 @@ function exchangeCoins() {
   }).then(function(r){
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
-    if(!res.ok) { showNotif('Ошибка сервера ('+res.status+'): '+(res.data&&res.data.error||'неизвестная ошибка')); return; }
+    if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
       var invLink2 = data.link.replace('https://telegram.me/', 'https://t.me/');
       tg.openInvoice(invLink2, function(status){
         if(status==='paid') {
           state.coins=Math.round((state.coins-amount)*100)/100;
-          showNotif('💸 Заявка на вывод ' + amount + ' монет отправлена! GRAM придут в течение 24ч', true);
+          showNotif(t('💸 Заявка на вывод ','💸 Withdrawal request for ') + amount + t(' монет отправлена! GRAM придут в течение 24ч',' coins sent! GRAM will arrive within 24h'), true);
           updateUI(); save();
           // Начисляем рефереру 50% от суммы вывода
           if (userId && firebaseDB) {
@@ -2920,8 +2937,8 @@ function exchangeCoins() {
         }
       });
     } else if (data.error) {
-      showNotif('Ошибка сервера: '+data.error);
-    } else { showNotif('Ошибка: нет ссылки на оплату'); }
+      showNotif(t('Ошибка сервера: ','Server error: ')+data.error);
+    } else { showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link')); }
   }).catch(function(){
     var cmd = '/bank '+amount+' '+wallet;
     document.getElementById('bank-fallback').style.display='block';
@@ -2932,25 +2949,25 @@ function renderDaily() {
   var st=getDailyStatus();
   var lm=maxUnlockedMult();
   var html='<div class="card" style="text-align:center">'
-    +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">🎁 Ежедневный бонус</div>'
-    +'<div style="font-size:12px;color:#90caf9">Заходи каждый день за растущей наградой!</div></div>';
+    +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">🎁 '+t('Ежедневный бонус','Daily bonus')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9">'+t('Заходи каждый день за растущей наградой!','Log in every day for a growing reward!')+'</div></div>';
   html+='<div class="day-grid">';
   for (var i=0;i<7;i++) {
     var isDone=!st.canClaim&&i<state.dailyDay;
     var isCur=st.canClaim&&i===st.day;
     var dayReward=Math.round(DAILY[i]*lm*100)/100;
     html+='<div class="day-cell'+(isDone?' done':isCur?' current':'')+'">'
-      +'<div style="font-size:9px;color:#666">День '+(i+1)+'</div>'
+      +'<div style="font-size:9px;color:#666">'+t('День','Day')+' '+(i+1)+'</div>'
       +'<div style="font-size:11px;font-weight:600;color:'+(isDone?'#6ddc6d':isCur?'#FFD700':'#90caf9')+'">🪙'+fmt(dayReward)+'</div>'
       +'<div style="font-size:10px">'+(isDone?'✅':isCur?'👆':'🔒')+'</div></div>';
   }
   html+='</div>';
-  if (st.missed) html+='<div class="card" style="background:#3d1a0a;text-align:center;font-size:12px;color:#ff9944">⚠️ Пропустил день — серия сброшена</div>';
+  if (st.missed) html+='<div class="card" style="background:#3d1a0a;text-align:center;font-size:12px;color:#ff9944">⚠️ '+t('Пропустил день — серия сброшена','Missed a day — streak reset')+'</div>';
   if (st.canClaim) {
-    html+='<button class="btn btn-full" onclick="claimDaily()" style="background:#FFD700;color:#1a1a2e;font-size:15px;font-weight:700;padding:14px">🎁 Забрать 🪙'+fmt(Math.round(DAILY[st.day]*lm*100)/100)+'</button>';
+    html+='<button class="btn btn-full" onclick="claimDaily()" style="background:#FFD700;color:#1a1a2e;font-size:15px;font-weight:700;padding:14px">🎁 '+t('Забрать','Claim')+' 🪙'+fmt(Math.round(DAILY[st.day]*lm*100)/100)+'</button>';
   } else {
-    html+='<div class="card" style="text-align:center"><div style="font-size:13px;color:#90caf9">Следующий бонус через</div>'
-      +'<div style="font-size:22px;font-weight:700;color:#FFD700;margin-top:4px">'+st.nextIn+' ч</div></div>';
+    html+='<div class="card" style="text-align:center"><div style="font-size:13px;color:#90caf9">'+t('Следующий бонус через','Next bonus in')+'</div>'
+      +'<div style="font-size:22px;font-weight:700;color:#FFD700;margin-top:4px">'+st.nextIn+' '+t('ч','h')+'</div></div>';
   }
   document.getElementById('content').innerHTML=html;
 }
@@ -2958,11 +2975,11 @@ function renderLocations() {
   var html='';
   for (var i=0;i<LOCATIONS.length;i++) {
     var loc=LOCATIONS[i], isCur=loc.id===state.currentLoc, canU=!loc.unlocked&&state.coins>=loc.cost;
-    var btn=loc.unlocked?(isCur?'<button class="btn" disabled>Здесь</button>':'<button class="btn btn-green" onclick="switchLoc(\''+loc.id+'\')">Перейти</button>')
-      :'<button class="btn '+(canU?'btn-gold':'')+'" onclick="unlockLoc(\''+loc.id+'\')" '+(canU?'':'disabled')+'>🔓 Открыть 🪙'+fmt(loc.cost)+'</button>';
+    var btn=loc.unlocked?(isCur?'<button class="btn" disabled>'+t('Здесь','Here')+'</button>':'<button class="btn btn-green" onclick="switchLoc(\''+loc.id+'\')">'+t('Перейти','Go')+'</button>')
+      :'<button class="btn '+(canU?'btn-gold':'')+'" onclick="unlockLoc(\''+loc.id+'\')" '+(canU?'':'disabled')+'>🔓 '+t('Открыть','Unlock')+' 🪙'+fmt(loc.cost)+'</button>';
     html+='<div class="loc-card'+(isCur?' current':'')+'">'
-      +'<h4>'+loc.emoji+' '+loc.name+(isCur?' <span class="badge">текущая</span>':'')+'</h4>'
-      +'<p>x'+loc.tapMult+' к монетам'+(loc.cost>0?' · 🪙'+fmt(loc.cost):'')+'</p>'+btn+'</div>';
+      +'<h4>'+loc.emoji+' '+locName(loc.id)+(isCur?' <span class="badge">'+t('текущая','current')+'</span>':'')+'</h4>'
+      +'<p>x'+loc.tapMult+' '+t('к монетам','to coins')+(loc.cost>0?' · 🪙'+fmt(loc.cost):'')+'</p>'+btn+'</div>';
   }
   document.getElementById('content').innerHTML=html;
 }
@@ -3016,7 +3033,7 @@ function checkAndApplyRefRewards(isRod2) {
       if (total > 0) {
         state.coins = Math.round((state.coins + total) * 100) / 100;
         state.totalEarned = Math.round((state.totalEarned + total) * 100) / 100;
-        showNotif('🎁 Бонус: +🪙' + total);
+        showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙') + total);
         firebaseDB.ref('pending_rewards/' + pid).remove();
         updateUI(); save();
       }
@@ -3035,7 +3052,7 @@ function checkAndApplyRefRewards(isRod2) {
       var amt = b.amount || 0;
       var from = b.from || '?';
       totalBonus += amt;
-      showNotif('👥 Реферальный бонус от ' + from + ': +🪙' + fmt(amt));
+      showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ') + from + ': +🪙' + fmt(amt));
     });
     if (totalBonus > 0) {
       state.coins = Math.round((state.coins + totalBonus) * 100) / 100;
@@ -3069,12 +3086,12 @@ function checkAndApplyRefRewards(isRod2) {
 function showNews() {
   settingsSubpage = 'news';
   if (!firebaseDB) {
-    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">Нет соединения</div></div>';
+    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← '+t('Назад','Back')+'</button><div style="color:#90caf9;text-align:center;padding:20px">'+t('Нет соединения','No connection')+'</div></div>';
     return;
   }
   // Показываем загрузку только первый раз
   if (!window._newsCacheLoaded) {
-    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div></div>';
+    document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:8px">← '+t('Назад','Back')+'</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ '+t('Загрузка...','Loading...')+'</div></div>';
   } else {
     renderNewsHtml(window._newsCache);
     return;
@@ -3087,10 +3104,10 @@ function showNews() {
 }
 
 function renderNewsHtml(data) {
-  var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
-    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📰 Новости</div>';
+  var html = '<div class="card"><button class="btn btn-full" onclick="renderSettings()" style="background:#0f3460;margin-bottom:12px">← '+t('Назад','Back')+'</button>'
+    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📰 '+t('Новости','News')+'</div>';
   if (!data) {
-    html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
+    html += '<div style="color:#90caf9;text-align:center;padding:20px">'+t('Новостей пока нет','No news yet')+'</div>';
   } else {
     var items = Object.values(data).reverse();
     for (var i = 0; i < items.length; i++) {
@@ -3101,7 +3118,7 @@ function renderNewsHtml(data) {
         + '</div>';
     }
   }
-  html += '<button class="btn btn-full" onclick="showNewsArchive()" style="background:#3a2a5c;margin-top:4px">📚 Архив новостей</button>';
+  html += '<button class="btn btn-full" onclick="showNewsArchive()" style="background:#3a2a5c;margin-top:4px">📚 '+t('Архив новостей','News archive')+'</button>';
   html += '</div>';
   document.getElementById('content').innerHTML = html;
 }
@@ -3113,7 +3130,7 @@ function showNewsArchive() {
     renderNewsArchiveHtml(window._newsArchiveCache);
     return;
   }
-  document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:8px">← Назад</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка архива...</div></div>';
+  document.getElementById('content').innerHTML = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:8px">← '+t('Назад','Back')+'</button><div style="color:#90caf9;text-align:center;padding:20px">⏳ '+t('Загрузка архива...','Loading archive...')+'</div></div>';
   firebaseDB.ref('news').orderByKey().limitToLast(200).once('value', function(snap) {
     window._newsArchiveCache = snap.val();
     window._newsArchiveCacheLoaded = true;
@@ -3122,10 +3139,10 @@ function showNewsArchive() {
 }
 
 function renderNewsArchiveHtml(data) {
-  var html = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:12px">← Назад</button>'
-    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📚 Архив новостей</div>';
+  var html = '<div class="card"><button class="btn btn-full" onclick="showNews()" style="background:#0f3460;margin-bottom:12px">← '+t('Назад','Back')+'</button>'
+    + '<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:12px">📚 '+t('Архив новостей','News archive')+'</div>';
   if (!data) {
-    html += '<div style="color:#90caf9;text-align:center;padding:20px">Новостей пока нет</div>';
+    html += '<div style="color:#90caf9;text-align:center;padding:20px">'+t('Новостей пока нет','No news yet')+'</div>';
   } else {
     var items = Object.values(data).reverse();
     for (var i = 0; i < items.length; i++) {
@@ -3178,7 +3195,7 @@ function updateTournamentBanner() {
   var h = Math.floor(msLeft/3600000);
   var m = Math.floor((msLeft%3600000)/60000);
   var timerEl = document.getElementById('tournament-timer');
-  if (timerEl) timerEl.textContent = 'Осталось: '+h+'ч '+m+'м';
+  if (timerEl) timerEl.textContent = t('Осталось: ','Left: ')+h+t('ч ','h ')+m+t('м','m');
 }
 
 var refContestData = {active:false, endsAt:0};
@@ -3203,7 +3220,7 @@ function updateRefContestBanner() {
   var d = Math.floor(msLeft/86400000);
   var h = Math.floor((msLeft%86400000)/3600000);
   var timerEl = document.getElementById('refcontest-timer');
-  if (timerEl) timerEl.textContent = 'Осталось: '+d+'д '+h+'ч';
+  if (timerEl) timerEl.textContent = t('Осталось: ','Left: ')+d+t('д ','d ')+h+t('ч','h');
 }
 
 function showRefContestInfo() {
@@ -3269,12 +3286,12 @@ function checkDailyNews() {
     modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
     modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;max-width:360px;width:100%;max-height:80vh;display:flex;flex-direction:column;border:1.5px solid #FFD700;overflow:hidden">'
       + '<div style="padding:20px 20px 0;overflow-y:auto;flex:1">'
-      + '<div style="font-size:15px;font-weight:700;color:#FFD700;margin-bottom:8px">📰 Последние новости</div>'
+      + '<div style="font-size:15px;font-weight:700;color:#FFD700;margin-bottom:8px">📰 '+t('Последние новости','Latest news')+'</div>'
       + '<div style="font-size:11px;color:#666;margin-bottom:10px">📅 ' + (latest.date||'') + '</div>'
       + '<div style="font-size:13px;color:#fff;line-height:1.6;margin-bottom:16px">' + (latest.text||'').replace(/\n/g,'<br>') + '</div>'
       + '</div>'
       + '<div style="padding:12px 20px 20px">'
-      + '<button onclick="this.parentElement.parentElement.parentElement.remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Понятно 👍</button>'
+      + '<button onclick="this.parentElement.parentElement.parentElement.remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">'+t('Понятно 👍','Got it 👍')+'</button>'
       + '</div>'
       + '</div>';
     document.body.appendChild(modal);
@@ -3282,24 +3299,24 @@ function checkDailyNews() {
 }
 
 function showMyFriends() {
-  if (!firebaseDB || !userId) { showNotif('❌ Войди через Telegram'); return; }
+  if (!firebaseDB || !userId) { showNotif(t('❌ Войди через Telegram','❌ Log in via Telegram')); return; }
   var modal = document.createElement('div');
   modal.id = 'friends-modal';
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
   modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">'
-    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 Мои друзья</div>'
-    + '<div style="color:#90caf9;text-align:center;padding:20px">⏳ Загрузка...</div>'
+    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 '+t('Мои друзья','My friends')+'</div>'
+    + '<div style="color:#90caf9;text-align:center;padding:20px">⏳ '+t('Загрузка...','Loading...')+'</div>'
     + '</div>';
   document.body.appendChild(modal);
 
   firebaseDB.ref('referrals/by/' + userId).once('value', function(snap) {
     var refs = snap.val();
     var inner = modal.querySelector('div');
-    var html = '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 Мои друзья</div>';
+    var html = '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 '+t('Мои друзья','My friends')+'</div>';
 
     if (!refs || Object.keys(refs).length === 0) {
-      html += '<div style="color:#90caf9;text-align:center;padding:20px">Ты ещё никого не пригласил 🎣<br><br>Поделись ссылкой и получи бонус!</div>';
-      html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px">Закрыть</button>';
+      html += '<div style="color:#90caf9;text-align:center;padding:20px">'+t('Ты ещё никого не пригласил 🎣<br><br>Поделись ссылкой и получи бонус!','You haven\'t invited anyone yet 🎣<br><br>Share your link to get a bonus!')+'</div>';
+      html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px">'+t('Закрыть','Close')+'</button>';
       inner.innerHTML = html;
       return;
     }
@@ -3312,18 +3329,18 @@ function showMyFriends() {
       firebaseDB.ref('leaderboard/tg_' + rid).once('value', function(s) {
         var p = s.val();
         if (p) {
-          var name = p.username ? '@' + p.username : (p.firstName || 'Игрок #' + rid);
+          var name = p.username ? '@' + p.username : (p.firstName || t('Игрок #','Player #') + rid);
           names.push(name);
         } else {
           names.push('ID:' + rid);
         }
         loaded++;
         if (loaded === refIds.length) {
-          html += '<div style="font-size:12px;color:#666;margin-bottom:10px">Приглашено: ' + names.length + '</div>';
+          html += '<div style="font-size:12px;color:#666;margin-bottom:10px">'+t('Приглашено: ','Invited: ') + names.length + '</div>';
           names.forEach(function(n) {
             html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">🎣 ' + n + '</div>';
           });
-          html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">Закрыть</button>';
+          html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">'+t('Закрыть','Close')+'</button>';
           inner.innerHTML = html;
         }
       });
@@ -3334,10 +3351,10 @@ function showMyFriends() {
 function copyRefLink() {
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var uid = tgUser ? tgUser.id : 0;
-  if (!uid) { showNotif('❌ Войди через Telegram'); return; }
+  if (!uid) { showNotif(t('❌ Войди через Telegram','❌ Log in via Telegram')); return; }
   var link = 'https://t.me/fish_farmings_bot?start=ref_' + uid;
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(link).then(function() { showNotif('✅ Ссылка скопирована!'); });
+    navigator.clipboard.writeText(link).then(function() { showNotif(t('✅ Ссылка скопирована!','✅ Link copied!')); });
   } else {
     showNotif('🔗 ' + link);
   }
@@ -3345,13 +3362,13 @@ function copyRefLink() {
 function shareRefLink() {
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var uid = tgUser ? tgUser.id : 0;
-  if (!uid) { showNotif('❌ Войди через Telegram'); return; }
+  if (!uid) { showNotif(t('❌ Войди через Telegram','❌ Log in via Telegram')); return; }
   var link = 'https://t.me/fish_farmings_bot?start=ref_' + uid;
   var text = '🎣 Играй в FishFarm со мной! Лови рыбу, торгуй и зарабатывай монеты.';
   if (tg && tg.openTelegramLink) {
     tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + encodeURIComponent(text));
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(text + '\n' + link).then(function() { showNotif('✅ Скопировано для отправки!'); });
+    navigator.clipboard.writeText(text + '\n' + link).then(function() { showNotif(t('✅ Скопировано для отправки!','✅ Copied to share!')); });
   }
 }
 function getRefLink() {
@@ -3385,7 +3402,7 @@ function activateBoostWithTime(id, elapsed) {
   if (id==='turboSpeed') state.boosts.turboSpeed  = now + remaining;
   if (id==='turboDry') {
     for (var j=0;j<state.drying.length;j++) state.drying[j].endsAt = now;
-    showNotif('🌡 Вся сушка завершена мгновенно!');
+    showNotif(t('🌡 Вся сушка завершена мгновенно!','🌡 All drying finished instantly!'));
   }
   if (id==='turboPack') {
     for (var pi=0;pi<(state.filets||[]).length;pi++) {
@@ -3394,7 +3411,7 @@ function activateBoostWithTime(id, elapsed) {
         state.filets[pi].packingEndsAt = now;
       }
     }
-    showNotif('📦 Вся упаковка завершена мгновенно!');
+    showNotif(t('📦 Вся упаковка завершена мгновенно!','📦 All packing finished instantly!'));
   }
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -3493,16 +3510,16 @@ function renderLeaders() {
   document.getElementById('content').innerHTML =
     '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🏆</div>'
-    +'<div style="font-size:15px;font-weight:600;color:#FFD700">Таблица лидеров</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Топ рыбаков по улову</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Таблица лидеров','Leaderboard')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Топ рыбаков по улову','Top anglers by catch')+'</div>'
     +'</div>'
     +'<div id="tournament-section"></div>'
-    +'<div id="leaders-list"><div style="text-align:center;padding:20px;color:#666">⏳ Загрузка...</div></div>';
+    +'<div id="leaders-list"><div style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div></div>';
 
   if (!firebaseDB) {
     document.getElementById('leaders-list').innerHTML =
       '<div class="card" style="text-align:center;color:#f44336;font-size:13px">'
-      +'⚠️ Firebase не настроен<br><span style="font-size:11px;color:#666">Добавь конфигурацию Firebase в index.html</span></div>';
+      +'⚠️ '+t('Firebase не настроен','Firebase not configured')+'<br><span style="font-size:11px;color:#666">'+t('Добавь конфигурацию Firebase в index.html','Add Firebase config to index.html')+'</span></div>';
     return;
   }
 
@@ -3519,7 +3536,7 @@ function renderLeaders() {
 
       if (entries.length === 0) {
         document.getElementById('leaders-list').innerHTML =
-          '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока никого нет 🐟<br>Будь первым!</div>';
+          '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">'+t('Пока никого нет 🐟<br>Будь первым!','No one yet 🐟<br>Be the first!')+'</div>';
         return;
       }
 
@@ -3533,22 +3550,22 @@ function renderLeaders() {
         var th = Math.floor(msLeft/3600000), tm = Math.floor((msLeft%3600000)/60000);
 
         var tHtml = '<div class="card" style="background:linear-gradient(135deg,#3a0f5c,#5c1a8e);border:1.5px solid #b794f6;margin-bottom:10px">'
-          +'<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:2px">🏆 Турнир недели</div>'
-          +'<div style="font-size:11px;color:#e1bee7;margin-bottom:10px">⏱ Осталось: '+th+'ч '+tm+'м</div>';
+          +'<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:2px">🏆 '+t('Турнир недели','Weekly tournament')+'</div>'
+          +'<div style="font-size:11px;color:#e1bee7;margin-bottom:10px">⏱ '+t('Осталось:','Left:')+' '+th+t('ч ','h ')+tm+t('м','m')+'</div>';
 
         if (tEntries.length === 0) {
-          tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">Пока никто не заработал монет в турнире 🪙</div>';
+          tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">'+t('Пока никто не заработал монет в турнире 🪙','No one has earned coins in the tournament yet 🪙')+'</div>';
         } else {
           var tMedals=['🥇','🥈','🥉'];
           for (var ti=0; ti<Math.min(10, tEntries.length); ti++) {
             var te = tEntries[ti];
             var isMeT = te.id === myPid;
-            var tName = te.data.playerName || te.data.firstName || (te.data.username?'@'+te.data.username:'🎣 Рыбак #'+(te.data.num||'?'));
+            var tName = te.data.playerName || te.data.firstName || (te.data.username?'@'+te.data.username:'🎣 '+t('Рыбак','Angler')+' #'+(te.data.num||'?'));
             if ((te.data.premiumUntil||0) > Date.now()) tName = '👑 '+tName;
             var tRank = ti<3 ? tMedals[ti] : '#'+(ti+1);
             tHtml += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;'+(isMeT?'background:rgba(255,215,0,.15);border-radius:8px':'')+'">'
               +'<div style="font-size:12px;min-width:26px;text-align:center">'+tRank+'</div>'
-              +'<div style="flex:1;font-size:12px;color:'+(isMeT?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tName+(isMeT?' (ты)':'')+'</div>'
+              +'<div style="flex:1;font-size:12px;color:'+(isMeT?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tName+(isMeT?t(' (ты)',' (you)'):'')+'</div>'
               +'<div style="font-size:12px;font-weight:700;color:#e1bee7">🪙+'+fmt(te.delta)+'</div>'
               +'</div>';
           }
@@ -3567,22 +3584,22 @@ function renderLeaders() {
         var isMe = e.id === myPid;
         if (isMe) myRank = i+1;
         var rank = i<3 ? medals[i] : '#'+(i+1);
-        var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 Рыбак #'+(e.data.num||'?'));
+        var name = e.data.playerName || e.data.firstName || (e.data.username?'@'+e.data.username:'🎣 '+t('Рыбак','Angler')+' #'+(e.data.num||'?'));
         var isPrem = (e.data.premiumUntil||0) > Date.now();
         if (isPrem) name = '👑 '+name;
         var loc = locEmoji[e.data.loc]||'🌿';
         html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;background:'+(isMe?'#0a2a4a':'#0f3460')+';border:1.5px solid '+(isMe?'#FFD700':'transparent')+'">'
           +'<div style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:#90caf9">'+rank+'</div>'
           +'<div style="flex:1">'
-          +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?' (ты)':'')+'</div>'
-          +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' монет</div>'
+          +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?t(' (ты)',' (you)'):'')+'</div>'
+          +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' '+t('монет','coins')+'</div>'
           +'</div>'
           +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
           +'</div>';
       }
 
       if (myRank === -1) {
-        html += '<div class="card" style="text-align:center;font-size:12px;color:#666">Тебя пока нет в таблице — лови рыбу!</div>';
+        html += '<div class="card" style="text-align:center;font-size:12px;color:#666">'+t('Тебя пока нет в таблице — лови рыбу!','You\'re not on the board yet — go catch fish!')+'</div>';
       }
 
       document.getElementById('leaders-list').innerHTML = html;
@@ -3596,15 +3613,15 @@ function clearNotifLog() {
 }
 function showNotifLog() {
   settingsSubpage = 'notiflog';
-  var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
+  var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
     +'<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
-    +'<div style="font-size:15px;font-weight:600;color:#FFD700">История уведомлений</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">Последние 50 событий</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('История уведомлений','Notification history')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Последние 50 событий','Last 50 events')+'</div>'
     +'</div>';
 
   if (notifLog.length === 0) {
-    html += '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">Пока ничего нет</div>';
+    html += '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">'+t('Пока ничего нет','Nothing yet')+'</div>';
   } else {
     html += '<div class="card" style="padding:0">';
     for (var i=0;i<notifLog.length;i++) {
@@ -3615,30 +3632,44 @@ function showNotifLog() {
         +'</div>';
     }
     html += '</div>';
-    html += '<button class="btn btn-full" onclick="clearNotifLog()" style="margin-top:8px;background:#3d0f0f">🗑 Очистить историю</button>';
+    html += '<button class="btn btn-full" onclick="clearNotifLog()" style="margin-top:8px;background:#3d0f0f">🗑 '+t('Очистить историю','Clear history')+'</button>';
   }
-  html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
+  html += '<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← '+t('Назад','Back')+'</button>';
   document.getElementById('content').innerHTML = html;
 }
 
 function renderPremiumCard() {
   if (isPremiumActive()) {
     var untilDate = new Date(state.premiumUntil);
-    var dateStr = untilDate.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric'});
+    var dateStr = untilDate.toLocaleDateString(LANG==='ru'?'ru-RU':'en-GB', {day:'2-digit',month:'2-digit',year:'numeric'});
     return '<div class="card" style="background:linear-gradient(135deg,#3a2a0a,#5c4a1a);border:1.5px solid #FFD700">'
-      +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 Premium активен</div>'
-      +'<div style="font-size:12px;color:#f0e0b0">Действует до '+dateStr+' · продлевается автоматически</div>'
-      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">✅ +25% к автодоходу<br>✅ +50% к максимуму энергии (150 вместо 100)<br>✅ Бесплатный ежедневный ремонт транспорта<br>✅ Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)<br>✅ Защита стрика (окно 72ч вместо 48ч)<br>✅ Бесплатная крутка лотереи в день<br>✅ 👑 у имени в лидерборде</div>'
+      +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 '+t('Premium активен','Premium active')+'</div>'
+      +'<div style="font-size:12px;color:#f0e0b0">'+t('Действует до','Active until')+' '+dateStr+' · '+t('продлевается автоматически','renews automatically')+'</div>'
+      +'<div style="font-size:11px;color:#c8b878;margin-top:8px;line-height:1.7">'
+      +'✅ '+t('+25% к автодоходу','+25% to auto-income')+'<br>'
+      +'✅ '+t('+50% к максимуму энергии (150 вместо 100)','+50% max energy (150 instead of 100)')+'<br>'
+      +'✅ '+t('Бесплатный ежедневный ремонт транспорта','Free daily transport repair')+'<br>'
+      +'✅ '+t('Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)','Bank fee 3⭐ instead of 5⭐ (both × location multiplier)')+'<br>'
+      +'✅ '+t('Защита стрика (окно 72ч вместо 48ч)','Streak protection (72h window instead of 48h)')+'<br>'
+      +'✅ '+t('Бесплатная крутка лотереи в день','One free lottery spin per day')+'<br>'
+      +'✅ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
       +'</div>';
   }
   return '<div class="card" style="background:linear-gradient(135deg,#1a1a3a,#2a1a4a);border:1.5px solid #9b59b6">'
     +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:6px">👑 FishFarm Premium</div>'
-    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">✨ +25% к автодоходу<br>✨ +50% к максимуму энергии (150 вместо 100)<br>✨ Бесплатный ежедневный ремонт транспорта<br>✨ Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)<br>✨ Защита стрика ежедневного бонуса<br>✨ Бесплатная крутка лотереи каждый день<br>✨ 👑 у имени в лидерборде</div>'
-    +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 Оформить за ⭐250/мес</button>'
+    +'<div style="font-size:12px;color:#c8b8e8;margin-bottom:10px;line-height:1.7">'
+    +'✨ '+t('+25% к автодоходу','+25% to auto-income')+'<br>'
+    +'✨ '+t('+50% к максимуму энергии (150 вместо 100)','+50% max energy (150 instead of 100)')+'<br>'
+    +'✨ '+t('Бесплатный ежедневный ремонт транспорта','Free daily transport repair')+'<br>'
+    +'✨ '+t('Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)','Bank fee 3⭐ instead of 5⭐ (both × location multiplier)')+'<br>'
+    +'✨ '+t('Защита стрика ежедневного бонуса','Daily bonus streak protection')+'<br>'
+    +'✨ '+t('Бесплатная крутка лотереи каждый день','Free lottery spin every day')+'<br>'
+    +'✨ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
+    +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 '+t('Оформить за ⭐250/мес','Subscribe for ⭐250/mo')+'</button>'
     +'</div>';
 }
 function buyPremium() {
-  showNotif('⏳ Создаём счёт...');
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
   var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
   fetch(BOT_API_URL+'/invoice', {
     method:'POST',
@@ -3647,31 +3678,31 @@ function buyPremium() {
   }).then(function(r){
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
-    if(!res.ok) { showNotif('Ошибка сервера ('+res.status+'): '+(res.data&&res.data.error||'неизвестная ошибка')); return; }
+    if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
       var invLink = data.link.replace('https://telegram.me/', 'https://t.me/');
       tg.openInvoice(invLink, function(status){
         if(status==='paid') {
-          showNotif('👑 Premium активируется в течение минуты!');
+          showNotif(t('👑 Premium активируется в течение минуты!','👑 Premium activates within a minute!'));
           setTimeout(checkPremiumStatus, 3000);
           setTimeout(function(){ if(currentTab==='settings') renderSettings(); }, 3500);
         }
       });
     } else if (data.error) {
-      showNotif('Ошибка сервера: '+data.error);
-    } else { showNotif('Ошибка: нет ссылки на оплату'); }
-  }).catch(function(e){ showNotif('Ошибка: '+e.message); });
+      showNotif(t('Ошибка сервера: ','Server error: ')+data.error);
+    } else { showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link')); }
+  }).catch(function(e){ showNotif(t('Ошибка: ','Error: ')+e.message); });
 }
 function renderSettings() {
   settingsSubpage = null;
   var li=getLoc();
-  var mood=scareFactor>=0.9?'😊 Спокойная':scareFactor>=0.6?'😐 Насторожена':scareFactor>=0.3?'😨 Напугана':'😱 В панике';
+  var mood=scareFactor>=0.9?t('😊 Спокойная','😊 Calm'):scareFactor>=0.6?t('😐 Насторожена','😐 Alert'):scareFactor>=0.3?t('😨 Напугана','😨 Scared'):t('😱 В панике','😱 Panicking');
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var isAdmin = tgUser && tgUser.id === 145841941;
   var adminHtml = isAdmin
     ? '<div class="card" style="background:#1a0a3a;margin-bottom:8px">'
-      +'<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🔧 Админ-панель</div>'
+      +'<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🔧 '+t('Админ-панель','Admin panel')+'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
       +'<button class="btn" onclick="state.coins+=1000;updateUI();save();showNotif(\'✅ +1000\')" style="background:#1565c0">+1к</button>'
       +'<button class="btn" onclick="state.coins+=10000;updateUI();save();showNotif(\'✅ +10к\')" style="background:#1565c0">+10к</button>'
@@ -3681,23 +3712,23 @@ function renderSettings() {
     : '';
   document.getElementById('content').innerHTML=
     adminHtml
-    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ Настройки</div>'
-    +'<button class="btn btn-full" onclick="showNews()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📰 Новости</button>'
-    +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 Как играть</button>'
-    +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 История уведомлений <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
-    +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ Сменить имя <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||'не задано')+'</span></button>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">⚙️ '+t('Настройки','Settings')+'</div>'
+    +'<button class="btn btn-full" onclick="showNews()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📰 '+t('Новости','News')+'</button>'
+    +'<button class="btn btn-full" onclick="showInstructions()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📖 '+t('Как играть','How to play')+'</button>'
+    +'<button class="btn btn-full" onclick="showNotifLog()" style="background:#1565c0;margin-bottom:8px;text-align:left;padding:14px">📋 '+t('История уведомлений','Notification history')+' <span style="color:#90caf9;font-size:11px">('+notifLog.length+')</span></button>'
+    +'<button class="btn btn-full" onclick="showNameInput()" style="background:#1565c0;text-align:left;padding:14px;overflow:hidden">✏️ '+t('Сменить имя','Change name')+' <span style="color:#FFD700;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;display:inline-block;vertical-align:middle">'+(state.playerName||t('не задано','not set'))+'</span></button>'
     +'</div>'
     +renderPremiumCard()
     +'<div class="card" style="background:#0a2a1a">'
-    +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 Пригласить друга</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">Ты и друг получите по 🪙100 монет.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!</div>'
-    +'<button class="btn btn-full" onclick="copyRefLink()" style="background:#1a5c2a;margin-bottom:6px">🔗 Скопировать ссылку</button>'
-    +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a;margin-bottom:6px">📤 Поделиться</button>'
-    +'<button class="btn btn-full" onclick="showMyFriends()" style="background:#0a3a1a">👥 Мои друзья</button>'
+    +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 '+t('Пригласить друга','Invite a friend')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Ты и друг получите по 🪙100 монет.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!','You and your friend get 🪙100 coins each.<br>When your friend buys rod level 2 — you get another 🪙1000!')+'</div>'
+    +'<button class="btn btn-full" onclick="copyRefLink()" style="background:#1a5c2a;margin-bottom:6px">🔗 '+t('Скопировать ссылку','Copy link')+'</button>'
+    +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a;margin-bottom:6px">📤 '+t('Поделиться','Share')+'</button>'
+    +'<button class="btn btn-full" onclick="showMyFriends()" style="background:#0a3a1a">👥 '+t('Мои друзья','My friends')+'</button>'
     +'</div>'
-    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 Статистика</div>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 '+t('Статистика','Statistics')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
-    +'Монет: '+fmt(state.coins)+'<br>Живых рыб: '+state.liveFish.length+'<br>За тап: '+state.tapPower.toFixed(1)+'<br>Авто/мин: '+state.autoPerSec+'<br>Локация: '+li.emoji+' '+li.name+'<br>Настроение: '+mood+'</div></div>'
+    +t('Монет: ','Coins: ')+fmt(state.coins)+t('<br>Живых рыб: ','<br>Live fish: ')+state.liveFish.length+t('<br>За тап: ','<br>Per tap: ')+state.tapPower.toFixed(1)+t('<br>Авто/мин: ','<br>Auto/min: ')+state.autoPerSec+t('<br>Локация: ','<br>Location: ')+li.emoji+' '+locName(li.id)+t('<br>Настроение: ','<br>Mood: ')+mood+'</div></div>'
     +'<div class="card">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🌐 Язык / Language</div>'
     +'<div style="display:flex;gap:8px">'
@@ -3705,85 +3736,85 @@ function renderSettings() {
     +'<button class="btn" onclick="setLanguage(\'en\')" style="flex:1;'+(LANG==='en'?'background:#2d8a4f;border:2px solid #6ddc6d':'background:#333;opacity:0.6')+'">🇬🇧 English</button>'
     +'</div>'
     +'</div>'
-    +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">Сброс прогресса</div>'
-    +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">Весь прогресс будет удалён безвозвратно</div>'
-    +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 Сбросить прогресс</button></div>';
+    +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">'+t('Сброс прогресса','Reset progress')+'</div>'
+    +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">'+t('Весь прогресс будет удалён безвозвратно','All progress will be permanently deleted')+'</div>'
+    +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 '+t('Сбросить прогресс','Reset progress')+'</button></div>';
 }
 
 function showInstructions() {
   settingsSubpage = 'instructions';
   document.getElementById('content').innerHTML=
-    '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← Назад</button>'
-    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 Как играть</div>'
+    '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 '+t('Как играть','How to play')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
-    +'<b style="color:#fff">🎣 Рыбалка</b><br>Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!<br>🫍 Раз в 2 часа появляется редкая Осетрина (в любой локации) — в течение 10 минут её можно поймать! При тапе есть шанс 15% — и ты сразу получишь монеты, сумма растёт вместе с множителем твоей текущей локации (Пруд 🪙25 · Река 🪙50 · Тропики 🪙125 · Глубины 🪙375 · Космос 🪙1250). Следи за иконкой 🫍 под процентом улова!<br><br>'
-    +'<b style="color:#fff">😊 Настроение рыбы</b><br>Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!<br><br>'
-    +'<b style="color:#fff">🐠 Склад живой рыбы</b><br>Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!<br><br>'
-    +'<b style="color:#fff">🌤 Погода</b><br>Каждые 30 минут погода меняется для всех игроков одновременно!<br>'
-    +'☀️ Ясно — всё в норме<br>'
-    +'🌥 Облачно — −10% улов, +10% цены<br>'
-    +'🌧 Дождь — −25% улов, +25% цены<br>'
-    +'⛈ Шторм — −40% улов, +50% цены<br>'
-    +'🌟 Отличный клёв — +30% улов, −10% цены<br>'
-    +'Следи за погодой внизу экрана — при шторме выгоднее продавать, при отличном клёве — ловить!<br><br>'
-    +'<b style="color:#fff">🍳 Кухня — засолка, сушка и филе</b><br>'
-    +'<u>Засолка и сушка:</u><br>'
-    +'1️⃣ Накопи 10 рыб одного вида<br>'
-    +'2️⃣ Купи соль на рынке (при отправке доставки выбери соль на обратный путь)<br>'
-    +'3️⃣ Засоли рыбу 🧂 — занимает 30 минут<br>'
-    +'4️⃣ Запусти сушку 🌡 — время зависит от вида рыбы<br>'
-    +'5️⃣ Собери пакет 📦 — продай на рынке (срок годности 6 часов)<br><br>'
-    +'<u>Филе:</u><br>'
-    +'1️⃣ Накопи 10 рыб одного вида<br>'
-    +'2️⃣ Купи нож 🔪 на рынке (обратный путь, как соль)<br>'
-    +'3️⃣ Разделай рыбу — занимает 2 часа<br>'
-    +'4️⃣ Запусти упаковку — время зависит от вида рыбы<br>'
-    +'5️⃣ Собери филе — продай на рынке (срок годности 3 часа)<br><br>'
-    +'<b style="color:#fff">🧂 Соль</b><br>Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙<br><br>'
-    +'<b style="color:#fff">🔪 Нож</b><br>Покупается так же как соль — при отправке доставки на рынке, на обратном пути. Нужен для разделки рыбы на филе. Цена зависит от локации: Пруд 3🪙 · Река 6🪙 · Тропики 15🪙 · Глубины 45🪙 · Космос 150🪙<br><br>'
-    +'<b style="color:#fff">🏪 Рынок и доставка</b><br>Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике!<br>📦 Сушёная рыба — в 3 раза дороже свежей<br>🍱 Филе рыбы — в 5 раз дороже свежей<br><br>'
-    +'<b style="color:#fff">🧑‍✈️ Нанять водителя</b><br>Во вкладке 🏪 Рынок → переключись на вкладку 🧑‍✈️ Водитель. Выбери транспорт для водителя (отличный от твоего), выбери рыбу и отправь. Водитель едет параллельно с твоей доставкой! Водитель забирает 30% выручки — остальное твоё. Соль и ножи можно заказать и для водителя.<br><br>'
-    +'<b style="color:#fff">🚚 Транспорт и амортизация</b><br>'
-    +'🚲 Велосипед — бесплатно · 5 рыб · 8 мин<br>'
-    +'🛵 Мопед — 5000🪙 · 15 рыб · 15 мин<br>'
-    +'🚗 Машина — 50000🪙 · 40 рыб · 25 мин<br>'
-    +'🚛 Грузовик — 300000🪙 · 100 рыб · 40 мин<br>'
-    +'Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧<br>'
-    +'🚛 Грузовик с прицепом (аренда, ⭐5 на рынке рядом со списком транспорта) — 200 рыб · 15 мин · не изнашивается, действует 12 часов<br><br>'
-    +'<b style="color:#fff">⬆️ Улучшения</b><br>'
-    +'🎣 Удочка — увеличивает монеты за улов и шанс улова<br>'
-    +'🕸 Сеть — +0.1 к автодобычи в минуту за уровень (макс 5 ур.)<br>'
-    +'⛵ Лодка — +0.3 к автодобычи в минуту за уровень (макс 5 ур.)<br>'
-    +'📡 Сонар — +0.5 к автодобычи в минуту за уровень (макс 5 ур.)<br>'
-    +'Доход с этих апгрейдов растёт вместе с локацией (как и цена): в Космосе тот же уровень Сети/Лодки/Сонара приносит в 50 раз больше монет, чем в Пруду<br>'
-    +'⚠️ Прокачка отдельная для каждой локации! Перешёл в Реку — там всё с нуля, а уровни в Пруду сохранятся. Цена апгрейдов растёт вместе с локацией: Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50<br><br>'
-    +'<b style="color:#fff">💤 Оффлайн-доход</b><br>Пока тебя нет в игре, автодобыча (Сеть/Лодка/Сонар) продолжает капать монеты — но <b>только по прокачке той локации, где ты был в момент выхода</b>. Вернулся на Пруд — доход посчитается по Пруду, даже если у тебя разлочена и прокачана Река. Доход с разных локаций не складывается — считается только текущая.<br><br>'
-    +'<b style="color:#fff">🗺 Локации</b><br>Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50<br><br>'
-    +'<b style="color:#fff">🎁 Ежедневный бонус</b><br>Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!<br><br>'
-    +'<b style="color:#fff">📋 Ежедневные квесты</b><br>Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.<br><br>'
-    +'<b style="color:#fff">👥 Реферальная программа</b><br>Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.<br><br>'
-    +'🎁 <b style="color:#FFD700">Бонус при регистрации</b> — ты и друг получите по 🪙100 монет<br>'
-    +'🎁 <b style="color:#FFD700">Бонус за активность</b> — когда друг купит удочку ур.2 — ты получишь ещё 🪙1000<br>'
-    +'💰 <b style="color:#FFD700">Постоянный бонус</b> — каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 50% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙250 прямо на баланс<br><br>'
-    +'Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.<br>'
-    +'В разделе «Мои друзья» можно видеть кто уже присоединился!<br><br>'
-    +'<b style="color:#fff">⚡ Бустеры</b><br>Временные усиления за ⭐ Telegram Stars (цена указана у каждого):<br>'
-    +'⚡ Авто-буст (⭐1) — +2 к автодобыче в минуту на 1 час (итого +120 монет)<br>'
-    +'🌡 Мгновенная сушка (⭐1) — все текущие пакеты досушиваются мгновенно<br>'
-    +'🎣 Удачная рыбалка (⭐1) — +50% шанс улова на 30 мин<br>'
-    +'🏎 Турбо скорость (⭐1) — ×2 скорость транспорта на 1 час<br>'
-    +'📦 Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно<br>'
-    +'🚀 Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно<br>'
-    +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
-    +'<b style="color:#fff">⚡ Энергия</b><br>На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5 мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).<br><br>'
-    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
-    +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
-    +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.<br><br>'
-    +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
-    +'<b style="color:#fff">🏆 Турнир недели</b><br>Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.<br><br>'
-    +'<b style="color:#fff">👋 Бонус за возвращение</b><br>Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.<br><br>'
-    +'<b style="color:#fff">🏆 Таблица лидеров</b><br>Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.</div></div>'
-    +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← Назад</button>';
+    +'<b style="color:#fff">'+t('🎣 Рыбалка','🎣 Fishing')+'</b><br>'+t('Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!','Tap the water to catch fish. Catch chance depends on your rod. Tapping too fast scares the fish — tap in moderation!')+'<br>🫍 '+t('Раз в 2 часа появляется редкая Осетрина (в любой локации) — в течение 10 минут её можно поймать! При тапе есть шанс 15% — и ты сразу получишь монеты, сумма растёт вместе с множителем твоей текущей локации (Пруд 🪙25 · Река 🪙50 · Тропики 🪙125 · Глубины 🪙375 · Космос 🪙1250). Следи за иконкой 🫍 под процентом улова!','Every 2 hours a rare Sturgeon appears (in any location) — catchable for 10 minutes! Each tap has a 15% chance to catch it instantly for coins, scaling with your current location multiplier (Pond 🪙25 · River 🪙50 · Tropics 🪙125 · Deep 🪙375 · Space 🪙1250). Watch for the 🫍 icon under the catch percentage!')+'<br><br>'
+    +'<b style="color:#fff">'+t('😊 Настроение рыбы','😊 Fish mood')+'</b><br>'+t('Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!','The emoji shows the mood: 😊 calm — max chance, 😨 scared — chance drops. Don\'t spam taps!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🐠 Склад живой рыбы','🐠 Live fish storage')+'</b><br>'+t('Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!','Any fish lives for 1 hour. Sell or dry it in time — or it will die!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🌤 Погода','🌤 Weather')+'</b><br>'+t('Каждые 30 минут погода меняется для всех игроков одновременно!','Every 30 minutes weather changes for all players at once!')+'<br>'
+    +'☀️ '+t('Ясно — всё в норме','Clear — everything normal')+'<br>'
+    +'🌥 '+t('Облачно — −10% улов, +10% цены','Cloudy — −10% catch, +10% prices')+'<br>'
+    +'🌧 '+t('Дождь — −25% улов, +25% цены','Rain — −25% catch, +25% prices')+'<br>'
+    +'⛈ '+t('Шторм — −40% улов, +50% цены','Storm — −40% catch, +50% prices')+'<br>'
+    +'🌟 '+t('Отличный клёв — +30% улов, −10% цены','Great bite — +30% catch, −10% prices')+'<br>'
+    +t('Следи за погодой внизу экрана — при шторме выгоднее продавать, при отличном клёве — ловить!','Watch the weather at the bottom of the screen — sell during storms, fish during great bite!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🍳 Кухня — засолка, сушка и филе','🍳 Kitchen — salting, drying and filet')+'</b><br>'
+    +'<u>'+t('Засолка и сушка:','Salting and drying:')+'</u><br>'
+    +'1️⃣ '+t('Накопи 10 рыб одного вида','Collect 10 fish of one kind')+'<br>'
+    +'2️⃣ '+t('Купи соль на рынке (при отправке доставки выбери соль на обратный путь)','Buy salt at the market (choose salt for the return trip when sending delivery)')+'<br>'
+    +'3️⃣ '+t('Засоли рыбу 🧂 — занимает 30 минут','Salt the fish 🧂 — takes 30 minutes')+'<br>'
+    +'4️⃣ '+t('Запусти сушку 🌡 — время зависит от вида рыбы','Start drying 🌡 — time depends on fish type')+'<br>'
+    +'5️⃣ '+t('Собери пакет 📦 — продай на рынке (срок годности 6 часов)','Collect the pack 📦 — sell at the market (expires in 6 hours)')+'<br><br>'
+    +'<u>'+t('Филе:','Filet:')+'</u><br>'
+    +'1️⃣ '+t('Накопи 10 рыб одного вида','Collect 10 fish of one kind')+'<br>'
+    +'2️⃣ '+t('Купи нож 🔪 на рынке (обратный путь, как соль)','Buy a knife 🔪 at the market (return trip, like salt)')+'<br>'
+    +'3️⃣ '+t('Разделай рыбу — занимает 2 часа','Cut the fish — takes 2 hours')+'<br>'
+    +'4️⃣ '+t('Запусти упаковку — время зависит от вида рыбы','Start packing — time depends on fish type')+'<br>'
+    +'5️⃣ '+t('Собери филе — продай на рынке (срок годности 3 часа)','Collect the filet — sell at the market (expires in 3 hours)')+'<br><br>'
+    +'<b style="color:#fff">'+t('🧂 Соль','🧂 Salt')+'</b><br>'+t('Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙','Bought when sending delivery at the market. On the way back the transport brings salt. Price depends on location: Pond 1🪙 · River 2🪙 · Tropics 5🪙 · Deep 15🪙 · Space 50🪙')+'<br><br>'
+    +'<b style="color:#fff">'+t('🔪 Нож','🔪 Knife')+'</b><br>'+t('Покупается так же как соль — при отправке доставки на рынке, на обратном пути. Нужен для разделки рыбы на филе. Цена зависит от локации: Пруд 3🪙 · Река 6🪙 · Тропики 15🪙 · Глубины 45🪙 · Космос 150🪙','Bought the same way as salt — when sending delivery at the market, on the way back. Needed to cut fish into filet. Price depends on location: Pond 3🪙 · River 6🪙 · Tropics 15🪙 · Deep 45🪙 · Space 150🪙')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏪 Рынок и доставка','🏪 Market and delivery')+'</b><br>'+t('Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. Цены меняются каждые 30 сек 📈📉 — от 30% до 300% базовой цены. Следи за ценами и продавай на пике!','Choose a fish type (fresh, dried, or filet) and send it by transport. Prices change every 30 sec 📈📉 — from 30% to 300% of base price. Watch prices and sell at the peak!')+'<br>📦 '+t('Сушёная рыба — в 3 раза дороже свежей','Dried fish — 3x pricier than fresh')+'<br>🍱 '+t('Филе рыбы — в 5 раз дороже свежей','Fish filet — 5x pricier than fresh')+'<br><br>'
+    +'<b style="color:#fff">'+t('🧑‍✈️ Нанять водителя','🧑‍✈️ Hire a driver')+'</b><br>'+t('Во вкладке 🏪 Рынок → переключись на вкладку 🧑‍✈️ Водитель. Выбери транспорт для водителя (отличный от твоего), выбери рыбу и отправь. Водитель едет параллельно с твоей доставкой! Водитель забирает 30% выручки — остальное твоё. Соль и ножи можно заказать и для водителя.','In the 🏪 Market tab → switch to the 🧑‍✈️ Driver tab. Choose a transport for the driver (different from yours), pick fish and send. The driver travels in parallel with your delivery! The driver takes 30% of revenue — the rest is yours. Salt and knives can be ordered for the driver too.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🚚 Транспорт и амортизация','🚚 Transport and wear')+'</b><br>'
+    +'🚲 '+t('Велосипед — бесплатно · 5 рыб · 8 мин','Bike — free · 5 fish · 8 min')+'<br>'
+    +'🛵 '+t('Мопед — 5000🪙 · 15 рыб · 15 мин','Moped — 5000🪙 · 15 fish · 15 min')+'<br>'
+    +'🚗 '+t('Машина — 50000🪙 · 40 рыб · 25 мин','Car — 50000🪙 · 40 fish · 25 min')+'<br>'
+    +'🚛 '+t('Грузовик — 300000🪙 · 100 рыб · 40 мин','Truck — 300000🪙 · 100 fish · 40 min')+'<br>'
+    +t('Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧','Each delivery -10% durability. 0% = broken, needs manual repair 🔧')+'<br>'
+    +'🚛 '+t('Грузовик с прицепом (аренда, ⭐5 на рынке рядом со списком транспорта) — 200 рыб · 15 мин · не изнашивается, действует 12 часов','Truck with trailer (rental, ⭐5 at the market next to the transport list) — 200 fish · 15 min · doesn\'t wear out, lasts 12 hours')+'<br><br>'
+    +'<b style="color:#fff">'+t('⬆️ Улучшения','⬆️ Upgrades')+'</b><br>'
+    +'🎣 '+t('Удочка — увеличивает монеты за улов и шанс улова','Rod — increases coins per catch and catch chance')+'<br>'
+    +'🕸 '+t('Сеть — +0.1 к автодобычи в минуту за уровень (макс 5 ур.)','Net — +0.1 auto-income per minute per level (max lvl 5)')+'<br>'
+    +'⛵ '+t('Лодка — +0.3 к автодобычи в минуту за уровень (макс 5 ур.)','Boat — +0.3 auto-income per minute per level (max lvl 5)')+'<br>'
+    +'📡 '+t('Сонар — +0.5 к автодобычи в минуту за уровень (макс 5 ур.)','Sonar — +0.5 auto-income per minute per level (max lvl 5)')+'<br>'
+    +t('Доход с этих апгрейдов растёт вместе с локацией (как и цена): в Космосе тот же уровень Сети/Лодки/Сонара приносит в 50 раз больше монет, чем в Пруду','Income from these upgrades scales with location (as does the price): in Space, the same Net/Boat/Sonar level earns 50x more coins than in the Pond')+'<br>'
+    +'⚠️ '+t('Прокачка отдельная для каждой локации! Перешёл в Реку — там всё с нуля, а уровни в Пруду сохранятся. Цена апгрейдов растёт вместе с локацией: Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50','Upgrades are separate per location! Move to the River — everything starts from zero there, while your Pond levels stay saved. Upgrade prices scale with location: Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50')+'<br><br>'
+    +'<b style="color:#fff">'+t('💤 Оффлайн-доход','💤 Offline income')+'</b><br>'+t('Пока тебя нет в игре, автодобыча (Сеть/Лодка/Сонар) продолжает капать монеты — но <b>только по прокачке той локации, где ты был в момент выхода</b>. Вернулся на Пруд — доход посчитается по Пруду, даже если у тебя разлочена и прокачана Река. Доход с разных локаций не складывается — считается только текущая.','While you\'re away, auto-income (Net/Boat/Sonar) keeps generating coins — but <b>only based on the upgrades of the location you were in when you left</b>. Back in the Pond — income is calculated for the Pond, even if you\'ve unlocked and upgraded the River. Income from different locations doesn\'t stack — only the current one counts.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🗺 Локации','🗺 Locations')+'</b><br>'+t('Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50','Unlock new locations with coins: Pond×1 → River×2 → Tropics×5 → Deep×15 → Space×50')+'<br><br>'
+    +'<b style="color:#fff">'+t('🎁 Ежедневный бонус','🎁 Daily bonus')+'</b><br>'+t('Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!','Log in every day: 10→25→50→100→200→400→1000 coins. Miss a day — streak resets!')+'<br><br>'
+    +'<b style="color:#fff">'+t('📋 Ежедневные квесты','📋 Daily quests')+'</b><br>'+t('Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.','5 new quests every day. Complete all 5 — get 🪙500 coins. Refresh at midnight.')+'<br><br>'
+    +'<b style="color:#fff">'+t('👥 Реферальная программа','👥 Referral program')+'</b><br>'+t('Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.','Invite friends with your link in ⚙️ Settings → Invite a friend.')+'<br><br>'
+    +'🎁 <b style="color:#FFD700">'+t('Бонус при регистрации','Signup bonus')+'</b> — '+t('ты и друг получите по 🪙100 монет','you and your friend each get 🪙100 coins')+'<br>'
+    +'🎁 <b style="color:#FFD700">'+t('Бонус за активность','Activity bonus')+'</b> — '+t('когда друг купит удочку ур.2 — ты получишь ещё 🪙1000','when your friend buys rod level 2 — you get another 🪙1000')+'<br>'
+    +'💰 <b style="color:#FFD700">'+t('Постоянный бонус','Ongoing bonus')+'</b> — '+t('каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 50% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙250 прямо на баланс','every time your referral withdraws coins via the Bank, you automatically get 50% of their withdrawal amount! Example: a friend withdraws 500 coins → you get 🪙250 straight to your balance')+'<br><br>'
+    +t('Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.','All referral bonuses arrive automatically when you enter the game and show up in the notification history as 👥 Referral bonus.')+'<br>'
+    +t('В разделе «Мои друзья» можно видеть кто уже присоединился!','In the "My friends" section you can see who has already joined!')+'<br><br>'
+    +'<b style="color:#fff">'+t('⚡ Бустеры','⚡ Boosters')+'</b><br>'+t('Временные усиления за ⭐ Telegram Stars (цена указана у каждого):','Temporary boosts for ⭐ Telegram Stars (price shown for each):')+'<br>'
+    +'⚡ '+t('Авто-буст (⭐1) — +2 к автодобыче в минуту на 1 час (итого +120 монет)','Auto-boost (⭐1) — +2 auto-income per minute for 1 hour (total +120 coins)')+'<br>'
+    +'🌡 '+t('Мгновенная сушка (⭐1) — все текущие пакеты досушиваются мгновенно','Instant drying (⭐1) — all current packs finish drying instantly')+'<br>'
+    +'🎣 '+t('Удачная рыбалка (⭐1) — +50% шанс улова на 30 мин','Lucky fishing (⭐1) — +50% catch chance for 30 min')+'<br>'
+    +'🏎 '+t('Турбо скорость (⭐1) — ×2 скорость транспорта на 1 час','Turbo speed (⭐1) — ×2 transport speed for 1 hour')+'<br>'
+    +'📦 '+t('Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно','Instant packing (⭐1) — all current filet packing finishes instantly')+'<br>'
+    +'🚀 '+t('Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1) — all active deliveries (yours + driver) finish instantly')+'<br>'
+    +'🔧 '+t('Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2) — repairs bike, moped, car and truck all at once to 100%')+'<br><br>'
+    +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5 мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5 instantly, or free by watching an ad (+25 energy, available once every 10 minutes).')+'<br><br>'
+    +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel for ⭐1 in the Boosters section. Prizes (coins/fish/salt/knives scale with your furthest unlocked location, jackpot doesn\'t): 🪙300 (40%) · 🪙500 (25%) · 🐟100 fish (15%) · 🧂15 salt (10%) · 🔪15 knives (7%) · 🚛 free truck rental for 12h (3%) · ⭐ Stars jackpot (~1%).')+'<br>'
+    +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.','Exchange coins for GRAM. The rate depends on your furthest unlocked location: Pond — 100,000:1 · River — 200,000:1 · Tropics — 500,000:1 · Deep — 1,500,000:1 · Space — 5,000,000:1 coins per 1 GRAM. Enter an amount (1,000 to 50,000 coins per withdrawal) and your TON wallet — GRAM is sent manually by the admin within 24h. Fee — 5⭐ (Premium: 3⭐), multiplied by your furthest unlocked location\'s multiplier (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). E.g., in Space: 250⭐ for regular players, 150⭐ for Premium.')+'<br><br>'
+    +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
+    +'<b style="color:#fff">'+t('👋 Бонус за возвращение','👋 Comeback bonus')+'</b><br>'+t('Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.','If you haven\'t logged in for 3+ days — your next visit gives you a coin gift: 3-6 days away — 🪙200, 7-13 days — 🪙500, 14+ days — 🪙1000.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏆 Таблица лидеров','🏆 Leaderboard')+'</b><br>'+t('Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.','Top players by number of fish caught. Your name is set on first login — can be changed in settings.')+'</div></div>'
+    +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← '+t('Назад','Back')+'</button>';
 }
 
 // ── Действия ──────────────────────────────────────────
@@ -3801,7 +3832,7 @@ function tapOcean(e) {
 
   if (!hasEnergy()) {
     spawnAnim(x,y,'⚡','Нет энергии!');
-    showNotif('⚡ Энергия закончилась! Подожди восстановления или пополни в разделе Бустеры');
+    showNotif(t('⚡ Энергия закончилась! Подожди восстановления или пополни в разделе Бустеры','⚡ Out of energy! Wait for it to regen or refill it in the Boosters section'));
     if(currentTab==='upgrades') renderUpgrades();
     return;
   }
@@ -3817,7 +3848,7 @@ function tapOcean(e) {
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
     addQuestProgress('catch', 1);
     spawnAnim(x,y,RARE_FISH.emoji,'🎉 +'+rareEarned+'!');
-    showNotif('Поймал Осетрину! +🪙'+rareEarned);
+    showNotif(t('Поймал Осетрину! +🪙','Caught a Sturgeon! +🪙')+rareEarned);
     updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     return;
@@ -3868,7 +3899,7 @@ function checkNetBonus() {
     // Акция активна — начисляем бонус
     state.coins = Math.round((state.coins + 500)*100)/100;
     state.totalEarned = Math.round((state.totalEarned + 500)*100)/100;
-    showNotif('🎁 Бонус за покупку Сети! +🪙500');
+    showNotif(t('🎁 Бонус за покупку Сети! +🪙500','🎁 Net purchase bonus! +🪙500'));
     updateUI(); save();
   });
 }
@@ -3912,7 +3943,7 @@ function selectFish(name, dried, filet) {
     var available = pool ? (pool[name] || 0) : 0;
     var room = tr.capacity - totalSelected;
     var qty = Math.min(available, room);
-    if (qty <= 0) { showNotif('Транспорт заполнен!'); return; }
+    if (qty <= 0) { showNotif(t('Транспорт заполнен!','Transport full!')); return; }
     state.selectedItems.push({key:key, name:name, dried:!!dried, filet:!!filet, qty:qty});
   }
   // Совместимость со старым кодом
@@ -3933,9 +3964,9 @@ var grouped = {}, driedGrouped = {}, filetGrouped2 = {};
 function sendDelivery() {
   if (state.delivery) return;
   var tr=getTr(), dur=getDur(tr.id);
-  if (state.delivery2 && state.delivery2.transportId === tr.id) { showNotif('🚫 Этот транспорт занят водителем!'); return; }
-  if (dur<=0) { showNotif('🔧 Сломан! Почини транспорт.'); return; }
-  if (!state.selectedItems || !state.selectedItems.length) { showNotif('Выбери что отправить!'); return; }
+  if (state.delivery2 && state.delivery2.transportId === tr.id) { showNotif(t('🚫 Этот транспорт занят водителем!','🚫 This transport is used by the driver!')); return; }
+  if (dur<=0) { showNotif(t('🔧 Сломан! Почини транспорт.','🔧 Broken! Repair the transport.')); return; }
+  if (!state.selectedItems || !state.selectedItems.length) { showNotif(t('Выбери что отправить!','Choose what to send!')); return; }
 
   var earn=0, sentCount=0;
 
@@ -3977,7 +4008,7 @@ function sendDelivery() {
     }
   }
 
-  if (!sentCount) { showNotif('Нет рыбы на складе!'); return; }
+  if (!sentCount) { showNotif(t('Нет рыбы на складе!','No fish in storage!')); return; }
   earn=Math.round(earn*100)/100;
   var secs=delivTime(tr);
   var saltOrder=state.saltOrder||0;
@@ -3986,7 +4017,7 @@ function sendDelivery() {
   var knifeOrder=state.knifeOrder||0;
   var knifePrice=KNIFE_PRICE[state.currentLoc]||3;
   var knifeCost=knifeOrder*knifePrice;
-  if ((saltCost+knifeCost)>state.coins) { showNotif('Не хватает монет на заказ!'); return; }
+  if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   if (tr.id !== 'rentalTruck') state.durability[tr.id]=Math.max(0,dur-10);
@@ -4035,7 +4066,7 @@ function selectDriverFish(name, dried, filet) {
     var available = pool ? (pool[name] || 0) : 0;
     var room = dtr.capacity - totalSelected;
     var qty = Math.min(available, room);
-    if (qty <= 0) { showNotif('Транспорт водителя заполнен!'); return; }
+    if (qty <= 0) { showNotif(t('Транспорт водителя заполнен!','Driver transport full!')); return; }
     state.selectedDriverItems.push({key:key, name:name, dried:!!dried, filet:!!filet, qty:qty});
   }
   // Совместимость со старым кодом (подсветка последнего выбранного и т.п.)
@@ -4062,12 +4093,12 @@ function changeDriverKnifeOrder(delta) {
 function sendDriverDelivery() {
   if (state.delivery2) return;
   var transportId = state.driverTransport;
-  if (!transportId) { showNotif('Выбери транспорт для водителя!'); return; }
-  if (state.delivery && state.delivery.transportId === transportId) { showNotif('🚫 Этот транспорт уже занят твоей доставкой!'); return; }
+  if (!transportId) { showNotif(t('Выбери транспорт для водителя!','Choose transport for the driver!')); return; }
+  if (state.delivery && state.delivery.transportId === transportId) { showNotif(t('🚫 Этот транспорт уже занят твоей доставкой!','🚫 This transport is already busy with your delivery!')); return; }
   var tr2 = getTr(transportId);
   var dur2 = getDur(transportId);
-  if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
-  if (!state.selectedDriverItems || !state.selectedDriverItems.length) { showNotif('Выбери что отправить!'); return; }
+  if (dur2<=0) { showNotif(t('🔧 Транспорт сломан! Почини его.','🔧 Transport is broken! Repair it.')); return; }
+  if (!state.selectedDriverItems || !state.selectedDriverItems.length) { showNotif(t('Выбери что отправить!','Choose what to send!')); return; }
 
   var earn=0, sentCount=0;
 
@@ -4109,7 +4140,7 @@ function sendDriverDelivery() {
     }
   }
 
-  if (!sentCount) { showNotif('Нет рыбы на складе!'); return; }
+  if (!sentCount) { showNotif(t('Нет рыбы на складе!','No fish in storage!')); return; }
   earn=Math.round(earn*100)/100;
 
   // Соль и ножи для водителя
@@ -4119,7 +4150,7 @@ function sendDriverDelivery() {
   var knifeOrder=state.driverKnifeOrder||0;
   var knifePrice=KNIFE_PRICE[state.currentLoc]||3;
   var knifeCost=knifeOrder*knifePrice;
-  if ((saltCost+knifeCost)>state.coins) { showNotif('Не хватает монет на заказ!'); return; }
+  if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
   earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
@@ -4130,18 +4161,18 @@ function sendDriverDelivery() {
   // Сбрасываем состояние водителя
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.selectedDriverItems=[]; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.marketSubpage=null;
-  showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
+  showNotif(t('Водитель отправлен на ','Driver sent on ')+tr2.emoji+' '+trName(tr2.id)+'!');
   showTab('market'); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function hireDriver(transportId) {
   if (state.delivery2) return;
-  if (state.delivery && state.delivery.transportId === transportId) { showNotif('🚫 Этот транспорт уже занят твоей доставкой!'); return; }
+  if (state.delivery && state.delivery.transportId === transportId) { showNotif(t('🚫 Этот транспорт уже занят твоей доставкой!','🚫 This transport is already busy with your delivery!')); return; }
   var tr2 = getTr(transportId);
   var dur2 = getDur(transportId);
-  if (dur2<=0) { showNotif('🔧 Транспорт сломан! Почини его.'); return; }
+  if (dur2<=0) { showNotif(t('🔧 Транспорт сломан! Почини его.','🔧 Transport is broken! Repair it.')); return; }
   var sel=state.selectedFish, isDried=!!state.selectedDried, isFilet=!!state.selectedFilet;
-  if (!sel) { showNotif('Выбери что отправить!'); return; }
+  if (!sel) { showNotif(t('Выбери что отправить!','Choose what to send!')); return; }
   var toSend=[], rest=[], earn=0, sentCount=0;
   if (isFilet) {
     var takenF=0, restFilets=[];
@@ -4159,7 +4190,7 @@ function hireDriver(transportId) {
         }
       } else restFilets.push(ff);
     }
-    if (!takenF) { showNotif('Нет филе этого вида!'); return; }
+    if (!takenF) { showNotif(t('Нет филе этого вида!','No filet of this kind!')); return; }
     state.filets=restFilets;
     sentCount=takenF;
   } else if (isDried) {
@@ -4170,7 +4201,7 @@ function hireDriver(transportId) {
         earn+=mp.cur*3; toSend.push(state.driedFish[i]); taken++;
       } else rest.push(state.driedFish[i]);
     }
-    if (!toSend.length) { showNotif('Нет сушёной рыбы!'); return; }
+    if (!toSend.length) { showNotif(t('Нет сушёной рыбы!','No dried fish!')); return; }
     state.driedFish=rest;
     sentCount=toSend.length;
   } else {
@@ -4181,7 +4212,7 @@ function hireDriver(transportId) {
         earn+=mp2.cur; toSend.push(state.liveFish[j]); taken2++;
       } else rest.push(state.liveFish[j]);
     }
-    if (!toSend.length) { showNotif('Нет рыбы этого вида!'); return; }
+    if (!toSend.length) { showNotif(t('Нет рыбы этого вида!','No fish of this kind!')); return; }
     state.liveFish=rest;
     sentCount=toSend.length;
   }
@@ -4191,16 +4222,16 @@ function hireDriver(transportId) {
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
   addQuestProgress('deliver', 1);
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
-  showNotif('Водитель отправлен на '+tr2.emoji+' '+tr2.name+'!');
+  showNotif(t('Водитель отправлен на ','Driver sent on ')+tr2.emoji+' '+trName(tr2.id)+'!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function repairTr(id) {
   var tr=getTr(id); if (!tr) return;
-  if (state.coins<tr.repairCost) { showNotif('Не хватает монет!'); return; }
+  if (state.coins<tr.repairCost) { showNotif(t('Не хватает монет!','Not enough coins!')); return; }
   state.coins=Math.round((state.coins-tr.repairCost)*100)/100;
   state.durability[id]=100;
-  showNotif('🔧 '+tr.emoji+' '+tr.name+' отремонтирован!');
+  showNotif('🔧 '+tr.emoji+' '+trName(tr.id)+' '+t('отремонтирован!','repaired!'));
   addQuestProgress('repair', 1);
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -4211,7 +4242,7 @@ function useTruckTicket() {
   var now = Date.now();
   var base = (state.boosts.truckRental > now) ? state.boosts.truckRental : now;
   state.boosts.truckRental = base + 43200000; // +12 часов (продлевает, если уже активна)
-  showNotif('🎫 Билет использован! 🚛 +12 часов аренды грузовика');
+  showNotif(t('🎫 Билет использован! 🚛 +12 часов аренды грузовика','🎫 Ticket used! 🚛 +12 hours truck rental'));
   updateUI(); save(); renderMarket();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -4226,7 +4257,7 @@ function buyTransport(id) {
   if (!tr||state.coins<tr.cost||state.unlockedTransports.indexOf(id)>=0) return;
   state.coins=Math.round((state.coins-tr.cost)*100)/100;
   state.unlockedTransports.push(id); state.transport=id;
-  showNotif('🎉 Куплен '+tr.emoji+' '+tr.name+'!');
+  showNotif(t('🎉 Куплен ','🎉 Bought ')+tr.emoji+' '+trName(tr.id)+'!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -4237,7 +4268,7 @@ function switchLoc(id) {
   loadSaltKnifeFromLoc(); // подгружаем склад новой локации
   var ocean=document.getElementById('ocean');
   ocean.style.background=loc.bg; ocean.style.borderBottomColor=loc.border;
-  document.getElementById('loc-label').textContent=loc.emoji+' '+loc.name;
+  document.getElementById('loc-label').textContent=loc.emoji+' '+locName(loc.id);
   spawnBubbles(); calcStats(); renderLocBar(); updateUI(); save();
 }
 function unlockLoc(id) {
@@ -4266,7 +4297,7 @@ function claimDaily() {
   state.totalEarned=Math.round((state.totalEarned+reward)*100)/100;
   state.dailyLastClaim=Date.now();
   state.dailyDay=state.dailyDay>=6?0:state.dailyDay+1;
-  showNotif('🎁 День '+state.dailyDay+' — получено 🪙'+fmt(reward)+'!');
+  showNotif(t('🎁 День ','🎁 Day ')+state.dailyDay+t(' — получено 🪙',' — received 🪙')+fmt(reward)+'!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -4299,9 +4330,9 @@ function checkDeaths() {
   if (dead.length) {
     state.liveFish=live;
     if (dead.length===1) {
-      showNotif('💀 '+dead[0].emoji+' '+dead[0].name+' погибла!',true);
+      showNotif('💀 '+dead[0].emoji+' '+dead[0].name+' '+t('погибла!','died!'),true);
     } else {
-      showNotif('💀 Погибло '+dead.length+' рыб!',true);
+      showNotif(t('💀 Погибло ','💀 ')+dead.length+t(' рыб!',' fish died!'),true);
     }
     save();
   }
@@ -4403,7 +4434,7 @@ function loadFromFirebase(callback) {
       processOffline();
       save();
       updateUI();
-      showNotif('🔄 Прогресс синхронизирован с облака');
+      showNotif(t('🔄 Прогресс синхронизирован с облака','🔄 Progress synced from the cloud'));
     }
     callback();
   }, function() { callback(); });

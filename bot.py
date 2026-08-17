@@ -28,6 +28,12 @@ FIREBASE_DB_SECRET = os.getenv("FIREBASE_DB_SECRET", "")
 # которые теперь можно спокойно ужесточать для обычных клиентов (игры в браузере), не боясь сломать бота.
 FB_AUTH = ("?auth=" + FIREBASE_DB_SECRET) if FIREBASE_DB_SECRET else ""
 
+
+def t(user, ru, en):
+    """Возвращает нужный вариант текста по language_code игрока (не влияет на админские команды)."""
+    lang = getattr(user, 'language_code', None)
+    return ru if lang == 'ru' else en
+
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher()
 
@@ -379,21 +385,33 @@ async def jackpot_broadcast(request):
 @dp.message(CommandStart())
 async def start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))],
-        [InlineKeyboardButton(text="💬 Чат игроков", url="https://t.me/+cLBHDCmOkaA3NWQy")]
+        [InlineKeyboardButton(text=t(message.from_user, "🎣 Играть", "🎣 Play"), web_app=WebAppInfo(url=GAME_URL))],
+        [InlineKeyboardButton(text=t(message.from_user, "💬 Чат игроков", "💬 Player chat"), url="https://t.me/+cLBHDCmOkaA3NWQy")]
     ])
     await message.answer(
-        "🐟 *Добро пожаловать в FishFarm!* 🎣\n\n"
-        "Здесь можно:\n"
-        "🎣 Ловить рыбу тапами — чем круче удочка, тем больше монет за улов\n"
-        "🌍 Открывать локации от Пруда до Космоса — каждая выгоднее прошлой\n"
-        "📦 Продавать улов на рынке (свежий, вяленый или филе) и нанимать водителя, чтобы возить рыбу, пока ты занят\n"
-        "🎰 Крутить лотерею и ловить джекпот в Stars ⭐\n"
-        "🏦 Обменивать монеты на GRAM в Банке\n"
-        "🏆 Участвовать в турнирах недели с призами в Stars\n"
-        "👥 Приглашать друзей — бонусы обоим\n"
-        "💬 Общаться с другими игроками в чате\n\n"
-        "Жми кнопку и закидывай удочку! 👇",
+        t(message.from_user,
+            "🐟 *Добро пожаловать в FishFarm!* 🎣\n\n"
+            "Здесь можно:\n"
+            "🎣 Ловить рыбу тапами — чем круче удочка, тем больше монет за улов\n"
+            "🌍 Открывать локации от Пруда до Космоса — каждая выгоднее прошлой\n"
+            "📦 Продавать улов на рынке (свежий, вяленый или филе) и нанимать водителя, чтобы возить рыбу, пока ты занят\n"
+            "🎰 Крутить лотерею и ловить джекпот в Stars ⭐\n"
+            "🏦 Обменивать монеты на GRAM в Банке\n"
+            "🏆 Участвовать в турнирах недели с призами в Stars\n"
+            "👥 Приглашать друзей — бонусы обоим\n"
+            "💬 Общаться с другими игроками в чате\n\n"
+            "Жми кнопку и закидывай удочку! 👇",
+            "🐟 *Welcome to FishFarm!* 🎣\n\n"
+            "Here you can:\n"
+            "🎣 Catch fish by tapping — the better your rod, the more coins per catch\n"
+            "🌍 Unlock locations from the Pond to Space — each more rewarding than the last\n"
+            "📦 Sell your catch at the market (fresh, dried, or filet) and hire a driver to carry fish while you're busy\n"
+            "🎰 Spin the lottery and win the jackpot in Stars ⭐\n"
+            "🏦 Exchange coins for GRAM at the Bank\n"
+            "🏆 Join weekly tournaments with Stars prizes\n"
+            "👥 Invite friends — bonuses for both\n"
+            "💬 Chat with other players\n\n"
+            "Tap the button and cast your rod! 👇"),
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -1681,14 +1699,23 @@ async def successful_payment(message: types.Message):
             pass
         try:
             await message.answer(
-                "🎉 Premium активирован на 30 дней!\n\n"
-                "✅ +25% к автодоходу\n"
-                "✅ Бесплатный ежедневный ремонт транспорта\n"
-                "✅ Комиссия банка снижена до ⭐3\n"
-                "✅ Защита стрика ежедневного бонуса\n"
-                "✅ Бесплатная крутка лотереи раз в день\n"
-                "✅ Корона рядом с именем в лидерборде\n\n"
-                "Подписка продлевается автоматически каждые 30 дней."
+                t(message.from_user,
+                    "🎉 Premium активирован на 30 дней!\n\n"
+                    "✅ +25% к автодоходу\n"
+                    "✅ Бесплатный ежедневный ремонт транспорта\n"
+                    "✅ Комиссия банка снижена до ⭐3\n"
+                    "✅ Защита стрика ежедневного бонуса\n"
+                    "✅ Бесплатная крутка лотереи раз в день\n"
+                    "✅ Корона рядом с именем в лидерборде\n\n"
+                    "Подписка продлевается автоматически каждые 30 дней.",
+                    "🎉 Premium activated for 30 days!\n\n"
+                    "✅ +25% to auto-income\n"
+                    "✅ Free daily transport repair\n"
+                    "✅ Bank fee reduced to ⭐3\n"
+                    "✅ Daily bonus streak protection\n"
+                    "✅ One free lottery spin per day\n"
+                    "✅ Crown next to your name on the leaderboard\n\n"
+                    "The subscription renews automatically every 30 days.")
             )
         except Exception:
             pass
@@ -1697,7 +1724,9 @@ async def successful_payment(message: types.Message):
         parts = payload.split(':', 4)
         # ex:{user_id}:{coins}:{wallet}:{username}
         if len(parts) < 4:
-            await message.answer("✅ Оплата получена! Свяжись с администратором для получения GRAM.")
+            await message.answer(t(message.from_user,
+                "✅ Оплата получена! Свяжись с администратором для получения GRAM.",
+                "✅ Payment received! Contact the admin to get your GRAM."))
             return
         user_id  = parts[1]
         coins    = parts[2]
@@ -1720,9 +1749,9 @@ async def successful_payment(message: types.Message):
             pass
 
         await message.answer(
-            f"✅ Заявка принята!\n\n"
-            f"🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n"
-            f"⏳ Отправим в течение 24 часов."
+            t(message.from_user,
+                f"✅ Заявка принята!\n\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⏳ Отправим в течение 24 часов.",
+                f"✅ Request accepted!\n\n🪙 Coins: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⏳ We'll send it within 24 hours.")
         )
         if ADMIN_ID:
             ul = f"@{username}" if username else f"ID: {user_id}"
