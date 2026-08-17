@@ -921,6 +921,7 @@ async def comm_command(message: types.Message):
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
+        "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
@@ -1156,6 +1157,49 @@ async def premium_command(message: types.Message):
                     await message.answer(f"💎 @{username} — Premium активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
                 else:
                     await message.answer(f"— @{username} не подписан на Premium")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('delnum'))
+async def delnum_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer(
+            "Использование:\n`/delnum 478`\n\n"
+            "Удаляет запись из лидерборда/сохранения по номеру (`num`) — "
+            "для анонимных записей без username и userId (например, старые эксплойт-аккаунты типа «Рыбак #478»).",
+            parse_mode="Markdown"
+        )
+        return
+    target_num = int(args[1])
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+
+            target_pid = None
+            target_info = None
+            if lb:
+                for pid, v in lb.items():
+                    if v.get('num') == target_num:
+                        target_pid = pid
+                        target_info = v
+                        break
+
+            if not target_pid:
+                await message.answer(f"❌ Запись с номером {target_num} не найдена в лидерборде.")
+                return
+
+            await session.delete(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}")
+            await session.delete(f"{base}/saves/{target_pid}.json{FB_AUTH}")
+
+        earned = target_info.get('totalEarned', 0) if target_info else 0
+        await message.answer(f"✅ Запись #{target_num} удалена (было заработано: {earned:,} монет). Лидерборд и сохранение очищены.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
