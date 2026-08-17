@@ -7,6 +7,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src='https://libtl.com/sdk.js' data-zone='11591936' data-sdk='show_11591936'></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top, 0px);touch-action:manipulation}
@@ -90,6 +91,13 @@ html{overflow-x:hidden;width:100%}
     </div>
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff">Открыть →</div>
+</div>
+<div id="ad-ticket-banner" onclick="watchAdForTicket()" style="background:linear-gradient(135deg,#0a3d6b,#1565c0,#0d5c9e);margin:0;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="font-size:20px">📺</div>
+    <div style="font-size:13px;font-weight:600;color:#fff">Реклама → билет на лотерею</div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:5px 12px;font-size:11px;font-weight:600;color:#fff">Смотреть →</div>
 </div>
 <div id="tournament-banner" onclick="showTab('leaders')" style="display:none;background:linear-gradient(135deg,#3a0f5c,#8e24aa,#3a0f5c);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
@@ -317,6 +325,7 @@ var state = {
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
   truckTickets:0,
   premiumUntil:0, premiumFreeSpinDate:0, premiumFreeRepairDate:0, // premiumUntil — кэш из Firebase, не сохраняется локально как источник истины
+  lotteryTickets:0, // билеты на лотерею за просмотр рекламы — копятся, не сгорают по дням
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
   knife:0, knifeOrder:0, cutting:[], filets:[],
@@ -716,7 +725,7 @@ function save() {
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
       salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
       knife:state.knife, knifeOrder:state.knifeOrder, cutting:state.cutting, filets:state.filets,
-      saltByLoc:state.saltByLoc, knifeByLoc:state.knifeByLoc, truckTickets:state.truckTickets, premiumFreeSpinDate:state.premiumFreeSpinDate, premiumFreeRepairDate:state.premiumFreeRepairDate,
+      saltByLoc:state.saltByLoc, knifeByLoc:state.knifeByLoc, truckTickets:state.truckTickets, premiumFreeSpinDate:state.premiumFreeSpinDate, premiumFreeRepairDate:state.premiumFreeRepairDate, lotteryTickets:state.lotteryTickets,
       playerName:state.playerName
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
@@ -760,6 +769,7 @@ function load() {
     state.truckTickets       = s.truckTickets || 0;
     state.premiumFreeSpinDate = s.premiumFreeSpinDate || 0;
     state.premiumFreeRepairDate = s.premiumFreeRepairDate || 0;
+    state.lotteryTickets = s.lotteryTickets || 0;
     state.quests            = s.quests       || [];
     state.questsDate        = s.questsDate   || 0;
     state.questProgress     = s.questProgress|| {};
@@ -2365,6 +2375,10 @@ function renderBoosts() {
     +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+Math.round(300*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · '+Math.round(500*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · 🐟'+Math.round(100*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🧂'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🔪'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🚛 аренда 12ч · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> Stars джекпот</div>'
     +'</div>'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?'💎 Бесплатно':'⭐ 1')+'</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
+    +'<button class="btn" onclick="spinWithTicket()" style="flex:1;'+((state.lotteryTickets||0)>0?'background:#2d6a4f':'opacity:0.5')+'" '+((state.lotteryTickets||0)>0?'':'disabled')+'>🎫 За билет ('+(state.lotteryTickets||0)+')</button>'
+    +'<button class="btn" onclick="watchAdForTicket()" style="flex:1;background:#1565c0">📺 Смотреть рекламу</button>'
     +'</div></div>';
 
   // Смена погоды
@@ -2432,6 +2446,28 @@ function buyWeather(weatherId) {
   buyBoost('weather_'+weatherId);
 }
 
+function watchAdForTicket() {
+  if (typeof show_11591936 !== 'function') {
+    showNotif('❌ Реклама пока недоступна, попробуй позже');
+    return;
+  }
+  showNotif('📺 Загружаем рекламу...');
+  show_11591936().then(function(){
+    state.lotteryTickets = (state.lotteryTickets||0) + 1;
+    showNotif('🎫 Билет на лотерею получен! Всего: ' + state.lotteryTickets);
+    save();
+    if (currentTab==='boosts') renderBoosts();
+  }).catch(function(err){
+    showNotif('❌ Реклама недоступна: ' + (err && err.message || 'попробуй позже'));
+  });
+}
+function spinWithTicket() {
+  if ((state.lotteryTickets||0) <= 0) return;
+  state.lotteryTickets--;
+  activateBoost('lottery');
+  save();
+  if (currentTab==='boosts') renderBoosts();
+}
 function buyBoost(id) {
   if (id==='lottery' && isPremiumActive() && state.premiumFreeSpinDate !== getTodayDate()) {
     state.premiumFreeSpinDate = getTodayDate();
@@ -3617,7 +3653,7 @@ function showInstructions() {
     +'📦 Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно<br>'
     +'🚀 Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно<br>'
     +'🔧 Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%<br><br>'
-    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры. Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
+    +'<b style="color:#fff">🎰 Лотерея</b><br>Крути колесо за ⭐1 в разделе Бустеры, либо бесплатно — посмотри рекламу и получи билет на крутку (билеты копятся, не сгорают). Призы (монеты/рыба/соль/ножи растут вместе с самой дальней открытой локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).<br>'
     +'Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.<br><br>'
     +'<b style="color:#fff">🏦 Банк</b><br>Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.<br><br>'
     +'<b style="color:#fff">👑 Premium</b><br>Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.<br><br>'
@@ -4107,7 +4143,7 @@ function resetGame() {
   localStorage.removeItem('ff5');
   localStorage.removeItem('ff4');
   localStorage.removeItem('ff3');
-  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],saltByLoc:{},knifeByLoc:{},truckTickets:0,upgLevels:{}};
+  state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],saltByLoc:{},knifeByLoc:{},truckTickets:0,lotteryTickets:0,upgLevels:{}};
   for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
   marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
   tapped=false; scareFactor=1.0;
@@ -4262,6 +4298,7 @@ function applyState(s) {
     state.truckTickets       = s.truckTickets || 0;
     state.premiumFreeSpinDate = s.premiumFreeSpinDate || 0;
     state.premiumFreeRepairDate = s.premiumFreeRepairDate || 0;
+    state.lotteryTickets = s.lotteryTickets || 0;
   state.quests            = s.quests       || [];
   state.questsDate        = s.questsDate   || 0;
   state.questProgress     = s.questProgress|| {};
