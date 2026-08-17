@@ -250,6 +250,20 @@ var FISH = {
 var ALL_FISH = [];
 var k; for (k in FISH) { var i; for (i=0;i<FISH[k].length;i++) ALL_FISH.push(FISH[k][i]); }
 
+// Русское имя рыбы (f.name) — стабильный ключ, используемый в сохранении/ценах/Firebase.
+// Эта функция даёт ТОЛЬКО отображаемый перевод, не трогая сами данные.
+var FISH_NAME_EN = {
+  'Карась':'Crucian carp', 'Красноперка':'Rudd', 'Лещ':'Bream', 'Щука':'Pike',
+  'Окунь':'Perch', 'Выдра':'Otter', 'Крокодил':'Crocodile', 'Гиппо':'Hippo',
+  'Тропик':'Tropic Fish', 'Попугай':'Parrotfish', 'Змея':'Snake', 'Бабочка':'Butterflyfish',
+  'Кальмар':'Squid', 'Осьминог':'Octopus', 'Акула':'Shark', 'Кит':'Whale',
+  'Пришелец':'Alien', 'НЛО':'UFO', 'Галактика':'Galaxy', 'Звезда':'Star'
+};
+function fishName(ruName) {
+  if (LANG !== 'en') return ruName;
+  return FISH_NAME_EN[ruName] || ruName;
+}
+
 var BASE_PRICES = {
   'Карась':0.5,'Красноперка':1.2,'Лещ':2.5,'Щука':6,
   'Окунь':0.8,'Выдра':2,'Крокодил':5,'Гиппо':13,
@@ -534,7 +548,7 @@ function loadWeather() {
       currentWeather = nw;
       weatherEndsAt = endsAt;
       firebaseDB.ref('weather').set({id:nw.id, endsAt:endsAt});
-      showNotif(nw.emoji + ' Погода изменилась: ' + nw.name);
+      showNotif(nw.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(nw.id));
     }
     updateWeatherUI();
   });
@@ -646,6 +660,7 @@ function bankFeeAmount() {
   return base * maxUnlockedMult();
 }
 function starsWord(n) {
+  if (LANG === 'en') return n === 1 ? 'star' : 'stars';
   var n10 = n % 10, n100 = n % 100;
   if (n100 >= 11 && n100 <= 14) return 'звёзд';
   if (n10 === 1) return 'звезда';
@@ -1191,7 +1206,7 @@ function updateUI() {
   var chance=Math.round(catchChance()*100);
   var moodEl=document.getElementById('mood-label');
   if(moodEl) {
-    moodEl.textContent=moodEmoji()+' '+chance+'% улов';
+    moodEl.textContent=moodEmoji()+' '+chance+t('% улов','% catch');
     if (state.boosts.luckyRod > Date.now()) {
       var luckyEl = document.createElement('span');
       luckyEl.style.cssText = 'color:#FFD700;font-size:11px;font-weight:700;margin-left:5px';
@@ -1374,7 +1389,7 @@ function renderAquarium() {
     var pct=tot>0?Math.round(f.rate/tot*100):0;
     var alive=0; for (var n=0;n<state.liveFish.length;n++) if(state.liveFish[n].name===f.name) alive++;
     html+='<div class="fish-item"><span class="ico">'+f.emoji+'</span><div class="inf">'
-      +'<div style="font-size:13px;font-weight:600;color:#fff">'+f.name
+      +'<div style="font-size:13px;font-weight:600;color:#fff">'+fishName(f.name)
       +' <span class="badge">'+pct+t('% шанс','% chance')+'</span>'
       +(alive>0?' <span class="badge" style="background:#0a2a0a;color:#6ddc6d">🐠 '+alive+'</span>':' <span class="badge" style="background:#2a0a0a;color:#888">'+t('нет','none')+'</span>')
       +'</div><div class="bar-bg"><div class="bar-fill" style="width:'+pct+'%;background:'+li.border+'"></div></div>'
@@ -1549,7 +1564,7 @@ function renderMarket() {
         var isSelected = selQty > 0;
         html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
           +'<span style="font-size:22px">'+(def?def.emoji:'🐟')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+name+' <span class="badge">x'+cnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(name)+' <span class="badge">x'+cnt+'</span></div>'
           +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+t('/шт','/pc')+'</span> <span style="color:#555">'+(diff>0?'+':'')+diff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+'</span></div></div>'
           +(isSelected?'<span style="color:#FFD700;font-size:14px;font-weight:700">✓'+selQty+'</span>':'')+'</div>';
       }
@@ -1597,7 +1612,7 @@ function renderMarket() {
         var isFiletSelected = fSelQty > 0;
         html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#1a1a3a')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef2?fdef2.emoji:'🍱')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fname+' '+t('филе','filet')+' <span class="badge">x'+fcnt2+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fname)+' '+t('филе','filet')+' <span class="badge">x'+fcnt2+'</span></div>'
           +'<div style="font-size:11px;margin-top:2px"><span class="'+ftc+'">'+fti+' '+fmt(fmp.cur*2)+t('/пак','/pack')+'</span> <span style="color:#555">'+(fdiff>0?'+':'')+fdiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(fearn)+' '+t('итого','total')+'</span></div></div>'
           +(isFiletSelected?'<span style="color:#6ddc6d;font-size:14px;font-weight:700">✓'+fSelQty+'</span>':'')+'</div>';
       }
@@ -1628,7 +1643,7 @@ function renderMarket() {
       html+='<div style="font-size:12px;color:#6ddc6d;margin-bottom:6px">';
       for (var sv=0; sv<state.selectedItems.length; sv++) {
         var svi = state.selectedItems[sv];
-        html += (svi.filet?'🍱':svi.dried?'📦':'🐟')+' '+svi.name+(svi.filet?' '+t('филе','filet'):svi.dried?' '+t('сушёная','dried'):'')+': '+svi.qty+t(' шт<br>',' pcs<br>');
+        html += (svi.filet?'🍱':svi.dried?'📦':'🐟')+' '+fishName(svi.name)+(svi.filet?' '+t('филе','filet'):svi.dried?' '+t('сушёная','dried'):'')+': '+svi.qty+t(' шт<br>',' pcs<br>');
       }
       html += '🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
@@ -1691,7 +1706,7 @@ function renderKitchen() {
         var sdone=now>=ss.endsAt;
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+(ss.name||'')+' <span class="badge">'+(ss.packets||1)+t(' пак.',' pack.')+'</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+fishName(ss.name||'')+' <span class="badge">'+(ss.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(sdone
             ? '<button class="btn btn-green" onclick="startDryingFromSalt('+si+')" style="font-size:11px;padding:4px 10px">'+t('Сушить 🌡','Dry 🌡')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(sleft)+'</span>')
@@ -1716,7 +1731,7 @@ function renderKitchen() {
         var cdone=now>=cs.endsAt;
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+(cs.name||'')+' <span class="badge">'+(cs.packets||1)+t(' пак.',' pack.')+'</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+fishName(cs.name||'')+' <span class="badge">'+(cs.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(cdone
             ? '<button class="btn btn-green" onclick="startPacking('+ci+')" style="font-size:11px;padding:4px 10px">'+t('Упаковать 📦','Pack 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(cleft)+'</span>')
@@ -1742,7 +1757,7 @@ function renderKitchen() {
           html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">📦 Упаковывается:</div>'
             +'<div style="background:#1a1a3a;border-radius:10px;padding:10px">'
             +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-            +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fn2.name+' '+t('филе','filet')+' <span class="badge">'+(fn2.packets||1)+t(' пак.',' pack.')+'</span></span>'
+            +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fishName(fn2.name)+' '+t('филе','filet')+' <span class="badge">'+(fn2.packets||1)+t(' пак.',' pack.')+'</span></span>'
             +(pdone
               ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">'+t('Забрать 🍱','Collect 🍱')+'</button>'
               : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(pleft)+'</span>')
@@ -1767,7 +1782,7 @@ function renderKitchen() {
           var tLeftF=nearDieF?Math.max(0,Math.round((nearDieF-now)/3600000*10)/10):0;
           html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
             +'<span style="font-size:20px">'+(def3?def3.emoji:'🍱')+'</span>'
-            +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn3+' '+t('филе','filet')+' <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
+            +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fn3)+' '+t('филе','filet')+' <span class="badge">x'+filetGrouped[fn3]+'</span></div>'
             +(nearDieF?'<div style="font-size:11px;color:#ff9944">⏳ '+tLeftF+t('ч до истечения','h until expiry')+'</div>':'')
             +'</div></div>';
         }
@@ -1786,7 +1801,7 @@ function renderKitchen() {
         var expireLeft=Math.max(0,Math.round((expiresAt-now)/3600000*10)/10);
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+(slot.name||'')+' '+t('сушёная','dried')+' <span class="badge">'+(slot.packets||1)+t(' пак.',' pack.')+'</span></span>'
+          +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+fishName(slot.name||'')+' '+t('сушёная','dried')+' <span class="badge">'+(slot.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(ddone
             ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">'+t('Собрать 📦','Collect 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(dleft)+'</span>')
@@ -1811,7 +1826,7 @@ function renderKitchen() {
         var tLeft=Math.max(0,Math.round((nearDie-now)/3600000*10)/10);
         html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a2a5a">'
           +'<span style="font-size:20px">'+(def2?def2.emoji:'📦')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dn2+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(dn2)+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
           +'<div style="font-size:11px;color:#ff9944">⏳ '+tLeft+t('ч до истечения','h until expiry')+'</div></div></div>';
       }
       html += '</div>';
@@ -1838,7 +1853,7 @@ function renderKitchen() {
         html+='<div style="padding:10px 0;border-bottom:1px solid #1a2a5a">'
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef?fdef.emoji:'🐟')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fn)+' <span class="badge">x'+fcnt+'</span></div>'
           +'<div style="font-size:11px;color:#90caf9">⏱ '+t('засолка 30мин + сушка ','salting 30min + drying ')+fmtTime(dtime)+'</div>'
           +'</div></div>'
           +(canSalt
@@ -1868,7 +1883,7 @@ function renderKitchen() {
         html+='<div style="padding:10px 0;border-bottom:1px solid #1a2a5a">'
           +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="font-size:20px">'+(fdef2?fdef2.emoji:'🐟')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn2+' <span class="badge">x'+fcnt2+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fn2)+' <span class="badge">x'+fcnt2+'</span></div>'
           +'<div style="font-size:11px;color:#90caf9">⏱ '+t('разделка 2ч + упаковка ','cutting 2h + packing ')+fmtTime(DRY_TIME[fn2]||3600)+'</div>'
           +'</div></div>'
           +(canCut
@@ -1909,7 +1924,7 @@ function startCutting(name) {
   state.cutting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
   addQuestProgress('filet', packs);
   dryPacks[name]=1;
-  showNotif('🔪 '+packs+t(' пак. ',' pack. ')+name+t(' отправлено на разделку!',' sent for cutting!'));
+  showNotif('🔪 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на разделку!',' sent for cutting!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
@@ -1922,7 +1937,7 @@ function startPacking(idx) {
   state.cutting.splice(idx,1);
   var packMin = Math.round(packTime/60000);
   var packLabel = packMin>=60 ? (Math.floor(packMin/60)+'ч '+(packMin%60?packMin%60+'м':'')) : packMin+'мин';
-  showNotif('📦 '+slot.name+t(' отправлена на упаковку — ',' sent for packing — ')+packLabel+'!');
+  showNotif('📦 '+fishName(slot.name)+t(' отправлена на упаковку — ',' sent for packing — ')+packLabel+'!');
   updateUI(); save();
 }
 
@@ -1931,7 +1946,7 @@ function collectFilet(idx) {
   if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
   var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
   state.filets[idx]={name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
-  showNotif('🍱 '+t('Филе','Filet')+' '+slot.name+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
+  showNotif('🍱 '+t('Филе','Filet')+' '+fishName(slot.name)+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1954,7 +1969,7 @@ function startSalting(name) {
   // Добавляем слот засолки (30 мин)
   state.salting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+1800000});
   dryPacks[name]=1;
-  showNotif('🧂 '+packs+t(' пак. ',' pack. ')+name+t(' отправлено на засолку!',' sent for salting!'));
+  showNotif('🧂 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на засолку!',' sent for salting!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
@@ -1965,7 +1980,7 @@ function startDryingFromSalt(idx) {
   var dtime=DRY_TIME[slot.name]||3600;
   state.drying.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,startedAt:Date.now(),endsAt:Date.now()+dtime*1000});
   state.salting.splice(idx,1);
-  showNotif('🌡 '+slot.name+t(' отправлена на сушку!',' sent for drying!'));
+  showNotif('🌡 '+fishName(slot.name)+t(' отправлена на сушку!',' sent for drying!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -1997,7 +2012,7 @@ function startDrying(name) {
   // Добавляем слот сушки с количеством пакетов
   state.drying.push({name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
   dryPacks[name] = 1;
-  showNotif((def?def.emoji:'🐟')+' '+packs+' пак. '+name+' отправлено на сушку!');
+  showNotif((def?def.emoji:'🐟')+' '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на сушку!',' sent for drying!'));
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
@@ -2011,7 +2026,7 @@ function collectDried(idx) {
   }
   state.drying.splice(idx,1);
   addQuestProgress('dry', packs);
-  showNotif('📦 '+packs+t(' пак. ',' pack. ')+slot.emoji+' '+slot.name+' '+t('сушёной готово!','dried ready!'));
+  showNotif('📦 '+packs+t(' пак. ',' pack. ')+slot.emoji+' '+fishName(slot.name)+' '+t('сушёной готово!','dried ready!'));
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -2022,7 +2037,7 @@ function checkDrying() {
     var slot=state.drying[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('📦 '+slot.emoji+' '+slot.name+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
+      showNotif('📦 '+slot.emoji+' '+fishName(slot.name)+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
       save();
     }
   }
@@ -2044,7 +2059,7 @@ function checkSalting() {
   for (var i=0;i<state.salting.length;i++) {
     if (now>=state.salting[i].endsAt && !state.salting[i].notified) {
       state.salting[i].notified=true;
-      showNotif('🧂 '+state.salting[i].emoji+' '+state.salting[i].name+' '+t('засолена — зайди на кухню!','salted — check the kitchen!'));
+      showNotif('🧂 '+state.salting[i].emoji+' '+fishName(state.salting[i].name)+' '+t('засолена — зайди на кухню!','salted — check the kitchen!'));
       changed=true;
     }
   }
@@ -2058,7 +2073,7 @@ function checkCutting() {
     var slot=state.cutting[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('🔪 '+slot.emoji+' '+slot.name+' '+t('разделана — зайди на кухню!','cut — check the kitchen!'));
+      showNotif('🔪 '+slot.emoji+' '+fishName(slot.name)+' '+t('разделана — зайди на кухню!','cut — check the kitchen!'));
       changed=true;
     }
   }
@@ -2072,7 +2087,7 @@ function checkCutting() {
       }
       if (!fl.packNotified) {
         fl.packNotified=true;
-        showNotif('🍱 '+fl.emoji+' '+fl.name+' '+t('филе готово — продай за 3 часа!','filet ready — sell within 3 hours!'));
+        showNotif('🍱 '+fl.emoji+' '+fishName(fl.name)+' '+t('филе готово — продай за 3 часа!','filet ready — sell within 3 hours!'));
         changed=true;
       }
     }
@@ -2094,7 +2109,7 @@ function checkCutting() {
     var slot=state.drying[i];
     if (now>=slot.endsAt && !slot.notified) {
       slot.notified=true;
-      showNotif('📦 '+slot.emoji+' '+slot.name+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
+      showNotif('📦 '+slot.emoji+' '+fishName(slot.name)+' '+t('сушёная готова — зайди на кухню!','dried is ready — check the kitchen!'));
       save();
     }
   }
@@ -2324,7 +2339,7 @@ function renderDriver() {
         var isSel=isDriverItemSelected(fn,false,false);
         html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef?fdef.emoji:'🐟')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fn+' <span class="badge">x'+fcnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fn)+' <span class="badge">x'+fcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(fearn)+' '+t('твоя','yours')+' · '+fsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
@@ -2340,7 +2355,7 @@ function renderDriver() {
         var isDrySel=isDriverItemSelected(dnn,true,false);
         html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(dddef?dddef.emoji:'📦')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dnn+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(dnn)+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ddearn)+' '+t('твоя','yours')+' · '+ddsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isDrySel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
@@ -2356,7 +2371,7 @@ function renderDriver() {
         var isFiletSel=isDriverItemSelected(ffn,false,true);
         html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(ffdef?ffdef.emoji:'🍱')+'</span>'
-          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+ffn+' '+t('филе','filet')+' <span class="badge">x'+ffcnt+'</span></div>'
+          +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(ffn)+' '+t('филе','filet')+' <span class="badge">x'+ffcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ffearn)+' '+t('твоя','yours')+' · '+ffsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
           +(isFiletSel?'<span style="color:#b794f6;font-size:18px">✓</span>':'')+'</div>';
       }
@@ -4346,7 +4361,7 @@ function checkDeaths() {
   if (dead.length) {
     state.liveFish=live;
     if (dead.length===1) {
-      showNotif('💀 '+dead[0].emoji+' '+dead[0].name+' '+t('погибла!','died!'),true);
+      showNotif('💀 '+dead[0].emoji+' '+fishName(dead[0].name)+' '+t('погибла!','died!'),true);
     } else {
       showNotif(t('💀 Погибло ','💀 ')+dead.length+t(' рыб!',' fish died!'),true);
     }
