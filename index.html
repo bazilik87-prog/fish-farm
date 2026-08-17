@@ -2464,7 +2464,7 @@ function watchAdForTicket() {
 function spinWithTicket() {
   if ((state.lotteryTickets||0) <= 0) return;
   state.lotteryTickets--;
-  activateBoost('lottery');
+  activateBoost('lottery', false);
   save();
   if (currentTab==='boosts') renderBoosts();
 }
@@ -2528,7 +2528,8 @@ function buyBoost(id) {
   }).catch(function(e){ showNotif('Ошибка: '+e.message); });
 }
 
-function activateBoost(id) {
+function activateBoost(id, growJackpot) {
+  if (growJackpot===undefined) growJackpot=true;
   var now = Date.now();
   addQuestProgress('boost', 1);
   if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
@@ -2598,9 +2599,11 @@ function activateBoost(id) {
             body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot), init_data: tg&&tg.initData||''})
           }).catch(function(){});
         } else {
-          var newJackpot = Math.round((jackpot + 0.5) * 10) / 10;
-          firebaseDB.ref('jackpot/amount').set(newJackpot);
-          window._jackpotCache = newJackpot;
+          if (growJackpot) {
+            var newJackpot = Math.round((jackpot + 0.5) * 10) / 10;
+            firebaseDB.ref('jackpot/amount').set(newJackpot);
+            window._jackpotCache = newJackpot;
+          }
           showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
           showNotif('🎰 Лотерея: '+won.label);
         }
