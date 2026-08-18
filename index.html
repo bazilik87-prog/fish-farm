@@ -393,7 +393,7 @@ var state = {
   boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
   truckTickets:0,
   premiumUntil:0, premiumFreeSpinDate:0, premiumFreeRepairDate:0, // premiumUntil — кэш из Firebase, не сохраняется локально как источник истины
-  energy:100, lastEnergyUpdate:0, lastAdEnergyRefill:0, fishSinceEnergySpend:0,
+  energy:100, lastEnergyUpdate:0, lastAdEnergyRefill:0, lastAdLotterySpin:0, fishSinceEnergySpend:0,
   quests:[], questsDate:0, questProgress:{},
   salt:0, saltOrder:0, salting:[],
   knife:0, knifeOrder:0, cutting:[], filets:[],
@@ -841,7 +841,7 @@ function save() {
       salt:state.salt, saltOrder:state.saltOrder, salting:state.salting,
       knife:state.knife, knifeOrder:state.knifeOrder, cutting:state.cutting, filets:state.filets,
       saltByLoc:state.saltByLoc, knifeByLoc:state.knifeByLoc, truckTickets:state.truckTickets, premiumFreeSpinDate:state.premiumFreeSpinDate, premiumFreeRepairDate:state.premiumFreeRepairDate,
-      energy:state.energy, lastEnergyUpdate:state.lastEnergyUpdate, lastAdEnergyRefill:state.lastAdEnergyRefill, fishSinceEnergySpend:state.fishSinceEnergySpend,
+      energy:state.energy, lastEnergyUpdate:state.lastEnergyUpdate, lastAdEnergyRefill:state.lastAdEnergyRefill, lastAdLotterySpin:state.lastAdLotterySpin, fishSinceEnergySpend:state.fishSinceEnergySpend,
       playerName:state.playerName
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
@@ -888,6 +888,7 @@ function load() {
     state.energy = (typeof s.energy==="number") ? s.energy : 100;
     state.lastEnergyUpdate = s.lastEnergyUpdate || Date.now();
     state.lastAdEnergyRefill = s.lastAdEnergyRefill || 0;
+    state.lastAdLotterySpin = s.lastAdLotterySpin || 0;
     state.fishSinceEnergySpend = s.fishSinceEnergySpend || 0;
     state.quests            = s.quests       || [];
     state.questsDate        = s.questsDate   || 0;
@@ -4537,6 +4538,7 @@ function applyState(s) {
     state.energy = (typeof s.energy==="number") ? s.energy : 100;
     state.lastEnergyUpdate = s.lastEnergyUpdate || Date.now();
     state.lastAdEnergyRefill = s.lastAdEnergyRefill || 0;
+    state.lastAdLotterySpin = s.lastAdLotterySpin || 0;
     state.fishSinceEnergySpend = s.fishSinceEnergySpend || 0;
   state.quests            = s.quests       || [];
   state.questsDate        = s.questsDate   || 0;
