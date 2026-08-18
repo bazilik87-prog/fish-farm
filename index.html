@@ -1486,6 +1486,7 @@ function bulkSell(type) {
     var earn=Math.round(count*0.03*lmB*100)/100;
     state.driedFish=restD;
     state.coins=Math.round((state.coins+earn)*100)/100;
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'dried', qty: count});
     addQuestProgress('earn', earn);
     showNotif(t('💰 Продано ','💰 Sold ')+count+t(' пакетов · +🪙',' packs · +🪙')+earn);
   } else if (type==='filet') {
@@ -1500,6 +1501,7 @@ function bulkSell(type) {
     var earnF=Math.round(countF*0.02*lmB2*100)/100;
     state.filets=restFilets;
     state.coins=Math.round((state.coins+earnF)*100)/100;
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'filet', qty: countF});
     addQuestProgress('earn', earnF);
     showNotif(t('💰 Продано ','💰 Sold ')+countF+t(' пакетов филе · +🪙',' filet packs · +🪙')+earnF);
   } else {
@@ -1513,6 +1515,7 @@ function bulkSell(type) {
     var earn2=Math.round(count2*0.01*lmB3*100)/100;
     state.liveFish=restL;
     state.coins=Math.round((state.coins+earn2)*100)/100;
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'fresh', qty: count2});
     addQuestProgress('earn', earn2);
     addQuestProgress('bulk', count2);
     showNotif(t('💰 Продано ','💰 Sold ')+count2+t(' рыб · +🪙',' fish · +🪙')+earn2);
@@ -3133,66 +3136,12 @@ function checkPendingBoosts() {
 }
 
 function checkAndApplyRefRewards(isRod2) {
-  if (!userId || !firebaseDB) return;
-  var pid = 'tg_' + userId;
-
-  // Получаем pending_rewards для текущего игрока
-  firebaseDB.ref('pending_rewards/' + pid).once('value', function(snap) {
-    var rewards = snap.val();
-    if (rewards) {
-      var total = 0;
-      for (var key in rewards) total += rewards[key];
-      if (total > 0) {
-        state.coins = Math.round((state.coins + total) * 100) / 100;
-        state.totalEarned = Math.round((state.totalEarned + total) * 100) / 100;
-        showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙') + total);
-        firebaseDB.ref('pending_rewards/' + pid).remove();
-        updateUI(); save();
-      }
-    }
-  });
-
-  // Получаем реферальные бонусы
-  firebaseDB.ref('ref_bonuses/' + pid).once('value', function(snap) {
-    var bonuses = snap.val();
-    if (!bonuses) return;
-    var keys = Object.keys(bonuses);
-    if (!keys.length) return;
-    var totalBonus = 0;
-    keys.forEach(function(k) {
-      var b = bonuses[k];
-      var amt = b.amount || 0;
-      var from = b.from || '?';
-      totalBonus += amt;
-      showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ') + from + ': +🪙' + fmt(amt));
-    });
-    if (totalBonus > 0) {
-      state.coins = Math.round((state.coins + totalBonus) * 100) / 100;
-      state.totalEarned = Math.round((state.totalEarned + totalBonus) * 100) / 100;
-      firebaseDB.ref('ref_bonuses/' + pid).remove();
-      updateUI(); save();
-    }
-  });
-
-  // Если купил удочку ур.2 — начисляем рефереру 1000 монет
-  if (isRod2) {
-    firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
-      var referrerId = snap.val();
-      if (!referrerId) return;
-      // Проверяем не начислили ли уже
-      firebaseDB.ref('referrals/rod2_rewarded/' + userId).once('value', function(snap2) {
-        if (snap2.val()) return;
-        firebaseDB.ref('pending_rewards/tg_' + referrerId + '/rod2_' + userId).set(1000);
-        firebaseDB.ref('referrals/rod2_rewarded/' + userId).set(true);
-        // Уведомляем реферера через бота
-        fetch(BOT_API_URL + '/referral_notify', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({referrer_id: referrerId, type: 'rod2', init_data: tg&&tg.initData||''})
-        }).catch(function(){});
-      });
-    });
-  }
+  if (!userId || !tg || !tg.initData) return;
+  // Раньше клиент сам читал ref_bonuses/pending_rewards и дописывал их в state.coins,
+  // а для isRod2 сам писал награду рефереру в pending_rewards — теперь coins пишет только
+  // сервер, и награда за удочку ур.2 начисляется прямо внутри buy_upgrade на сервере.
+  queueAction({type:'claim_bonuses'});
+  flushActions();
 }
 
 function showNews() {
@@ -3585,15 +3534,15 @@ function uploadScore() {
   var username = tgUser ? (tgUser.username || '') : '';
   var firstName = tgUser ? (tgUser.first_name || '') : '';
   getPlayerNumber(pid, function(num) {
-    var newCaught = state.caught;
-    var newEarned = Math.floor(state.totalEarned || 0);
-    // Не даём заработку/улову откатиться назад, если запись со старого устройства/сессии
+    // coins/caught/totalEarned теперь авторитетно считает сервер (см. /actions, /sync) —
+    // раньше здесь была защита "не даём заработку откатиться", которая брала максимум
+    // между старым и новым значением. Она задумывалась для защиты от устаревших сессий
+    // на других устройствах, но теперь мешает легитимным случаям (сброс прогресса,
+    // исправление накрученного баланса) — с сервером как источником правды она не нужна.
     firebaseDB.ref('leaderboard/' + pid).once('value', function(snap) {
       var cur = snap.val();
       var premiumToWrite = state.premiumUntil || 0;
       if (cur) {
-        if (typeof cur.caught === 'number' && cur.caught > newCaught) newCaught = cur.caught;
-        if (typeof cur.totalEarned === 'number' && cur.totalEarned > newEarned) newEarned = cur.totalEarned;
         // Защита от гонки при старте: если локальная проверка премиума ещё не подгрузилась
         // (state.premiumUntil всё ещё 0), не затираем уже известную активную подписку из базы
         if (!window._premiumCheckedOnce && typeof cur.premiumUntil === 'number' && cur.premiumUntil > now) {
@@ -3603,8 +3552,8 @@ function uploadScore() {
       firebaseDB.ref('leaderboard/' + pid).set({
         num:         num,
         coins:       Math.floor(state.coins),
-        caught:      newCaught,
-        totalEarned: newEarned,
+        caught:      state.caught,
+        totalEarned: Math.floor(state.totalEarned || 0),
         loc:         state.currentLoc,
         ts:          now,
         userId:      userId,
@@ -3816,10 +3765,10 @@ function renderSettings() {
     ? '<div class="card" style="background:#1a0a3a;margin-bottom:8px">'
       +'<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🔧 '+t('Админ-панель','Admin panel')+'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-      +'<button class="btn" onclick="state.coins+=1000;updateUI();save();showNotif(\'✅ +1000\')" style="background:#1565c0">+1к</button>'
-      +'<button class="btn" onclick="state.coins+=10000;updateUI();save();showNotif(\'✅ +10к\')" style="background:#1565c0">+10к</button>'
-      +'<button class="btn" onclick="state.coins+=100000;updateUI();save();showNotif(\'✅ +100к\')" style="background:#1565c0">+100к</button>'
-      +'<button class="btn" onclick="state.coins+=1000000;updateUI();save();showNotif(\'✅ +1М\')" style="background:#6a1565">+1М</button>'
+      +'<button class="btn" onclick="queueAction({type:\'admin_grant\',amount:1000});flushActions();showNotif(\'✅ +1000 (на сервере)\')" style="background:#1565c0">+1к</button>'
+      +'<button class="btn" onclick="queueAction({type:\'admin_grant\',amount:10000});flushActions();showNotif(\'✅ +10к (на сервере)\')" style="background:#1565c0">+10к</button>'
+      +'<button class="btn" onclick="queueAction({type:\'admin_grant\',amount:100000});flushActions();showNotif(\'✅ +100к (на сервере)\')" style="background:#1565c0">+100к</button>'
+      +'<button class="btn" onclick="queueAction({type:\'admin_grant\',amount:1000000});flushActions();showNotif(\'✅ +1М (на сервере)\')" style="background:#6a1565">+1М</button>'
       +'</div></div>'
     : '';
   document.getElementById('content').innerHTML=
@@ -3962,6 +3911,12 @@ function applyActionsResult(res) {
   state.totalEarned = res.totalEarned;
   if (res.upgLevels) state.upgLevels = res.upgLevels;
   if (typeof res.energy === 'number') state.energy = res.energy;
+  if (res.claimed && res.claimed.total > 0) {
+    (res.claimed.details||[]).forEach(function(d){
+      if (d.type==='ref') showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ')+d.from+': +🪙'+fmt(d.amount));
+      else showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙')+fmt(d.amount));
+    });
+  }
   syncUpgradesToLoc(); calcStats(); updateUI();
   var raw = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
   raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
@@ -4344,6 +4299,16 @@ function sendDriverDelivery() {
 
   if (!sentCount) { showNotif(t('Нет рыбы на складе!','No fish in storage!')); return; }
   earn=Math.round(earn*100)/100;
+  // Отправляем на сервер точные действия продажи через водителя — сервер сам применит
+  // комиссию 30% (via:'driver'), как и раньше делал клиент локально.
+  for (var qi=0; qi<state.selectedDriverItems.length; qi++) {
+    var qitem = state.selectedDriverItems[qi];
+    if (!qitem.qty) continue;
+    queueAction({
+      type:'sell', loc: state.currentLoc, name: qitem.name, qty: qitem.qty,
+      kind: qitem.filet ? 'filet' : qitem.dried ? 'dried' : 'fresh', via: 'driver'
+    });
+  }
 
   // Соль и ножи для водителя
   var saltOrder=state.driverSaltOrder||0;
@@ -4520,6 +4485,7 @@ function resetGame() {
     tapped=false; scareFactor=1.0;
     document.getElementById('hint').style.opacity='1';
     calcStats(); switchLoc('pond'); showTab('upgrades');
+    lastScoreUpload = 0; uploadScore(); // сразу обновляем таблицу лидеров, не ждём троттлинг в 60с
   };
   if (tg && tg.initData && typeof BOT_API_URL !== 'undefined') {
     fetch(BOT_API_URL + '/reset_progress', {

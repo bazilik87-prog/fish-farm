@@ -514,6 +514,7 @@ MAX_UPGRADE_LEVEL = 5
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
+BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
 async def get_market_prices():
@@ -649,8 +650,30 @@ async def process_actions(request):
     # Непроданный улов — нельзя продать больше рыбы, чем реально было поймано и ещё не продано.
     unsold = float(sv.get('unsoldCaught', 0) or 0)
 
+    # Автодоход (Сеть/Лодка/Сонар) — начисляем по реальному прошедшему времени с последнего
+    # обращения к /actions, используя ТЕКУЩУЮ локацию и реальный уровень апгрейдов —
+    # раньше это (в отличие от тапов) считал только клиент, теперь тоже сервер.
+    cur_loc = sv.get('loc') or 'pond'
+    if cur_loc not in LOCATION_MULT:
+        cur_loc = 'pond'
+    last_seen = sv.get('lastSeen') or now_ms
+    auto_elapsed_sec = max(0, (now_ms - last_seen) / 1000)
+    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24:  # разумный потолок — не более суток за раз
+        cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}
+        auto_per_sec = 0
+        for upg_id, per_level in AUTO_PER_LEVEL.items():
+            lvl = max(0, min(int(cur_lv.get(upg_id, 0) or 0), MAX_UPGRADE_LEVEL))
+            auto_per_sec += per_level * lvl
+        auto_per_sec = auto_per_sec * LOCATION_MULT.get(cur_loc, 1) * (PREMIUM_AUTO_MULT if is_prem else 1)
+        auto_earned = round(auto_per_sec * auto_elapsed_sec / 60 * 100) / 100
+        if auto_earned > 0:
+            coins += auto_earned
+            total_earned += auto_earned
+
     prices_cache = None
     rejected = 0
+    claim_pending_clear = False
+    claim_result = None
 
     for act in actions:
         if not isinstance(act, dict):
@@ -679,6 +702,7 @@ async def process_actions(request):
         elif a_type == 'sell':
             name = str(act.get('name', ''))
             kind = act.get('kind', 'fresh')
+            via_driver = bool(act.get('via') == 'driver')
             try:
                 qty = int(act.get('qty', 0))
             except (TypeError, ValueError):
@@ -698,8 +722,74 @@ async def process_actions(request):
             elif kind == 'filet':
                 unit = unit * FILET_SELL_MULT_EXACT
             earned = round(unit * qty * 100) / 100
+            if via_driver:
+                earned = round(earned * 0.7 * 100) / 100  # водитель забирает 30%
             coins += earned
             total_earned += earned
+
+        elif a_type == 'bulk_sell':
+            kind = act.get('kind', 'fresh')
+            rate = BULK_SELL_RATE.get(kind)
+            try:
+                qty = int(act.get('qty', 0))
+            except (TypeError, ValueError):
+                qty = 0
+            if rate is None or qty < 1 or qty > 5000:
+                rejected += 1
+                continue
+            if qty > unsold + 0.001:
+                rejected += 1
+                continue
+            unsold = max(0, unsold - qty)
+            earned = round(qty * rate * mult * 100) / 100
+            coins += earned
+            total_earned += earned
+
+        elif a_type == 'claim_bonuses':
+            # Реферальные бонусы и отложенные награды — теперь тоже начисляет только сервер,
+            # а не клиент напрямую (это было единственным путём, где клиент писал coins в обход /actions).
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}") as r1:
+                        rb = await r1.json()
+                    async with session.get(f"{base}/pending_rewards/{pid}.json{FB_AUTH}") as r2:
+                        pr = await r2.json()
+                claimed_total = 0
+                claimed_details = []
+                if isinstance(rb, dict):
+                    for k, v in rb.items():
+                        amt = (v or {}).get('amount', 0) if isinstance(v, dict) else 0
+                        claimed_total += amt
+                        claimed_details.append({'type': 'ref', 'from': (v or {}).get('from', '?'), 'amount': amt})
+                if isinstance(pr, dict):
+                    for k, v in pr.items():
+                        amt = v if isinstance(v, (int, float)) else 0
+                        claimed_total += amt
+                        claimed_details.append({'type': 'reward', 'amount': amt})
+                claimed_total = round(claimed_total * 100) / 100
+                if claimed_total > 0:
+                    coins += claimed_total
+                    total_earned += claimed_total
+                    claim_pending_clear = True
+                    claim_result = {'total': claimed_total, 'details': claimed_details}
+            except Exception:
+                rejected += 1
+
+        elif a_type == 'admin_grant':
+            # Кнопки в скрытой админ-панели (видны только вам в игре) — начисление монет
+            # только вашему собственному ID, проверяется на сервере, а не доверяется клиенту.
+            if real_user_id != ADMIN_ID:
+                rejected += 1
+                continue
+            try:
+                amount = float(act.get('amount', 0))
+            except (TypeError, ValueError):
+                amount = 0
+            if amount <= 0 or amount > 10_000_000:
+                rejected += 1
+                continue
+            coins += amount
+            total_earned += amount
 
         elif a_type == 'buy_upgrade':
             upg_id = act.get('upg')
@@ -721,6 +811,28 @@ async def process_actions(request):
                 continue
             coins -= cost
             lv[upg_id] = cur_level + 1
+            # Реферальная награда: реферер получает 1000 монет, когда его реферал впервые
+            # прокачал удочку до ур.2 — начисляется здесь же на сервере, не клиентом.
+            if upg_id == 'rod' and cur_level + 1 == 2:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
+                            referrer_id = await r1.json()
+                        if referrer_id:
+                            async with session.get(f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}") as r2:
+                                already = await r2.json()
+                            if not already:
+                                await session.put(f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}", json=True)
+                                async with session.get(f"{base}/saves/tg_{referrer_id}/coins.json{FB_AUTH}") as r3:
+                                    ref_coins = await r3.json()
+                                ref_coins = (ref_coins or 0) + 1000
+                                await session.patch(f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}", json={"coins": ref_coins})
+                                try:
+                                    await bot.send_message(int(referrer_id), "🎁 Реферальный бонус: +🪙1000! Твой реферал прокачал удочку до ур.2")
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
 
         else:
             rejected += 1
@@ -750,6 +862,9 @@ async def process_actions(request):
                 "unsoldCaught": round(unsold * 100) / 100,
                 "lastSeen": now_ms
             })
+            if claim_pending_clear:
+                await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
+                await session.delete(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -760,7 +875,8 @@ async def process_actions(request):
         'totalEarned': total_earned,
         'upgLevels': upg_levels,
         'energy': round(energy * 100) / 100,
-        'rejected': rejected
+        'rejected': rejected,
+        'claimed': claim_result
     }, headers=CORS)
 
 
@@ -1542,6 +1658,7 @@ async def comm_command(message: types.Message):
         "🛠 *Команды администратора:*\n\n"
         "/players — список всех игроков (файл .txt)\n"
         "/audit — найти аккаунты с накрученным балансом (сверка с реальным временем)\n"
+        "/selftest — автопроверка формул экономики на сервере (без клика по игре)\n"
         "/referrals — реферальная система (файл .txt)\n"
         "/refcontest — рейтинг реферального конкурса\n"
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
@@ -1773,6 +1890,29 @@ async def maintenance_command(message: types.Message):
             await message.answer("🔧 Технические работы ВКЛЮЧЕНЫ. Игроки увидят заглушку.")
         else:
             await message.answer("✅ Технические работы ВЫКЛЮЧЕНЫ. Игра снова доступна игрокам.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('clear_stale_bonuses'))
+async def clear_stale_bonuses_command(message: types.Message):
+    """
+    Разовая очистка: старые ref_bonuses/pending_rewards, начисленные ДО фикса проверки
+    реального баланса при обмене — признаны нечестными и не подлежат выплате.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            r1 = await session.delete(f"{base}/ref_bonuses.json{FB_AUTH}")
+            r2 = await session.delete(f"{base}/pending_rewards.json{FB_AUTH}")
+        await message.answer(
+            f"🧹 Очищено:\n"
+            f"ref_bonuses: {'✅' if r1.status == 200 else '❌ ' + str(r1.status)}\n"
+            f"pending_rewards: {'✅' if r2.status == 200 else '❌ ' + str(r2.status)}"
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -2205,6 +2345,66 @@ async def audit_command(message: types.Message):
             await message.answer(content)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('selftest'))
+async def selftest_command(message: types.Message):
+    """
+    Автоматическая проверка формул экономики на сервере — без единого клика по игре.
+    Не проверяет клиентский код (index.html) на предмет "забыл подключить queueAction()" —
+    это архитектурный класс багов, для него нужен ручной аудит кода. Но ловит опечатки/регрессии
+    в самих формулах (таблицы цен, стоимость апгрейдов, множители локаций) на сервере.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    checks = []
+
+    def check(name, condition, detail=''):
+        checks.append((name, bool(condition), detail))
+
+    # Целостность таблиц
+    check('BASE_PRICES: 20 видов рыбы', len(BASE_PRICES) == 20, f'сейчас {len(BASE_PRICES)}')
+    check('ROD_TAP: 6 уровней (0-5)', len(ROD_TAP) == 6, f'сейчас {len(ROD_TAP)}')
+    check('UPGRADE_COSTS: 4 апгрейда × 5 уровней', all(len(v) == 5 for v in UPGRADE_COSTS.values()) and len(UPGRADE_COSTS) == 4)
+    check('LOCATION_MULT: 5 локаций', len(LOCATION_MULT) == 5, f'сейчас {len(LOCATION_MULT)}')
+    check('AUTO_PER_LEVEL: 3 апгрейда (net/boat/sonar)', len(AUTO_PER_LEVEL) == 3)
+
+    # Формула улова: Пруд, удочка ур.0 → 0.1 монет; Космос, удочка ур.5 → 35 монет
+    catch_pond_lvl0 = round(ROD_TAP[0] * LOCATION_MULT['pond'] * 10) / 10
+    check('Улов: Пруд + удочка 0 = 0.1', catch_pond_lvl0 == 0.1, f'получено {catch_pond_lvl0}')
+    catch_space_lvl5 = round(ROD_TAP[5] * LOCATION_MULT['space'] * 10) / 10
+    check('Улов: Космос + удочка 5 = 35', catch_space_lvl5 == 35, f'получено {catch_space_lvl5}')
+
+    # Стоимость апгрейда: удочка ур.0 в Пруду = 200, в Космосе = 10000
+    check('Апгрейд: удочка ур.0 в Пруду = 200⭐', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['pond'] == 200)
+    check('Апгрейд: удочка ур.0 в Космосе = 10000⭐', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['space'] == 10000)
+
+    # Продажа: сушёная x3, филе x5 от базовой цены
+    base = BASE_PRICES['Карась']
+    check('Продажа: сушёная = x3 от базовой', round(base * DRIED_SELL_MULT, 4) == round(base * 3, 4))
+    check('Продажа: филе = x5 от базовой', round(base * FILET_SELL_MULT_EXACT, 4) == round(base * 5, 4))
+
+    # Ставки массовой продажи (без транспорта)
+    check('bulk_sell: fresh < filet < dried по ставке', BULK_SELL_RATE['fresh'] < BULK_SELL_RATE['filet'] < BULK_SELL_RATE['dried'])
+
+    # Рыночные цены — генерируются и укладываются в границы [0.3x, 4x] от базовой
+    try:
+        prices = await get_market_prices()
+        bad_prices = [n for n, p in prices.items() if not (BASE_PRICES[n]*0.3 - 0.01 <= p <= BASE_PRICES[n]*4 + 0.01)]
+        check('Рыночные цены в границах 0.3x–4x', not bad_prices, f'вне границ: {bad_prices}' if bad_prices else '')
+    except Exception as e:
+        check('Рыночные цены генерируются без ошибок', False, str(e))
+
+    passed = sum(1 for _, ok, _ in checks if ok)
+    lines = [f"🧪 Самопроверка формул: {passed}/{len(checks)} пройдено\n"]
+    for name, ok, detail in checks:
+        icon = '✅' if ok else '❌'
+        lines.append(f"{icon} {name}" + (f' — {detail}' if detail and not ok else ''))
+    lines.append(
+        '\n⚠️ Это не проверяет index.html на пропущенные вызовы queueAction() '
+        '(как было с водителем/bulkSell) — только формулы на сервере.'
+    )
+    await message.answer('\n'.join(lines))
 
 
 @dp.message(Command('broadcast'))
