@@ -2713,7 +2713,7 @@ function activateBoost(id, growJackpot) {
         {label:'🧂 '+s1.toLocaleString('ru-RU')+' соли на склад', coins:0, salt:s1, weight:10},
         {label:'🔪 '+k1.toLocaleString('ru-RU')+' ножей на склад', coins:0, fish:0, knife:k1, weight:7},
         {label:'🚛 Билет на аренду грузовика (12ч)', coins:0, truckTicket:true, weight:3},
-        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:(jackpot>=110?1.0101:0.1)},
+        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:(jackpot>=200?1.0101:0.1)},
       ];
       var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
       var r=Math.random()*total, acc=0, won=prizes[0];
