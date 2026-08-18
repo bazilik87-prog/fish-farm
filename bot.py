@@ -138,6 +138,18 @@ ENERGY_REGEN_SEC = 126                              # 1 энергия кажд�
 PREMIUM_AUTO_MULT = 1.25
 MISC_BUFFER_PER_MIN = 200   # запас на доставку/лотерею/квесты/ежедневный бонус, * множитель локации
 
+# Максимальная цена самой редкой/дорогой рыбы в каждой локации (BASE_PRICES из index.html) —
+# используется для потолка дохода с РЫНКА (продажа улова), который раньше не учитывался
+# и приводил к ложным срабатываниям /audit на честных активных игроках.
+LOCATION_MAX_FISH_PRICE = {'pond': 6, 'river': 13, 'tropics': 28, 'deep': 60, 'space': 250}
+MARKET_PRICE_MAX_MULT = 4    # рынок: цена может подскочить максимум до 4x от базовой
+FILET_SELL_MULT = 5          # продажа филе — x5 к цене за штуку
+# Продажа не мгновенна — ограничена вместимостью транспорта и временем доставки.
+# 200 — разовый запас (грузовик 100 + водитель 100, отправленные почти одновременно),
+# плюс постоянная пропускная способность ~0.083 рыбы/сек (два грузовика подряд).
+IMMEDIATE_SELL_ALLOWANCE = 200
+SELL_THROUGHPUT_PER_SEC = 100 / 1200
+
 
 def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
     """
@@ -173,12 +185,28 @@ def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
     return max_tap, max_auto, max_mult
 
 
+def _best_unlocked_location(ulocs):
+    """Локация с максимальным множителем среди разлоченных — используется и для тапа,
+    и для потолка рыночной цены."""
+    ulocs = ulocs or ['pond']
+    best_loc, best_mult = 'pond', 1
+    for loc_id in ulocs:
+        m = LOCATION_MULT.get(loc_id, 1)
+        if m > best_mult:
+            best_mult = m
+            best_loc = loc_id
+    return best_loc
+
+
 def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
     """
     Верхний потолок правдоподобного увеличения coins/caught за elapsed_ms с последнего
     подтверждённого сервером состояния. Специально щедрый (лучше не заблокировать
     честного игрока, чем поймать всех читеров разом) — это защита от грубой накрутки,
     а не точная симуляция игровой экономики.
+    Учитывает ДВА источника: прямые монеты за тап/автодоход, И рыночную стоимость улова
+    (каждая пойманная рыба может быть продана позже, в лучшем случае — как филе редкого
+    вида по пиковой цене рынка).
     """
     elapsed_sec = max(0, elapsed_ms) / 1000
     ulocs = prev_save.get('ulocs') or ['pond']
@@ -191,11 +219,17 @@ def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
     regen_energy = elapsed_sec / ENERGY_REGEN_SEC
     max_catches = (prev_energy + regen_energy) * 3
 
+    best_loc = _best_unlocked_location(ulocs)
+    max_fish_price = LOCATION_MAX_FISH_PRICE.get(best_loc, 6)
+    max_sale_per_fish = max_fish_price * MARKET_PRICE_MAX_MULT * FILET_SELL_MULT
+    sellable_fish = min(max_catches, IMMEDIATE_SELL_ALLOWANCE + elapsed_sec * SELL_THROUGHPUT_PER_SEC)
+    market_ceiling = sellable_fish * max_sale_per_fish
+
     tap_ceiling = max_catches * max_tap
     auto_ceiling = max_auto * elapsed_sec / 60
     misc_buffer = MISC_BUFFER_PER_MIN * max_mult * (elapsed_sec / 60)
 
-    coin_ceiling = tap_ceiling + auto_ceiling + misc_buffer + 10  # +10 — запас на округления
+    coin_ceiling = tap_ceiling + market_ceiling + auto_ceiling + misc_buffer + 10  # +10 — запас на округления
     return coin_ceiling, max_catches
 
 
@@ -456,6 +490,232 @@ async def referral_notify(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True}, headers=CORS)
+
+
+# ── Точный учёт денежных действий (замена оценочного "потолка") ─────────────
+# Клиент теперь шлёт КОНКРЕТНЫЕ действия (улов/продажа/апгрейд), а сервер считает
+# их стоимость по тем же формулам, что и index.html, используя РЕАЛЬНЫЙ (не заявленный
+# клиентом) уровень апгрейдов и РЕАЛЬНУЮ серверную цену рынка.
+
+BASE_PRICES = {
+    'Карась': 0.5, 'Красноперка': 1.2, 'Лещ': 2.5, 'Щука': 6,
+    'Окунь': 0.8, 'Выдра': 2, 'Крокодил': 5, 'Гиппо': 13,
+    'Тропик': 1.5, 'Попугай': 4, 'Змея': 10, 'Бабочка': 28,
+    'Кальмар': 3, 'Осьминог': 8, 'Акула': 20, 'Кит': 60,
+    'Пришелец': 10, 'НЛО': 30, 'Галактика': 80, 'Звезда': 250,
+}
+UPGRADE_COSTS = {
+    'rod':   [200, 800, 3000, 10000, 30000],
+    'net':   [500, 2000, 8000, 30000, 100000],
+    'boat':  [1500, 10000, 25000, 80000, 250000],
+    'sonar': [5000, 25000, 100000, 300000, 1000000],
+}
+MAX_UPGRADE_LEVEL = 5
+DRIED_SELL_MULT = 3
+FILET_SELL_MULT_EXACT = 5
+PRICE_INTERVAL_MS = 30000
+
+
+async def get_market_prices():
+    """
+    Глобальные серверные цены рынка — общие для всех игроков, генерируются той же
+    формулой случайного блуждания, что и раньше в index.html, но теперь на сервере,
+    поэтому их нельзя подделать записью в собственное сохранение.
+    Обновляются лениво, не чаще раза в 30с (PRICE_INTERVAL_MS).
+    """
+    import aiohttp, time, random
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{base}/market/prices.json{FB_AUTH}") as resp:
+            data = await resp.json()
+        now_ms = int(time.time() * 1000)
+        if data and isinstance(data, dict) and data.get('ts') and data.get('cur') \
+                and now_ms - data['ts'] < PRICE_INTERVAL_MS:
+            return data['cur']
+        cur = (data or {}).get('cur') or {} if isinstance(data, dict) else {}
+        new_cur = {}
+        for name, base_price in BASE_PRICES.items():
+            p = cur.get(name, base_price)
+            chg = (random.random() - 0.48) * 0.3
+            nv = max(base_price * 0.3, min(base_price * 3, p * (1 + chg)))
+            nv = max(base_price * 0.3, min(base_price * 4, nv))
+            new_cur[name] = round(nv * 100) / 100
+        await session.put(f"{base}/market/prices.json{FB_AUTH}", json={'cur': new_cur, 'ts': now_ms})
+        return new_cur
+
+
+async def process_actions(request):
+    """
+    Принимает список конкретных действий (улов/продажа/покупка апгрейда) и считает
+    их точную стоимость на сервере, используя реальный сохранённый уровень апгрейдов
+    и реальную серверную цену рынка — а не оценку "могло ли быть".
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    actions = data.get('actions')
+    if not isinstance(actions, list) or len(actions) > 500:
+        return web.json_response({'error': 'invalid actions'}, status=400, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    sv = sv or {}
+    coins = float(sv.get('coins', 0) or 0)
+    caught = int(sv.get('caught', 0) or 0)
+    total_earned = float(sv.get('totalEarned', 0) or 0)
+    upg_levels = sv.get('upgLevels') or {}
+    if not isinstance(upg_levels, dict):
+        upg_levels = {}
+    ulocs = sv.get('ulocs') or ['pond']
+    is_prem = await is_premium(real_user_id)
+    max_energy = 150 if is_prem else 100
+
+    # Энергия — регенерируем по реальному прошедшему времени, а не верим клиенту.
+    now_ms = int(time.time() * 1000)
+    last_energy_update = sv.get('lastEnergyUpdate') or now_ms
+    prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
+    regen_sec = max(0, (now_ms - last_energy_update) / 1000)
+    energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
+
+    # Непроданный улов — нельзя продать больше рыбы, чем реально было поймано и ещё не продано.
+    unsold = float(sv.get('unsoldCaught', 0) or 0)
+
+    prices_cache = None
+    rejected = 0
+
+    for act in actions:
+        if not isinstance(act, dict):
+            rejected += 1
+            continue
+        a_type = act.get('type')
+        loc = act.get('loc', 'pond')
+        if loc not in LOCATION_MULT or loc not in ulocs:
+            rejected += 1
+            continue
+        mult = LOCATION_MULT.get(loc, 1)
+
+        if a_type == 'catch':
+            if energy < 1/3:
+                rejected += 1
+                continue
+            energy -= 1/3
+            lv = upg_levels.get(loc, {}) if isinstance(upg_levels.get(loc), dict) else {}
+            rod_level = max(0, min(int(lv.get('rod', 0) or 0), len(ROD_TAP) - 1))
+            earned = round(ROD_TAP[rod_level] * mult * 10) / 10
+            coins += earned
+            total_earned += earned
+            caught += 1
+            unsold += 1
+
+        elif a_type == 'sell':
+            name = str(act.get('name', ''))
+            kind = act.get('kind', 'fresh')
+            try:
+                qty = int(act.get('qty', 0))
+            except (TypeError, ValueError):
+                qty = 0
+            if name not in BASE_PRICES or qty < 1 or qty > 200:
+                rejected += 1
+                continue
+            if qty > unsold + 0.001:  # небольшой допуск на округление энергии/улова
+                rejected += 1
+                continue
+            unsold = max(0, unsold - qty)
+            if prices_cache is None:
+                prices_cache = await get_market_prices()
+            unit = prices_cache.get(name, BASE_PRICES[name])
+            if kind == 'dried':
+                unit = unit * DRIED_SELL_MULT
+            elif kind == 'filet':
+                unit = unit * FILET_SELL_MULT_EXACT
+            earned = round(unit * qty * 100) / 100
+            coins += earned
+            total_earned += earned
+
+        elif a_type == 'buy_upgrade':
+            upg_id = act.get('upg')
+            costs = UPGRADE_COSTS.get(upg_id)
+            if not costs:
+                rejected += 1
+                continue
+            lv = upg_levels.get(loc)
+            if not isinstance(lv, dict):
+                lv = {}
+                upg_levels[loc] = lv
+            cur_level = int(lv.get(upg_id, 0) or 0)
+            if cur_level >= MAX_UPGRADE_LEVEL:
+                rejected += 1
+                continue
+            cost = round(costs[cur_level] * mult)
+            if coins < cost:
+                rejected += 1
+                continue
+            coins -= cost
+            lv[upg_id] = cur_level + 1
+
+        else:
+            rejected += 1
+
+    coins = round(coins * 100) / 100
+    total_earned = round(total_earned * 100) / 100
+    now_ms = int(time.time() * 1000)
+
+    if rejected > 5 and ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"⚠️ /actions: {rejected} отклонённых действий у ID {real_user_id} за один запрос"
+            )
+        except Exception:
+            pass
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "coins": coins,
+                "caught": caught,
+                "totalEarned": total_earned,
+                "upgLevels": upg_levels,
+                "energy": round(energy * 100) / 100,
+                "lastEnergyUpdate": now_ms,
+                "unsoldCaught": round(unsold * 100) / 100,
+                "lastSeen": now_ms
+            })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({
+        'ok': True,
+        'coins': coins,
+        'caught': caught,
+        'totalEarned': total_earned,
+        'upgLevels': upg_levels,
+        'energy': round(energy * 100) / 100,
+        'rejected': rejected
+    }, headers=CORS)
 
 
 async def sync_state(request):
@@ -2231,6 +2491,8 @@ async def main():
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/sync', sync_state)
     app.router.add_options('/sync', sync_state)
+    app.router.add_post('/actions', process_actions)
+    app.router.add_options('/actions', process_actions)
     app.router.add_get('/health', health)
     app.router.add_get('/api/check', partner_check)
 
