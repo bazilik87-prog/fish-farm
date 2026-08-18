@@ -544,6 +544,52 @@ async def get_market_prices():
         return new_cur
 
 
+async def reset_progress(request):
+    """
+    Игрок нажал "Сбросить прогресс" в настройках. coins/caught/totalEarned/upgLevels/
+    energy/unsoldCaught теперь пишет только сервер — клиент больше не может обнулить их
+    напрямую в Firebase, поэтому нужен отдельный серверный сброс.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    now_ms = int(time.time() * 1000)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "coins": 0,
+                "caught": 0,
+                "totalEarned": 0,
+                "upgLevels": {},
+                "energy": 100,
+                "lastEnergyUpdate": now_ms,
+                "unsoldCaught": 0,
+                "lastSeen": now_ms
+            })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def process_actions(request):
     """
     Принимает список конкретных действий (улов/продажа/покупка апгрейда) и считает
@@ -2493,6 +2539,8 @@ async def main():
     app.router.add_options('/sync', sync_state)
     app.router.add_post('/actions', process_actions)
     app.router.add_options('/actions', process_actions)
+    app.router.add_post('/reset_progress', reset_progress)
+    app.router.add_options('/reset_progress', reset_progress)
     app.router.add_get('/health', health)
     app.router.add_get('/api/check', partner_check)
 
