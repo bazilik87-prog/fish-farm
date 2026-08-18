@@ -610,6 +610,7 @@ function fmt(c) {
 }
 function fmtTime(s) {
   var m = Math.floor(s/60); var r = s%60;
+  if (LANG === 'en') return m>0 ? (m+'m'+(r>0?' '+r+'s':'')) : s+'s';
   return m>0 ? (m+'мин'+(r>0?' '+r+'с':'')) : s+'с';
 }
 function getLoc(id) {
@@ -1947,7 +1948,7 @@ function startPacking(idx) {
   state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+packTime});
   state.cutting.splice(idx,1);
   var packMin = Math.round(packTime/60000);
-  var packLabel = packMin>=60 ? (Math.floor(packMin/60)+'ч '+(packMin%60?packMin%60+'м':'')) : packMin+'мин';
+  var packLabel = packMin>=60 ? (Math.floor(packMin/60)+t('ч ','h ')+(packMin%60?packMin%60+t('м','m'):'')) : packMin+t('мин','m');
   showNotif('📦 '+fishName(slot.name)+t(' отправлена на упаковку — ',' sent for packing — ')+packLabel+'!');
   updateUI(); save();
 }
@@ -4456,13 +4457,13 @@ function tick() {
     if (Date.now()-lastPriceUpdate>=PRICE_INTERVAL) updatePrices();
     updateWeatherUI();
     var te=document.getElementById('mkt-timer');
-    if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+'с';
+    if (te) te.textContent=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000))+t('с','s');
     var rte=document.getElementById('rental-timer');
     if (rte) {
       var rLeft = state.boosts.truckRental - Date.now();
       if (rLeft > 0) {
         var rh2=Math.floor(rLeft/3600000), rm2=Math.floor((rLeft%3600000)/60000);
-        rte.textContent = rh2+'ч '+rm2+'м';
+        rte.textContent = rh2+t('ч ','h ')+rm2+t('м','m');
       } else if (currentTab==='market') {
         renderMarket(); // аренда истекла — перерисовать, чтобы вернулась кнопка "Арендовать"
       }
