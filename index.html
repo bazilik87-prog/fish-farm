@@ -2518,6 +2518,7 @@ function renderBoosts() {
       setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
     });
   }
+  var adLotteryCooldownLeft = Math.max(0, 3600000 - (Date.now() - (state.lastAdLotterySpin||0)));
   html += '<div class="card" style="background:linear-gradient(135deg,#1a0a2e,#2a1a4a);border:1px solid #9b59b6">'
     +'<div style="display:flex;align-items:center;gap:12px">'
     +'<div style="font-size:32px">🎰</div>'
@@ -2526,7 +2527,10 @@ function renderBoosts() {
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+t('Крути колесо — выиграй монеты или джекпот!','Spin the wheel — win coins or the jackpot!')+'</div>'
     +'<div style="font-size:11px;color:#9b59b6;margin-top:4px">'+Math.round(300*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · '+Math.round(500*maxUnlockedMult()).toLocaleString('ru-RU')+'🪙 · 🐟'+Math.round(100*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🧂'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🔪'+Math.round(15*maxUnlockedMult()).toLocaleString('ru-RU')+' · 🚛 '+t('аренда 12ч','rental 12h')+' · ⭐ <b style="color:#FFD700">'+Math.floor(jackpotDisplay)+'</b> '+t('Stars джекпот','Stars jackpot')+'</div>'
     +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px">'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ '+maxUnlockedOrder())+'</button>'
+    +'<button class="btn" onclick="watchAdForLottery()" style="'+(adLotteryCooldownLeft>0?'opacity:0.5':'background:#1565c0')+'" '+(adLotteryCooldownLeft>0?'disabled':'')+'>'+(adLotteryCooldownLeft>0?fmtTime(Math.ceil(adLotteryCooldownLeft/1000)):'📺')+'</button>'
+    +'</div>'
     +'</div></div>';
 
   // Смена погоды
@@ -2614,6 +2618,28 @@ function watchAdForEnergy() {
     state.lastAdEnergyRefill = Date.now();
     showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
     save(); updateUI();
+    if (currentTab==='boosts') renderBoosts();
+  }).catch(function(err){
+    showNotif(t('❌ Реклама недоступна: ','❌ Ad unavailable: ') + (err && err.message || t('попробуй позже','try later')));
+  });
+}
+// Бесплатная крутка лотереи за рекламу — не чаще раза в час, джекпот от такой крутки не растёт,
+// но шанс выиграть джекпот сохраняется (activateBoost('lottery', false)).
+function watchAdForLottery() {
+  var cooldownLeft = 3600000 - (Date.now() - (state.lastAdLotterySpin||0));
+  if (cooldownLeft > 0) {
+    showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
+    return;
+  }
+  if (typeof show_11591936 !== 'function') {
+    showNotif(t('❌ Реклама пока недоступна, попробуй позже','❌ Ad not available yet, try later'));
+    return;
+  }
+  showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
+  show_11591936().then(function(){
+    state.lastAdLotterySpin = Date.now();
+    save();
+    activateBoost('lottery', false);
     if (currentTab==='boosts') renderBoosts();
   }).catch(function(err){
     showNotif(t('❌ Реклама недоступна: ','❌ Ad unavailable: ') + (err && err.message || t('попробуй позже','try later')));
@@ -3850,7 +3876,8 @@ function showInstructions() {
     +'🔧 '+t('Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2) — repairs bike, moped, car and truck all at once to 100%')+'<br><br>'
     +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5 мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5 instantly, or free by watching an ad (+25 energy, available once every 10 minutes).')+'<br><br>'
     +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо в разделе Бустеры — цена билета (⭐1–5) растёт вместе с самой дальней открытой локацией. Призы (монеты/рыба/соль/ножи тоже растут вместе с локацией, джекпот — нет): 🪙300 (40%) · 🪙500 (25%) · 🐟100 рыб (15%) · 🧂15 соли (10%) · 🔪15 ножей (7%) · 🚛 бесплатная аренда грузовика на 12ч (3%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel in the Boosters section — ticket price (⭐1–5) grows with your furthest unlocked location. Prizes (coins/fish/salt/knives also scale with your location, jackpot doesn\'t): 🪙300 (40%) · 🪙500 (25%) · 🐟100 fish (15%) · 🧂15 salt (10%) · 🔪15 knives (7%) · 🚛 free truck rental for 12h (3%) · ⭐ Stars jackpot (~1%).')+'<br>'
-    +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br><br>'
+    +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br>'
+    +t('📺 Раз в час можно крутить лотерею бесплатно за просмотр рекламы — шанс выиграть джекпот такой же, как при обычной крутке, только сам джекпот от этой крутки не растёт.','📺 Once per hour you can spin the lottery for free by watching an ad — the jackpot odds are the same as a paid spin, but that spin doesn\'t grow the jackpot.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.','Exchange coins for GRAM. The rate depends on your furthest unlocked location: Pond — 100,000:1 · River — 200,000:1 · Tropics — 500,000:1 · Deep — 1,500,000:1 · Space — 5,000,000:1 coins per 1 GRAM. Enter an amount (1,000 to 50,000 coins per withdrawal) and your TON wallet — GRAM is sent manually by the admin within 24h. Fee — 5⭐ (Premium: 3⭐), multiplied by your furthest unlocked location\'s multiplier (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). E.g., in Space: 250⭐ for regular players, 150⭐ for Premium.')+'<br><br>'
     +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
