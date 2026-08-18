@@ -128,6 +128,31 @@ async def is_premium(user_id):
 
 
 LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
+LOCATION_ORDER = {'pond': 1, 'river': 2, 'tropics': 3, 'deep': 4, 'space': 5}
+
+
+async def get_location_order(user_id):
+    """
+    Порядковый номер (1-5) самой продвинутой РАЗЛОЧЕННОЙ локации игрока —
+    используется для цены билета лотереи (Пруд=1⭐ ... Космос=5⭐).
+    Считаем на сервере, не доверяя клиенту.
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    order = 1
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/tg_{user_id}/ulocs.json{FB_AUTH}") as resp:
+                unlocked = await resp.json()
+        if unlocked:
+            for loc_id in unlocked:
+                o = LOCATION_ORDER.get(loc_id, 1)
+                if o > order:
+                    order = o
+    except Exception:
+        pass
+    return order
+
 
 
 async def get_location_mult(user_id):
@@ -210,7 +235,10 @@ async def create_invoice(request):
             boost_id = str(data.get('boost', ''))
             user_id  = real_user_id  # берём из проверенной подписи, а не из тела запроса
             name = BOOST_NAMES.get(boost_id, 'Boost')
-            price = BOOST_PRICES.get(boost_id, 1)
+            if boost_id == 'lottery':
+                price = await get_location_order(user_id)
+            else:
+                price = BOOST_PRICES.get(boost_id, 1)
             payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,
