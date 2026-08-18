@@ -814,25 +814,16 @@ function flushFirebaseSave(saveData) {
   if (!firebaseDB || !saveData) return;
   try {
     var pid = getPlayerId();
-    // Не даём прогрессу откатиться назад, если пишет устройство с более старым/отставшим состоянием
-    firebaseDB.ref('saves/' + pid).once('value', function(snap) {
-      try {
-        var cur = snap.val();
-        if (cur) {
-          if (typeof cur.totalEarned === 'number' && cur.totalEarned > saveData.totalEarned) saveData.totalEarned = cur.totalEarned;
-          if (typeof cur.caught === 'number' && cur.caught > saveData.caught) saveData.caught = cur.caught;
+    // update(), а не set() — saveData больше не содержит coins/caught/totalEarned/energy
+    // (их пишет только bot.py через /sync), и set() стёр бы эти поля как отсутствующие.
+    firebaseDB.ref('saves/' + pid).update(saveData)
+      .then(function(){
+        if (window._fbSaveHadError) {
+          window._fbSaveHadError = false;
+          firebaseDB.ref('sync_errors/' + pid).remove();
         }
-        firebaseDB.ref('saves/' + pid).set(saveData)
-          .then(function(){
-            // Успех — снимаем отметку о сбое, если она была выставлена ранее
-            if (window._fbSaveHadError) {
-              window._fbSaveHadError = false;
-              firebaseDB.ref('sync_errors/' + pid).remove();
-            }
-          })
-          .catch(function(err){ logFirebaseSaveError(pid, err); });
-      } catch(err) { logFirebaseSaveError(pid, err); }
-    }, function(err) { logFirebaseSaveError(pid, err); });
+      })
+      .catch(function(err){ logFirebaseSaveError(pid, err); });
   } catch(err) { logFirebaseSaveError(getPlayerId(), err); }
 }
 
@@ -870,9 +861,17 @@ function save() {
       playerName:state.playerName
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
-    // Firebase пишем с debounce — не чаще раза в 2с, чтобы частые тапы не заваливали сеть запросами
+    // Firebase пишем с debounce — не чаще раза в 2с, чтобы частые тапы не заваливали сеть запросами.
+    // coins/caught/totalEarned/energy ИСКЛЮЧАЕМ из этой записи — их пишет только bot.py через /sync
+    // (правила Firebase запрещают клиенту трогать эти поля напрямую; если оставить их в объекте,
+    // весь .set() целиком будет отклонён, и перестанет сохраняться вообще всё остальное).
     if (firebaseDB) {
-      window._pendingFbSave = saveData;
+      var fbSaveData = {};
+      for (var fbKey in saveData) {
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy') continue;
+        fbSaveData[fbKey] = saveData[fbKey];
+      }
+      window._pendingFbSave = fbSaveData;
       if (window._fbSaveTimer) clearTimeout(window._fbSaveTimer);
       window._fbSaveTimer = setTimeout(function(){
         flushFirebaseSave(window._pendingFbSave);
