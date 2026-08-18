@@ -674,6 +674,9 @@ async def process_actions(request):
     rejected = 0
     claim_pending_clear = False
     claim_result = None
+    salt_delta = 0
+    knife_delta = 0
+    truck_tickets_delta = 0
 
     for act in actions:
         if not isinstance(act, dict):
@@ -775,6 +778,61 @@ async def process_actions(request):
             except Exception:
                 rejected += 1
 
+        elif a_type == 'grant_fish':
+            # Приз лотереи "рыба на склад" — клиент добавляет живую рыбу в инвентарь локально,
+            # это сообщает серверу, сколько именно, чтобы unsoldCaught не разошёлся и продажа
+            # этой рыбы потом не отклонялась как "продаёшь больше, чем поймал".
+            # Потолок = round(100 * множитель локации) — точно как формула приза в index.html.
+            try:
+                qty = int(act.get('qty', 0))
+            except (TypeError, ValueError):
+                qty = 0
+            max_fish_prize = round(100 * mult)
+            if qty < 1 or qty > max_fish_prize:
+                rejected += 1
+                continue
+            caught += qty
+            unsold += qty
+
+        elif a_type == 'lottery_coins':
+            # Денежный приз лотереи (300/500 * множитель локации, 65% суммарный шанс) —
+            # потолок = round(500 * множитель локации), точно как c2 в формуле приза.
+            try:
+                amount = float(act.get('amount', 0))
+            except (TypeError, ValueError):
+                amount = 0
+            max_coin_prize = round(500 * mult)
+            if amount <= 0 or amount > max_coin_prize:
+                rejected += 1
+                continue
+            coins += amount
+            total_earned += amount
+
+        elif a_type == 'grant_salt':
+            try:
+                qty = int(act.get('qty', 0))
+            except (TypeError, ValueError):
+                qty = 0
+            max_salt_prize = round(15 * mult)
+            if qty < 1 or qty > max_salt_prize:
+                rejected += 1
+                continue
+            salt_delta += qty
+
+        elif a_type == 'grant_knife':
+            try:
+                qty = int(act.get('qty', 0))
+            except (TypeError, ValueError):
+                qty = 0
+            max_knife_prize = round(15 * mult)
+            if qty < 1 or qty > max_knife_prize:
+                rejected += 1
+                continue
+            knife_delta += qty
+
+        elif a_type == 'grant_truck_ticket':
+            truck_tickets_delta += 1
+
         elif a_type == 'admin_grant':
             # Кнопки в скрытой админ-панели (видны только вам в игре) — начисление монет
             # только вашему собственному ID, проверяется на сервере, а не доверяется клиенту.
@@ -843,6 +901,23 @@ async def process_actions(request):
     # Уведомление об отклонённых действиях отключено по просьбе — слишком много шума.
     # Сама защита (отклонение подозрительных действий) продолжает работать как прежде.
 
+    extra_fields = {}
+    if salt_delta or knife_delta:
+        salt_by_loc = sv.get('saltByLoc') or {}
+        knife_by_loc = sv.get('knifeByLoc') or {}
+        if not isinstance(salt_by_loc, dict):
+            salt_by_loc = {}
+        if not isinstance(knife_by_loc, dict):
+            knife_by_loc = {}
+        if salt_delta:
+            salt_by_loc[cur_loc] = (salt_by_loc.get(cur_loc) or 0) + salt_delta
+            extra_fields['saltByLoc'] = salt_by_loc
+        if knife_delta:
+            knife_by_loc[cur_loc] = (knife_by_loc.get(cur_loc) or 0) + knife_delta
+            extra_fields['knifeByLoc'] = knife_by_loc
+    if truck_tickets_delta:
+        extra_fields['truckTickets'] = (sv.get('truckTickets') or 0) + truck_tickets_delta
+
     try:
         async with aiohttp.ClientSession() as session:
             await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
@@ -853,7 +928,8 @@ async def process_actions(request):
                 "energy": round(energy * 100) / 100,
                 "lastEnergyUpdate": now_ms,
                 "unsoldCaught": round(unsold * 100) / 100,
-                "lastSeen": now_ms
+                "lastSeen": now_ms,
+                **extra_fields
             })
             if claim_pending_clear:
                 await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")

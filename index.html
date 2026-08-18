@@ -2825,25 +2825,33 @@ function activateBoost(id, growJackpot) {
       for (var pj=0;pj<prizes.length;pj++) { acc+=prizes[pj].weight; if (r<=acc){won=prizes[pj];break;} }
       state.coins=Math.round((state.coins+won.coins)*100)/100;
       state.totalEarned=Math.round((state.totalEarned+won.coins)*100)/100;
+      if (won.coins) {
+        queueAction({type:'lottery_coins', loc: state.currentLoc, amount: won.coins});
+      }
       if (won.fish) {
         for (var fi=0;fi<won.fish;fi++) {
           var rf=randFish();
           pushLiveFish({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
         }
         state.caught+=won.fish;
+        queueAction({type:'grant_fish', loc: state.currentLoc, qty: won.fish});
       }
       if (won.knife) {
         state.knife=(state.knife||0)+won.knife;
         addQuestProgress('buyknife', won.knife);
+        queueAction({type:'grant_knife', loc: state.currentLoc, qty: won.knife});
       }
       if (won.salt) {
         state.salt=(state.salt||0)+won.salt;
         addQuestProgress('buysalt', won.salt);
+        queueAction({type:'grant_salt', loc: state.currentLoc, qty: won.salt});
       }
       if (won.truckTicket) {
         state.truckTickets = (state.truckTickets||0) + 1;
+        queueAction({type:'grant_truck_ticket', loc: state.currentLoc});
         showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
       }
+      if (won.coins || won.fish || won.knife || won.salt || won.truckTicket) flushActions();
       // Обновляем джекпот в Firebase
       if (firebaseDB) {
         if (won.isJackpot) {
