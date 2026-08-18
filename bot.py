@@ -985,6 +985,7 @@ async def comm_command(message: types.Message):
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
+        "/maintenance on|off — включить/выключить технические работы\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
@@ -1177,6 +1178,37 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"🕐 Последнее сохранение: {last_dt.strftime('%d.%m.%Y %H:%M')} МСК")
 
         await message.answer("\n".join(lines))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('maintenance'))
+async def maintenance_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split(maxsplit=1)
+    if len(args) < 2 or args[1].lower() not in ('on', 'off'):
+        await message.answer(
+            "Использование:\n"
+            "`/maintenance on` — включить технические работы (игра покажет заглушку)\n"
+            "`/maintenance off` — выключить, игра снова доступна",
+            parse_mode="Markdown"
+        )
+        return
+    turn_on = args[1].lower() == 'on'
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/config/maintenance.json{FB_AUTH}", json={
+                "on": turn_on,
+                "message": "Мы недолго проводим технические работы. Игра скоро вернётся, прогресс сохранён!",
+                "message_en": "We're running a short maintenance. The game will be back soon, your progress is safe!"
+            })
+        if turn_on:
+            await message.answer("🔧 Технические работы ВКЛЮЧЕНЫ. Игроки увидят заглушку.")
+        else:
+            await message.answer("✅ Технические работы ВЫКЛЮЧЕНЫ. Игра снова доступна игрокам.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
