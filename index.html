@@ -3006,29 +3006,8 @@ function exchangeCoins() {
           state.coins=Math.round((state.coins-amount)*100)/100;
           showNotif(t('💸 Заявка на вывод ','💸 Withdrawal request for ') + amount + t(' монет отправлена! GRAM придут в течение 24ч',' coins sent! GRAM will arrive within 24h'), true);
           updateUI(); save();
-          // Начисляем рефереру 50% от суммы вывода
-          if (userId && firebaseDB) {
-            firebaseDB.ref('referrals/used/' + userId).once('value', function(snap) {
-              var referrerId = snap.val();
-              if (!referrerId) return;
-              var bonus = Math.round(amount * 0.5 * 100) / 100;
-              var key = 'ref_bonus_' + userId + '_' + Date.now();
-              var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-              var fromName = (tgUser && (tgUser.username || tgUser.first_name)) || ('ID:' + userId);
-              firebaseDB.ref('ref_bonuses/tg_' + referrerId + '/' + key).set({
-                amount: bonus,
-                from: fromName
-              });
-              // Реферальный конкурс: очко засчитывается один раз — когда реферал впервые запросил вывод от 1000 монет
-              firebaseDB.ref('ref_contest/withdrawal_done/' + userId).once('value', function(snap3) {
-                if (snap3.val()) return;
-                firebaseDB.ref('ref_contest/withdrawal_done/' + userId).set(true);
-                firebaseDB.ref('ref_contest/scores/' + referrerId).transaction(function(current) {
-                  return (current || 0) + 1;
-                });
-              });
-            });
-          }
+          // Списание баланса и начисление реферального бонуса теперь делает сервер (bot.py)
+          // сразу после подтверждения оплаты — это защищает от подмены суммы на клиенте.
         }
       });
     } else if (data.error) {

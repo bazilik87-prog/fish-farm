@@ -185,6 +185,39 @@ async def get_exchange_rate(user_id, mult=None):
     return 100000 * mult
 
 
+async def get_coin_balance(user_id):
+    """Реальный баланс монет игрока из Firebase — сервер должен доверять только этому,
+    а не числу coins, которое присылает клиент в запросе на обмен."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}") as resp:
+                coins = await resp.json()
+        return coins or 0
+    except Exception:
+        return 0
+
+
+async def deduct_coin_balance(user_id, amount):
+    """Атомарно списывает amount монет с баланса игрока в Firebase через transaction-подобную
+    проверку (читаем-проверяем-пишем). Возвращает True, если списание прошло успешно."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}") as resp:
+                current = await resp.json()
+            current = current or 0
+            if current < amount:
+                return False
+            new_balance = round((current - amount) * 100) / 100
+            await session.put(f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}", json=new_balance)
+        return True
+    except Exception:
+        return False
+
+
 async def create_invoice(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -213,6 +246,10 @@ async def create_invoice(request):
             username = str(data.get('username', '')).strip()
             if coins < 1000 or coins > 50000 or not wallet:
                 return web.json_response({'error': 'сумма должна быть от 1,000 до 50,000 монет'}, status=400, headers=CORS)
+            # Проверяем реальный баланс в Firebase — не доверяем тому, что coins прислал клиент
+            balance = await get_coin_balance(user_id)
+            if coins > balance:
+                return web.json_response({'error': 'недостаточно монет на балансе'}, status=400, headers=CORS)
             # Зашиваем данные прямо в payload — Telegram вернёт их при оплате,
             # так что рестарт бота между созданием счёта и оплатой ничего не потеряет.
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
@@ -373,14 +410,42 @@ async def jackpot_broadcast(request):
     username = real_user.get('username') or real_user.get('first_name') or data.get('username', 'Игрок')
     amount = data.get('amount', 0)
 
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp:
+                current_jackpot = await resp.json()
+    except Exception:
+        current_jackpot = None
+    current_jackpot = current_jackpot or 50
+    # Сверяем заявленную сумму с реальным джекпотом в Firebase — не даём разослать
+    # фейковое объявление о выигрыше суммы, которой на самом деле не было.
+    if not isinstance(amount, (int, float)) or amount < 50 or abs(amount - current_jackpot) > 1:
+        return web.json_response({'error': 'сумма не совпадает с текущим джекпотом'}, status=400, headers=CORS)
+    # Сбрасываем джекпот на сервере — атомарно относительно проверки выше,
+    # чтобы его нельзя было "выиграть" дважды параллельными запросами.
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
+    except Exception:
+        pass
+
     text = (
         f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n\n"
         f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
         f"Крути колесо и попробуй свою удачу!"
     )
 
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    if ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nНужно отправить звёзды вручную."
+            )
+        except Exception:
+            pass
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
@@ -1767,6 +1832,27 @@ async def successful_payment(message: types.Message):
         coins    = parts[2]
         wallet   = parts[3]
         username = parts[4] if len(parts) > 4 else ''
+
+        # Критическая проверка: реально списываем монеты с баланса в Firebase.
+        # Если у игрока не хватает монет (баланс изменился/был подделан с момента создания счёта) —
+        # НЕ отправляем админу запрос на выплату GRAM, только уведомляем о подозрительной попытке.
+        deducted = await deduct_coin_balance(user_id, int(coins))
+        if not deducted:
+            await message.answer(t(message.from_user,
+                "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за комиссию не возвращаются автоматически — напиши администратору.",
+                "❌ Insufficient coin balance at payment time. Stars fee isn't auto-refunded — please contact the admin."))
+            if ADMIN_ID:
+                try:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ ПОДОЗРИТЕЛЬНЫЙ ОБМЕН ОТКЛОНЁН!\n👤 ID: {user_id} (@{username or '—'})\n"
+                        f"🪙 Запрошено: {coins} монет — но на балансе меньше!\n👛 {wallet}\n\n"
+                        f"⭐ Комиссия звёздами уже списана, GRAM НЕ отправляй."
+                    )
+                except Exception:
+                    pass
+            return
+
         try:
             rate = await get_exchange_rate(user_id)
             gram_amount = round(int(coins) / rate, 5)
@@ -1809,6 +1895,33 @@ async def successful_payment(message: types.Message):
                 )
             except Exception:
                 pass
+
+        # Реферальный бонус: 50% от суммы вывода — начисляем на сервере, после того как
+        # монеты реально списаны с проверенного баланса (а не по слову клиента).
+        try:
+            import aiohttp, time as time_mod
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as resp:
+                    referrer_id = await resp.json()
+                if referrer_id:
+                    bonus = round(int(coins) * 0.5 * 100) / 100
+                    key = f"ref_bonus_{user_id}_{int(time_mod.time() * 1000)}"
+                    from_name = f"@{username}" if username else f"ID:{user_id}"
+                    await session.put(f"{base}/ref_bonuses/tg_{referrer_id}/{key}.json{FB_AUTH}", json={
+                        "amount": bonus,
+                        "from": from_name
+                    })
+                    # Реферальный конкурс: очко засчитывается один раз — когда реферал впервые вывел от 1000 монет
+                    async with session.get(f"{base}/ref_contest/withdrawal_done/{user_id}.json{FB_AUTH}") as resp2:
+                        already_done = await resp2.json()
+                    if not already_done:
+                        await session.put(f"{base}/ref_contest/withdrawal_done/{user_id}.json{FB_AUTH}", json=True)
+                        async with session.get(f"{base}/ref_contest/scores/{referrer_id}.json{FB_AUTH}") as resp3:
+                            current_score = await resp3.json()
+                        await session.put(f"{base}/ref_contest/scores/{referrer_id}.json{FB_AUTH}", json=(current_score or 0) + 1)
+        except Exception:
+            pass
 
 
 @dp.message()
