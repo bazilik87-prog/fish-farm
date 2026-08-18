@@ -1323,6 +1323,7 @@ function saveName() {
   save();
   var overlay = document.getElementById('name-overlay');
   if (overlay) overlay.parentNode.removeChild(overlay);
+  if (currentTab==='settings') renderSettings(); // сразу показываем новое имя, без перезахода
 }
 
 function checkNameInput() {
@@ -3935,44 +3936,76 @@ function showInstructions() {
 // сохранённому уровню апгрейдов и реальной серверной цене рынка. Локально мы всё ещё
 // сразу обновляем UI (для отзывчивости тапов), но именно ответ сервера — источник правды;
 // он тихо поправит state, если локальный расчёт разошёлся с серверным.
-window._pendingActions = window._pendingActions || [];
+//
+// НАДЁЖНОСТЬ: очередь всегда дублируется в localStorage. Если игра закроется/перезагрузится
+// до отправки — при следующем запуске несданные действия подхватятся и отправятся первым делом,
+// а не потеряются молча (как было раньше — это приводило к "рыба уехала, а денег нет").
+var PENDING_ACTIONS_KEY = 'ff_pending_actions';
+window._pendingActions = (function(){
+  try { return JSON.parse(localStorage.getItem(PENDING_ACTIONS_KEY) || '[]'); } catch(e) { return []; }
+})();
+function savePendingActionsLocally() {
+  try { localStorage.setItem(PENDING_ACTIONS_KEY, JSON.stringify(window._pendingActions)); } catch(e){}
+}
 function queueAction(action) {
   window._pendingActions.push(action);
+  savePendingActionsLocally();
   if (window._pendingActions.length >= 40) flushActions(); // не даём очереди расти бесконечно
   else {
     if (window._actionsFlushTimer) clearTimeout(window._actionsFlushTimer);
-    window._actionsFlushTimer = setTimeout(flushActions, 5000);
+    window._actionsFlushTimer = setTimeout(flushActions, 3000);
   }
+}
+function applyActionsResult(res) {
+  state.coins = res.coins;
+  state.caught = res.caught;
+  state.totalEarned = res.totalEarned;
+  if (res.upgLevels) state.upgLevels = res.upgLevels;
+  if (typeof res.energy === 'number') state.energy = res.energy;
+  syncUpgradesToLoc(); calcStats(); updateUI();
+  var raw = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
+  raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
+  localStorage.setItem(SAVE_KEY, JSON.stringify(raw));
 }
 function flushActions() {
   if (window._actionsFlushTimer) { clearTimeout(window._actionsFlushTimer); window._actionsFlushTimer = null; }
   if (!window._pendingActions.length || !tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
   var batch = window._pendingActions;
   window._pendingActions = [];
+  savePendingActionsLocally();
   fetch(BOT_API_URL + '/actions', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ actions: batch, init_data: tg.initData })
   }).then(function(r){ return r.json(); }).then(function(res){
-    if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); return; }
+    if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); savePendingActionsLocally(); return; }
     // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
     // расхождение почти всегда просто округление, а не читерство.
-    state.coins = res.coins;
-    state.caught = res.caught;
-    state.totalEarned = res.totalEarned;
-    if (res.upgLevels) state.upgLevels = res.upgLevels;
-    if (typeof res.energy === 'number') state.energy = res.energy;
-    syncUpgradesToLoc(); calcStats(); updateUI();
-    var raw = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
-    raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
-    localStorage.setItem(SAVE_KEY, JSON.stringify(raw));
+    applyActionsResult(res);
   }).catch(function(){
-    // сеть недоступна — возвращаем действия в очередь, попробуем при следующем флаше
+    // сеть недоступна — возвращаем действия в очередь (уже сохранены в localStorage), попробуем позже
     window._pendingActions = batch.concat(window._pendingActions);
+    savePendingActionsLocally();
   });
 }
-window.addEventListener('beforeunload', flushActions);
-document.addEventListener('visibilitychange', function(){ if (document.hidden) flushActions(); });
+// При закрытии/сворачивании — пробуем sendBeacon вместо fetch: обычный fetch может не успеть
+// завершиться до выгрузки страницы, а sendBeacon специально создан для таких случаев (fire-and-forget,
+// браузер гарантирует попытку отправки даже когда страница уже закрывается).
+function flushActionsOnExit() {
+  if (!window._pendingActions.length || !tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  if (navigator.sendBeacon) {
+    try {
+      var blob = new Blob([JSON.stringify({ actions: window._pendingActions, init_data: tg.initData })], {type: 'application/json'});
+      var ok = navigator.sendBeacon(BOT_API_URL + '/actions', blob);
+      if (ok) { window._pendingActions = []; savePendingActionsLocally(); return; }
+    } catch(e){}
+  }
+  flushActions(); // фолбэк, если sendBeacon недоступен
+}
+window.addEventListener('beforeunload', flushActionsOnExit);
+document.addEventListener('visibilitychange', function(){ if (document.hidden) flushActionsOnExit(); });
+// На случай, если предыдущая сессия закрылась до отправки — досылаем оставшееся сразу при запуске
+if (window._pendingActions.length) setTimeout(flushActions, 1000);
 
 // ── Действия ──────────────────────────────────────────
 function tapOcean(e) {
