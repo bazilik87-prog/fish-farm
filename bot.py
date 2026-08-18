@@ -459,7 +459,10 @@ async def start(message: types.Message):
                 if already_known:
                     is_new = False
                 else:
-                    await session.put(f"{base}/known_starts/{user_id}.json{FB_AUTH}", json=True)
+                    await session.put(f"{base}/known_starts/{user_id}.json{FB_AUTH}", json={
+                        "registered_at": int(time_module.time() * 1000),
+                        "username": user.username or ""
+                    })
         except Exception:
             pass  # если Firebase недоступен — на всякий случай считаем новым, лучше лишнее уведомление чем пропуск
 
@@ -1093,10 +1096,20 @@ async def playerinfo_command(message: types.Message):
             async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
                 referrer_id = await resp.json()
 
+            async with session.get(f"{base}/known_starts/{uid}.json{FB_AUTH}") as resp:
+                known_start = await resp.json()
+
             async with session.get(f"{base}/premium/{pid}.json{FB_AUTH}") as resp:
                 premium_until = await resp.json()
 
         lines = [f"👤 @{username} (ID: {uid})"]
+
+        registered_at = known_start.get('registered_at') if isinstance(known_start, dict) else None
+        if registered_at:
+            reg_dt = datetime.fromtimestamp(registered_at / 1000, tz=timezone(timedelta(hours=3)))
+            lines.append(f"📅 Регистрация: {reg_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+        else:
+            lines.append("📅 Регистрация: неизвестна (игрок зашёл до внедрения этого учёта)")
 
         loc = sv.get('loc', 'pond')
         ulocs = sv.get('ulocs', ['pond'])
