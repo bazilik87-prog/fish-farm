@@ -130,6 +130,74 @@ async def is_premium(user_id):
 LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
 LOCATION_ORDER = {'pond': 1, 'river': 2, 'tropics': 3, 'deep': 4, 'space': 5}
 
+# ── Формулы экономики (зеркалят index.html) — используются ТОЛЬКО для расчёта
+# верхнего "потолка" правдоподобного заработка на /sync, не для точной симуляции игры.
+ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]           # монет за улов по уровню удочки (0-5)
+AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда
+ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
+PREMIUM_AUTO_MULT = 1.25
+MISC_BUFFER_PER_MIN = 200   # запас на доставку/лотерею/квесты/ежедневный бонус, * множитель локации
+
+
+def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
+    """
+    Возвращает (max_tap_power, max_auto_per_sec, max_location_mult) — самые щедрые
+    из ВСЕХ разлоченных локаций игрока (на случай, если он переключался между ними
+    в течение периода между синками). Небольшой запас в пользу игрока — это ceiling,
+    не точная симуляция.
+    """
+    ulocs = ulocs or ['pond']
+    upg_levels = upg_levels or {}
+    premium_mult = PREMIUM_AUTO_MULT if is_premium else 1
+    max_tap = 0.0
+    max_auto = 0.0
+    max_mult = 1
+    for loc_id in ulocs:
+        mult = LOCATION_MULT.get(loc_id, 1)
+        if mult > max_mult:
+            max_mult = mult
+        lv = upg_levels.get(loc_id, {}) if isinstance(upg_levels, dict) else {}
+        rod_level = int(lv.get('rod', 0) or 0)
+        rod_level = max(0, min(rod_level, len(ROD_TAP) - 1))
+        tap = ROD_TAP[rod_level] * mult
+        if tap > max_tap:
+            max_tap = tap
+        auto = 0.0
+        for upg_id, per_level in AUTO_PER_LEVEL.items():
+            lvl = int(lv.get(upg_id, 0) or 0)
+            lvl = max(0, min(lvl, 5))
+            auto += per_level * lvl
+        auto = auto * mult * premium_mult
+        if auto > max_auto:
+            max_auto = auto
+    return max_tap, max_auto, max_mult
+
+
+def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
+    """
+    Верхний потолок правдоподобного увеличения coins/caught за elapsed_ms с последнего
+    подтверждённого сервером состояния. Специально щедрый (лучше не заблокировать
+    честного игрока, чем поймать всех читеров разом) — это защита от грубой накрутки,
+    а не точная симуляция игровой экономики.
+    """
+    elapsed_sec = max(0, elapsed_ms) / 1000
+    ulocs = prev_save.get('ulocs') or ['pond']
+    upg_levels = prev_save.get('upgLevels') or {}
+    max_tap, max_auto, max_mult = _max_tap_power_and_auto(ulocs, upg_levels, is_premium)
+
+    max_energy = 150 if is_premium else 100
+    prev_energy = prev_save.get('energy')
+    prev_energy = max_energy if prev_energy is None else min(float(prev_energy), max_energy)
+    regen_energy = elapsed_sec / ENERGY_REGEN_SEC
+    max_catches = (prev_energy + regen_energy) * 3
+
+    tap_ceiling = max_catches * max_tap
+    auto_ceiling = max_auto * elapsed_sec / 60
+    misc_buffer = MISC_BUFFER_PER_MIN * max_mult * (elapsed_sec / 60)
+
+    coin_ceiling = tap_ceiling + auto_ceiling + misc_buffer + 10  # +10 — запас на округления
+    return coin_ceiling, max_catches
+
 
 async def get_location_order(user_id):
     """
@@ -388,6 +456,130 @@ async def referral_notify(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True}, headers=CORS)
+
+
+async def sync_state(request):
+    """
+    Игрок присылает своё текущее состояние (coins/caught/totalEarned/energy и т.д.).
+    Сервер сверяет с последним подтверждённым состоянием в Firebase и с реальным
+    прошедшим временем — и если прирост превышает физически возможный потолок,
+    обрезает его, а не пишет слепо. Это единственный путь, которым клиент теперь
+    может менять денежные поля; прямая запись в Firebase для них закрыта правилами.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+
+    try:
+        req_coins = float(data.get('coins', 0) or 0)
+        req_caught = int(data.get('caught', 0) or 0)
+        req_total_earned = float(data.get('totalEarned', 0) or 0)
+        req_energy = data.get('energy', None)
+    except (TypeError, ValueError):
+        return web.json_response({'error': 'invalid payload'}, status=400, headers=CORS)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                prev = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    now_ms = int(time.time() * 1000)
+
+    if not prev:
+        # Первый синк для этого игрока — просто фиксируем стартовое состояние без проверок
+        # (по умолчанию у нового игрока и так coins:0, разгонять там нечего).
+        prev = {}
+        elapsed_ms = 0
+    else:
+        elapsed_ms = max(0, now_ms - (prev.get('lastSeen') or now_ms))
+
+    prev_coins = float(prev.get('coins', 0) or 0)
+    prev_caught = int(prev.get('caught', 0) or 0)
+    prev_total_earned = float(prev.get('totalEarned', 0) or 0)
+
+    is_prem = await is_premium(real_user_id)
+    coin_ceiling, catch_ceiling = compute_earning_ceiling(prev, is_prem, elapsed_ms)
+
+    coin_delta = req_coins - prev_coins
+    earned_delta = req_total_earned - prev_total_earned
+    catch_delta = req_caught - prev_caught
+
+    suspicious = False
+    final_coins = req_coins
+    final_total_earned = req_total_earned
+    final_caught = req_caught
+
+    if coin_delta > coin_ceiling:
+        suspicious = True
+        final_coins = round((prev_coins + coin_ceiling) * 100) / 100
+    if earned_delta > coin_ceiling:
+        suspicious = True
+        final_total_earned = round((prev_total_earned + coin_ceiling) * 100) / 100
+    if catch_delta > catch_ceiling:
+        suspicious = True
+        final_caught = prev_caught + int(catch_ceiling)
+    # Если игрок тратит монеты (например, купил апгрейд) — coin_delta отрицательный,
+    # это всегда разрешено, потолок касается только РОСТА баланса.
+    if coin_delta < 0:
+        final_coins = req_coins
+
+    max_energy = 150 if is_prem else 100
+    final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
+
+    if suspicious and ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"⚠️ /sync: подозрительный скачок у ID {real_user_id}\n"
+                f"🪙 Запрошено: {req_coins:,.0f} (было {prev_coins:,.0f}, потолок +{coin_ceiling:,.0f})\n"
+                f"🐟 Поймано: {req_caught} (было {prev_caught}, потолок +{catch_ceiling:,.0f})\n"
+                f"⏱ Прошло: {elapsed_ms/1000:,.0f}с — обрезано до {final_coins:,.0f} монет"
+            )
+        except Exception:
+            pass
+
+    # Пишем ТОЛЬКО денежные поля через защищённый серверный путь.
+    # Остальные (drying, salting, upgLevels и т.д.) продолжает писать клиент напрямую —
+    # это следующий шаг переноса, не в рамках этого эндпоинта.
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "coins": final_coins,
+                "caught": final_caught,
+                "totalEarned": final_total_earned,
+                "energy": final_energy,
+                "lastSeen": now_ms
+            })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({
+        'ok': True,
+        'coins': final_coins,
+        'caught': final_caught,
+        'totalEarned': final_total_earned,
+        'energy': final_energy,
+        'clamped': suspicious
+    }, headers=CORS)
 
 
 async def jackpot_broadcast(request):
@@ -1944,6 +2136,8 @@ async def main():
     app.router.add_options('/referral_notify', referral_notify)
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
+    app.router.add_post('/sync', sync_state)
+    app.router.add_options('/sync', sync_state)
     app.router.add_get('/health', health)
     app.router.add_get('/api/check', partner_check)
 

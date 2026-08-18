@@ -879,7 +879,45 @@ function save() {
         window._fbSaveTimer = null;
       }, 2000);
     }
+    // Денежные поля (coins/caught/totalEarned/energy) теперь синкаем через bot.py,
+    // который сверяет прирост с физически возможным потолком — раз в 8с с debounce.
+    if (typeof BOT_API_URL !== 'undefined' && tg && tg.initData) {
+      if (window._syncTimer) clearTimeout(window._syncTimer);
+      window._syncTimer = setTimeout(function(){
+        window._syncTimer = null;
+        syncMoneyToServer();
+      }, 8000);
+    }
   } catch(e){}
+}
+
+function syncMoneyToServer() {
+  if (!tg || !tg.initData) return;
+  fetch(BOT_API_URL + '/sync', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      coins: state.coins,
+      caught: state.caught,
+      totalEarned: state.totalEarned,
+      energy: state.energy,
+      init_data: tg.initData
+    })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if (!res || !res.ok) return;
+    // Сервер — источник правды. Если он что-то обрезал (clamped:true), тихо принимаем
+    // его цифры, без пугающих игрока уведомлений — это редкий случай ложной подозрительности,
+    // а не что-то, что нужно объяснять каждому.
+    state.coins = res.coins;
+    state.caught = res.caught;
+    state.totalEarned = res.totalEarned;
+    state.energy = res.energy;
+    updateUI();
+    localStorage.setItem(SAVE_KEY, JSON.stringify(Object.assign(
+      JSON.parse(localStorage.getItem(SAVE_KEY) || '{}'),
+      {coins: state.coins, caught: state.caught, totalEarned: state.totalEarned, energy: state.energy}
+    )));
+  }).catch(function(){ /* сеть недоступна — следующий save() попробует снова */ });
 }
 
 function load() {
