@@ -840,15 +840,8 @@ async def process_actions(request):
     coins = round(coins * 100) / 100
     total_earned = round(total_earned * 100) / 100
     now_ms = int(time.time() * 1000)
-
-    if rejected > 5 and ADMIN_ID:
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"⚠️ /actions: {rejected} отклонённых действий у ID {real_user_id} за один запрос"
-            )
-        except Exception:
-            pass
+    # Уведомление об отклонённых действиях отключено по просьбе — слишком много шума.
+    # Сама защита (отклонение подозрительных действий) продолжает работать как прежде.
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -967,17 +960,8 @@ async def sync_state(request):
     max_energy = 150 if is_prem else 100
     final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
 
-    if suspicious and ADMIN_ID:
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"⚠️ /sync: подозрительный скачок у ID {real_user_id}\n"
-                f"🪙 Запрошено: {req_coins:,.0f} (было {prev_coins:,.0f}, потолок +{coin_ceiling:,.0f})\n"
-                f"🐟 Поймано: {req_caught} (было {prev_caught}, потолок +{catch_ceiling:,.0f})\n"
-                f"⏱ Прошло: {elapsed_ms/1000:,.0f}с — обрезано до {final_coins:,.0f} монет"
-            )
-        except Exception:
-            pass
+    # Уведомление о срабатывании потолка /sync отключено по просьбе — слишком много шума.
+    # Сама обрезка подозрительного прироста продолжает работать как прежде.
 
     # Пишем ТОЛЬКО денежные поля через защищённый серверный путь.
     # Остальные (drying, salting, upgLevels и т.д.) продолжает писать клиент напрямую —
@@ -2626,22 +2610,13 @@ async def successful_payment(message: types.Message):
 
         # Критическая проверка: реально списываем монеты с баланса в Firebase.
         # Если у игрока не хватает монет (баланс изменился/был подделан с момента создания счёта) —
-        # НЕ отправляем админу запрос на выплату GRAM, только уведомляем о подозрительной попытке.
+        # НЕ отправляем админу запрос на выплату GRAM (это самое важное — блокировка происходит
+        # в любом случае). Уведомление вам в Telegram отключено по просьбе — слишком много шума.
         deducted = await deduct_coin_balance(user_id, int(coins))
         if not deducted:
             await message.answer(t(message.from_user,
                 "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за комиссию не возвращаются автоматически — напиши администратору.",
                 "❌ Insufficient coin balance at payment time. Stars fee isn't auto-refunded — please contact the admin."))
-            if ADMIN_ID:
-                try:
-                    await bot.send_message(
-                        ADMIN_ID,
-                        f"⚠️ ПОДОЗРИТЕЛЬНЫЙ ОБМЕН ОТКЛОНЁН!\n👤 ID: {user_id} (@{username or '—'})\n"
-                        f"🪙 Запрошено: {coins} монет — но на балансе меньше!\n👛 {wallet}\n\n"
-                        f"⭐ Комиссия звёздами уже списана, GRAM НЕ отправляй."
-                    )
-                except Exception:
-                    pass
             return
 
         try:
