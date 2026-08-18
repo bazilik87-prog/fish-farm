@@ -868,7 +868,7 @@ function save() {
     if (firebaseDB) {
       var fbSaveData = {};
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       window._pendingFbSave = fbSaveData;
@@ -3929,6 +3929,51 @@ function showInstructions() {
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← '+t('Назад','Back')+'</button>';
 }
 
+// ── Точный учёт денежных действий на сервере ─────────────────────────────
+// Вместо того чтобы верить итоговым числам от клиента, сервер (bot.py) теперь сам
+// считает стоимость каждого конкретного действия (улов/продажа/апгрейд) по реальному
+// сохранённому уровню апгрейдов и реальной серверной цене рынка. Локально мы всё ещё
+// сразу обновляем UI (для отзывчивости тапов), но именно ответ сервера — источник правды;
+// он тихо поправит state, если локальный расчёт разошёлся с серверным.
+window._pendingActions = window._pendingActions || [];
+function queueAction(action) {
+  window._pendingActions.push(action);
+  if (window._pendingActions.length >= 40) flushActions(); // не даём очереди расти бесконечно
+  else {
+    if (window._actionsFlushTimer) clearTimeout(window._actionsFlushTimer);
+    window._actionsFlushTimer = setTimeout(flushActions, 5000);
+  }
+}
+function flushActions() {
+  if (window._actionsFlushTimer) { clearTimeout(window._actionsFlushTimer); window._actionsFlushTimer = null; }
+  if (!window._pendingActions.length || !tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  var batch = window._pendingActions;
+  window._pendingActions = [];
+  fetch(BOT_API_URL + '/actions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ actions: batch, init_data: tg.initData })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); return; }
+    // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
+    // расхождение почти всегда просто округление, а не читерство.
+    state.coins = res.coins;
+    state.caught = res.caught;
+    state.totalEarned = res.totalEarned;
+    if (res.upgLevels) state.upgLevels = res.upgLevels;
+    if (typeof res.energy === 'number') state.energy = res.energy;
+    syncUpgradesToLoc(); calcStats(); updateUI();
+    var raw = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
+    raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(raw));
+  }).catch(function(){
+    // сеть недоступна — возвращаем действия в очередь, попробуем при следующем флаше
+    window._pendingActions = batch.concat(window._pendingActions);
+  });
+}
+window.addEventListener('beforeunload', flushActions);
+document.addEventListener('visibilitychange', function(){ if (document.hidden) flushActions(); });
+
 // ── Действия ──────────────────────────────────────────
 function tapOcean(e) {
   e.preventDefault();
@@ -3972,6 +4017,7 @@ function tapOcean(e) {
   state.coins=Math.round((state.coins+earned)*100)/100;
   state.totalEarned=Math.round((state.totalEarned+earned)*100)/100;
   state.caught++;
+  queueAction({type:'catch', loc: state.currentLoc});
   checkAdMilestone();
   spendEnergyForCatch();
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
@@ -3991,6 +4037,7 @@ function buyUpgrade(id) {
   var cost=upgCost(u,u.bought); if (state.coins<cost) return;
   state.coins=Math.round((state.coins-cost)*100)/100; u.bought++;
   setUpgLevel(id, u.bought); // сохраняем именно в текущую локацию
+  queueAction({type:'buy_upgrade', loc: state.currentLoc, upg: id});
   // Реферальная награда: реферер получает 1000 монет когда реферал купил удочку ур.2
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
@@ -4122,6 +4169,16 @@ function sendDelivery() {
 
   if (!sentCount) { showNotif(t('Нет рыбы на складе!','No fish in storage!')); return; }
   earn=Math.round(earn*100)/100;
+  // Отправляем на сервер точные действия продажи — по одному на каждый проданный вид/тип,
+  // чтобы сервер сам посчитал стоимость по реальной серверной цене рынка.
+  for (var qi=0; qi<state.selectedItems.length; qi++) {
+    var qitem = state.selectedItems[qi];
+    if (!qitem.qty) continue;
+    queueAction({
+      type:'sell', loc: state.currentLoc, name: qitem.name, qty: qitem.qty,
+      kind: qitem.filet ? 'filet' : qitem.dried ? 'dried' : 'fresh'
+    });
+  }
   var secs=delivTime(tr);
   var saltOrder=state.saltOrder||0;
   var saltPrice=SALT_PRICE[state.currentLoc]||1;
