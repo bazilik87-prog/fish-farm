@@ -1235,6 +1235,7 @@ async def comm_command(message: types.Message):
     await message.answer(
         "🛠 *Команды администратора:*\n\n"
         "/players — список всех игроков (файл .txt)\n"
+        "/audit — найти аккаунты с накрученным балансом (сверка с реальным временем)\n"
         "/referrals — реферальная система (файл .txt)\n"
         "/refcontest — рейтинг реферального конкурса\n"
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
@@ -1804,6 +1805,98 @@ async def players_command(message: types.Message):
             types.BufferedInputFile(file_bytes, filename=filename),
             caption=f"👥 Игроков: {len(players)}"
         )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('audit'))
+async def audit_command(message: types.Message):
+    """
+    Сверяет totalEarned каждого игрока с абсолютным теоретическим потолком
+    (лучший случай: Космос, все апгрейды макс., Premium) исходя из времени,
+    прошедшего с его регистрации (known_starts). Флагует тех, у кого баланс
+    физически не мог быть заработан честной игрой — вероятные жертвы старой
+    дыры в правилах Firebase (запись напрямую в базу до фикса).
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Провожу аудит балансов...")
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                players = await resp.json()
+            async with session.get(f"{base}/known_starts.json{FB_AUTH}") as resp:
+                known_starts = await resp.json()
+
+        if not players:
+            await message.answer("Пока нет игроков.")
+            return
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        flagged = []
+        no_reg_date = []
+
+        # Абсолютный потолок в секунду — лучший случай (Космос x50, все апгрейды 5 lvl, Premium)
+        best_upg = {'rod': 5, 'net': 5, 'boat': 5, 'sonar': 5}
+        best_save = {'ulocs': ['space'], 'upgLevels': {'space': best_upg}}
+
+        for v in players.values():
+            user_id = v.get('userId')
+            if not user_id:
+                continue
+            total_earned = v.get('totalEarned', 0) or 0
+            coins = v.get('coins', 0) or 0
+            caught = v.get('caught', 0) or 0
+            username = v.get('username', '')
+            identity = f"@{username}" if username else f"ID:{user_id}"
+
+            ks = (known_starts or {}).get(str(user_id))
+            registered_at = ks.get('registered_at') if isinstance(ks, dict) else None
+
+            if not registered_at:
+                if total_earned > 10000:  # без даты регистрации — просто отмечаем крупные балансы отдельно
+                    no_reg_date.append(f"{identity} | заработано:{total_earned:,.0f} | монет:{coins:,.0f}")
+                continue
+
+            elapsed_ms = max(0, now_ms - registered_at)
+            ceiling, _ = compute_earning_ceiling(best_save, True, elapsed_ms)
+            # 2х запас сверху — это ЛУЧШИЙ случай для нового игрока, реальный потолок ниже,
+            # но лучше перебдеть и не пометить честного игрока как подозрительного
+            ceiling = ceiling * 2
+
+            if total_earned > ceiling:
+                reg_dt = datetime.fromtimestamp(registered_at / 1000, tz=timezone(timedelta(hours=3)))
+                age_min = elapsed_ms / 60000
+                flagged.append(
+                    f"{identity} (ID:{user_id})\n"
+                    f"  📅 Регистрация: {reg_dt.strftime('%d.%m.%Y %H:%M')} МСК ({age_min:,.0f} мин назад)\n"
+                    f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f} · Поймано: {caught}\n"
+                    f"  ⚠️ Теоретический потолок: {ceiling:,.0f} — превышен в {(total_earned/max(ceiling,1)):.1f}x раз"
+                )
+
+        lines = []
+        if flagged:
+            lines.append(f"🚨 ПОДОЗРИТЕЛЬНЫЕ АККАУНТЫ ({len(flagged)}):\n")
+            lines.extend(flagged)
+        else:
+            lines.append("✅ Явных превышений потолка не найдено.")
+
+        if no_reg_date:
+            lines.append(f"\n\nℹ️ Крупные балансы без даты регистрации ({len(no_reg_date)}) — проверить вручную:\n")
+            lines.extend(no_reg_date)
+
+        content = "\n".join(lines)
+        if len(content) > 3500:
+            filename = f"fishfarm_audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.txt"
+            await message.answer_document(
+                types.BufferedInputFile(content.encode('utf-8'), filename=filename),
+                caption=f"🚨 Подозрительных: {len(flagged)} · Без даты регистрации: {len(no_reg_date)}"
+            )
+        else:
+            await message.answer(content)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
