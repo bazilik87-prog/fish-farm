@@ -74,6 +74,31 @@ html{overflow-x:hidden;width:100%}
 </style>
 </head>
 <body>
+<script>
+// ── Проверка режима обслуживания ────────────────────────────────
+// Читаем config/maintenance ДО того, как загрузится сама игра.
+// Если включено — показываем заглушку и останавливаем выполнение остального скрипта.
+(function(){
+  var LANG_MT = (navigator.language||'ru').indexOf('ru')===0 ? 'ru' : 'en';
+  fetch('https://fishfarm-3a4f8-default-rtdb.firebaseio.com/config/maintenance.json')
+    .then(function(r){ return r.json(); })
+    .then(function(v){
+      if (v && v.on) {
+        document.documentElement.innerHTML =
+          '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;color:#eee;font-family:-apple-system,sans-serif;text-align:center;padding:24px">'
+          +'<div>'
+          +'<div style="font-size:48px;margin-bottom:16px">🔧</div>'
+          +'<div style="font-size:18px;font-weight:700;margin-bottom:8px">'+(LANG_MT==='ru'?'Технические работы':'Under maintenance')+'</div>'
+          +'<div style="font-size:14px;color:#90caf9;max-width:320px">'+(LANG_MT==='ru'
+            ? (v.message || 'Мы недолго проводим технические работы. Игра скоро вернётся, прогресс сохранён!')
+            : (v.message_en || 'We\'re running a short maintenance. The game will be back soon, your progress is safe!'))+'</div>'
+          +'</div></body>';
+        throw new Error('maintenance mode — stop loading game');
+      }
+    })
+    .catch(function(e){ if (e && e.message==='maintenance mode — stop loading game') throw e; /* если Firebase недоступен — пускаем игру дальше, не блокируем игроков */ });
+})();
+</script>
 <div id="sky" style="height:60px;transition:background 2s ease"></div>
 <div id="ocean" ontouchstart="tapOcean(event)" onclick="tapOcean(event)">
   <div id="hint">🎣 <span id="hint-text">Тапай чтобы ловить рыбу!</span></div>
