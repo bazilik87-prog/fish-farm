@@ -2599,7 +2599,7 @@ function renderBoosts() {
     +'</div>'
     +'<div style="display:flex;flex-direction:column;gap:6px">'
     +'<button class="btn btn-gold" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ '+maxUnlockedOrder())+'</button>'
-    +'<button class="btn" onclick="watchAdForLottery()" style="'+(adLotteryCooldownLeft>0?'opacity:0.5':'background:#1565c0')+'" '+(adLotteryCooldownLeft>0?'disabled':'')+'>'+(adLotteryCooldownLeft>0?fmtTime(Math.ceil(adLotteryCooldownLeft/1000)):'📺')+'</button>'
+    +'<button class="btn" onclick="watchAdForLottery()" style="'+(adLotteryCooldownLeft>0?'opacity:0.5':'background:#1565c0')+'" '+(adLotteryCooldownLeft>0?'disabled':'')+'><span id="lottery-ad-timer">'+(adLotteryCooldownLeft>0?fmtTime(Math.ceil(adLotteryCooldownLeft/1000)):'📺')+'</span></button>'
     +'</div>'
     +'</div></div>';
 
@@ -4621,6 +4621,15 @@ function tick() {
         rte.textContent = rh2+t('ч ','h ')+rm2+t('м','m');
       } else if (currentTab==='market') {
         renderMarket(); // аренда истекла — перерисовать, чтобы вернулась кнопка "Арендовать"
+      }
+    }
+    var lte=document.getElementById('lottery-ad-timer');
+    if (lte) {
+      var lLeft = 3600000 - (Date.now() - (state.lastAdLotterySpin||0));
+      if (lLeft > 0) {
+        lte.textContent = fmtTime(Math.ceil(lLeft/1000));
+      } else if (currentTab==='boosts') {
+        renderBoosts(); // кулдаун истёк — перерисовать, чтобы кнопка снова стала активной (📺)
       }
     }
   } catch(e) { console.error('tick error:', e); }
