@@ -511,6 +511,8 @@ UPGRADE_COSTS = {
     'sonar': [5000, 25000, 100000, 300000, 1000000],
 }
 MAX_UPGRADE_LEVEL = 5
+TRANSPORT_COST = {'bike': 0, 'moped': 5000, 'car': 50000, 'truck': 300000}
+TRANSPORT_REPAIR_COST = {'bike': 50, 'moped': 500, 'car': 5000, 'truck': 30000}
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
@@ -903,6 +905,14 @@ async def process_actions(request):
     salt_delta = 0
     knife_delta = 0
     truck_tickets_delta = 0
+    unlocked_transports = sv.get('unlockedTransports') or ['bike']
+    if not isinstance(unlocked_transports, list):
+        unlocked_transports = ['bike']
+    durability = sv.get('durability') or {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
+    if not isinstance(durability, dict):
+        durability = {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
+    current_transport = sv.get('transport') or 'bike'
+    transport_changed = False
 
     for act in actions:
         if not isinstance(act, dict):
@@ -1034,6 +1044,28 @@ async def process_actions(request):
             coins += amount
             total_earned += amount
 
+        elif a_type == 'buy_supplies':
+            # Заказ соли/ножей при отправке доставки — раньше клиент списывал монеты только
+            # локально, следующая же серверная синхронизация "не знала" об этой трате и
+            # откатывала баланс обратно. Та же дыра, что была с транспортом.
+            # Важно: сама соль/ножи начисляются КЛИЕНТОМ отдельно при ПРИБЫТИИ доставки
+            # (не здесь) — если начислить их ещё и тут, получится задвоение. Эта проверка
+            # только списывает реальную стоимость заказа, не трогая инвентарь.
+            try:
+                salt_qty = int(act.get('salt', 0))
+                knife_qty = int(act.get('knife', 0))
+            except (TypeError, ValueError):
+                rejected += 1
+                continue
+            if salt_qty < 0 or knife_qty < 0 or salt_qty > 10000 or knife_qty > 10000:
+                rejected += 1
+                continue
+            cost = round((salt_qty * 1 + knife_qty * 3) * mult * 100) / 100
+            if cost > 0 and coins < cost:
+                rejected += 1
+                continue
+            coins -= cost
+
         elif a_type == 'grant_salt':
             try:
                 qty = int(act.get('qty', 0))
@@ -1058,6 +1090,33 @@ async def process_actions(request):
 
         elif a_type == 'grant_truck_ticket':
             truck_tickets_delta += 1
+
+        elif a_type == 'buy_transport':
+            tr_id = act.get('transport')
+            cost = TRANSPORT_COST.get(tr_id)
+            if cost is None or tr_id in unlocked_transports:
+                rejected += 1
+                continue
+            if coins < cost:
+                rejected += 1
+                continue
+            coins -= cost
+            unlocked_transports.append(tr_id)
+            current_transport = tr_id
+            transport_changed = True
+
+        elif a_type == 'repair_transport':
+            tr_id = act.get('transport')
+            repair_cost = TRANSPORT_REPAIR_COST.get(tr_id)
+            if repair_cost is None or tr_id not in unlocked_transports:
+                rejected += 1
+                continue
+            if coins < repair_cost:
+                rejected += 1
+                continue
+            coins -= repair_cost
+            durability[tr_id] = 100
+            transport_changed = True
 
         elif a_type == 'admin_grant':
             # Кнопки в скрытой админ-панели (видны только вам в игре) — начисление монет
@@ -1143,6 +1202,10 @@ async def process_actions(request):
             extra_fields['knifeByLoc'] = knife_by_loc
     if truck_tickets_delta:
         extra_fields['truckTickets'] = (sv.get('truckTickets') or 0) + truck_tickets_delta
+    if transport_changed:
+        extra_fields['unlockedTransports'] = unlocked_transports
+        extra_fields['durability'] = durability
+        extra_fields['transport'] = current_transport
 
     try:
         async with aiohttp.ClientSession() as session:
