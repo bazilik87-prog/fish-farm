@@ -513,6 +513,9 @@ UPGRADE_COSTS = {
 MAX_UPGRADE_LEVEL = 5
 TRANSPORT_COST = {'bike': 0, 'moped': 5000, 'car': 50000, 'truck': 300000}
 TRANSPORT_REPAIR_COST = {'bike': 50, 'moped': 500, 'car': 5000, 'truck': 30000}
+DAILY_REWARDS = [10, 25, 50, 100, 200, 400, 1000]
+QUEST_BONUS_BASE = 500
+RARE_FISH_PRICE = 25
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
@@ -886,7 +889,7 @@ async def process_actions(request):
         cur_loc = 'pond'
     last_seen = sv.get('lastSeen') or now_ms
     auto_elapsed_sec = max(0, (now_ms - last_seen) / 1000)
-    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24:  # разумный потолок — не более суток за раз
+    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24 * 30:  # запас на 30 дней — lastSeen пишет только сервер, подделать нельзя, поэтому длинный офлайн честный
         cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}
         auto_per_sec = 0
         for upg_id, per_level in AUTO_PER_LEVEL.items():
@@ -913,6 +916,13 @@ async def process_actions(request):
         durability = {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
     current_transport = sv.get('transport') or 'bike'
     transport_changed = False
+    daily_day = int(sv.get('dailyDay', 0) or 0)
+    daily_last_claim = sv.get('dailyLastClaim') or 0
+    daily_changed = False
+    comeback_claimed_at = sv.get('comebackClaimedAt') or 0
+    comeback_changed = False
+    quest_bonus_date = sv.get('questBonusDate') or ''
+    quest_bonus_changed = False
 
     for act in actions:
         if not isinstance(act, dict):
@@ -1043,6 +1053,82 @@ async def process_actions(request):
                 continue
             coins += amount
             total_earned += amount
+
+        elif a_type == 'daily_bonus':
+            # Ежедневный бонус — та же дыра, что была с транспортом: клиент начислял монеты
+            # только локально, следующая синхронизация их откатывала. Теперь сервер сам
+            # проверяет реальное время последнего получения и день серии, не веря клиенту.
+            now_for_daily = int(time.time() * 1000)
+            hours_since = (now_for_daily - daily_last_claim) / 3600000 if daily_last_claim else 999
+            miss_threshold = 72 if is_prem else 48
+            if daily_last_claim and hours_since < 24:
+                rejected += 1
+                continue
+            effective_day = 0 if (not daily_last_claim or hours_since >= miss_threshold) else daily_day
+            effective_day = max(0, min(effective_day, len(DAILY_REWARDS) - 1))
+            reward = round(DAILY_REWARDS[effective_day] * mult * 100) / 100
+            coins += reward
+            total_earned += reward
+            daily_day = effective_day + 1 if effective_day < 6 else 0
+            daily_last_claim = now_for_daily
+            daily_changed = True
+
+        elif a_type == 'quest_bonus':
+            # Бонус "все квесты выполнены" — сервер не проверяет полный прогресс квестов
+            # (это потребовало бы дублировать весь генератор квестов), но жёстко ограничивает
+            # ОДНИМ получением в день на реальном сервером времени — квесты и так обновляются
+            # раз в сутки, так что этого достаточно, чтобы не дать накрутить повторами.
+            today_str = time.strftime('%Y-%m-%d', time.gmtime())
+            if quest_bonus_date == today_str:
+                rejected += 1
+                continue
+            reward = round(QUEST_BONUS_BASE * mult * 100) / 100
+            coins += reward
+            total_earned += reward
+            quest_bonus_date = today_str
+            quest_bonus_changed = True
+
+        elif a_type == 'comeback_bonus':
+            # Бонус за возвращение после долгого отсутствия — сервер сам считает реальное
+            # время отсутствия по lastSeen, не веря заявленному клиентом количеству дней.
+            last_seen_before = sv.get('lastSeen') or now_ms
+            days_away = max(0, (now_ms - last_seen_before) / 86400000)
+            if comeback_claimed_at and comeback_claimed_at >= last_seen_before:
+                rejected += 1  # уже забирали за этот же заход
+                continue
+            if days_away >= 14:
+                reward = 1000
+            elif days_away >= 7:
+                reward = 500
+            elif days_away >= 3:
+                reward = 200
+            else:
+                rejected += 1
+                continue
+            coins += reward
+            total_earned += reward
+            comeback_claimed_at = now_ms
+            comeback_changed = True
+
+        elif a_type == 'rare_fish_catch':
+            # Улов редкой рыбы (Осетрина) — сервер сверяет, что она РЕАЛЬНО была активна
+            # именно сейчас (по общему для всех игроков состоянию rare_fish в Firebase),
+            # а не верит заявлению клиента "я её поймал".
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/rare_fish.json{FB_AUTH}") as resp:
+                        rf = await resp.json()
+            except Exception:
+                rf = None
+            rf_active = isinstance(rf, dict) and rf.get('active') and (rf.get('endsAt') or 0) > now_ms
+            if not rf_active:
+                rejected += 1
+                continue
+            reward = round(RARE_FISH_PRICE * mult)
+            coins += reward
+            total_earned += reward
+            caught += 1
+            unsold += 1
 
         elif a_type == 'buy_supplies':
             # Заказ соли/ножей при отправке доставки — раньше клиент списывал монеты только
@@ -1206,6 +1292,13 @@ async def process_actions(request):
         extra_fields['unlockedTransports'] = unlocked_transports
         extra_fields['durability'] = durability
         extra_fields['transport'] = current_transport
+    if daily_changed:
+        extra_fields['dailyDay'] = daily_day
+        extra_fields['dailyLastClaim'] = daily_last_claim
+    if comeback_changed:
+        extra_fields['comebackClaimedAt'] = comeback_claimed_at
+    if quest_bonus_changed:
+        extra_fields['questBonusDate'] = quest_bonus_date
 
     try:
         async with aiohttp.ClientSession() as session:
