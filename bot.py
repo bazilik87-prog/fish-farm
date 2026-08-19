@@ -668,6 +668,68 @@ async def reset_progress(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+async def refill_energy_ad(request):
+    """
+    +25 энергии за просмотр рекламы, не чаще раза в 10 минут — раньше это добавлялось
+    только локально у клиента, а сервер (авторитетный для энергии в /actions) об этом
+    не узнавал: через пару тапов после просмотра сервер видел старое значение и начинал
+    отклонять уловы. Теперь пишет реальную энергию сюда же, с серверной проверкой кулдауна.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    sv = sv or {}
+    now_ms = int(time.time() * 1000)
+
+    last = sv.get('lastAdEnergyRefill') or 0
+    if now_ms - last < 600000:
+        return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - last)}, status=429, headers=CORS)
+
+    is_prem = await is_premium(real_user_id)
+    max_energy = 150 if is_prem else 100
+    last_energy_update = sv.get('lastEnergyUpdate') or now_ms
+    prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
+    regen_sec = max(0, (now_ms - last_energy_update) / 1000)
+    current_energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
+    new_energy = min(max_energy, current_energy + 25)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "energy": round(new_energy * 100) / 100,
+                "lastEnergyUpdate": now_ms,
+                "lastAdEnergyRefill": now_ms
+            })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True, 'energy': round(new_energy * 100) / 100}, headers=CORS)
+
+
 async def lottery_spin(request):
     """
     Бесплатные крутки лотереи (за рекламу — раз в час, или Premium — раз в день).
@@ -2824,6 +2886,24 @@ async def successful_payment(message: types.Message):
                     await session.put(f"{base}/pending_boosts/{pid}/lottery_result.json{FB_AUTH}", json=prize)
             except Exception:
                 pass
+        elif boost_id == 'energyFull':
+            # Заполнение энергии за Stars — раньше клиент только показывал полную шкалу
+            # у себя локально, а сервер (который теперь решает энергию для /actions)
+            # об этом не узнавал: через пару тапов после покупки сервер видел старое
+            # низкое значение и начинал отклонять уловы. Пишем реальную энергию сюда же.
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                max_energy = 150 if await is_premium(user_id) else 100
+                import time
+                async with aiohttp.ClientSession() as session:
+                    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                        "energy": max_energy,
+                        "lastEnergyUpdate": int(time.time() * 1000)
+                    })
+                    url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
+                    await session.put(url, json=int(time.time() * 1000))
+            except Exception:
+                pass
         else:
             try:
                 url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
@@ -2986,6 +3066,8 @@ async def main():
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/lottery_spin', lottery_spin)
     app.router.add_options('/lottery_spin', lottery_spin)
+    app.router.add_post('/refill_energy_ad', refill_energy_ad)
+    app.router.add_options('/refill_energy_ad', refill_energy_ad)
     app.router.add_post('/sync', sync_state)
     app.router.add_options('/sync', sync_state)
     app.router.add_post('/actions', process_actions)
