@@ -868,7 +868,7 @@ function save() {
     if (firebaseDB) {
       var fbSaveData = {};
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       window._pendingFbSave = fbSaveData;
@@ -2662,6 +2662,66 @@ function showLotteryResult(title, prize, color, isJackpot) {
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(isJackpot?'success':'success');
 }
 
+// Приз лотереи теперь ВСЕГДА решает сервер (pick_lottery_prize в bot.py) — рулетка
+// на клиенте больше не крутится. Эта функция только отображает и локально применяет
+// уже готовый результат (для мгновенного UI — реальные данные сервер уже записал сам).
+function displayServerLotteryPrize(prize) {
+  if (!prize) return;
+  if (prize.kind === 'jackpot') {
+    window._jackpotCache = 50;
+    showLotteryResult('⭐ ДЖЕКПОТ!', prize.amount + ' Stars', '#FFD700', true);
+    showNotif(t('⭐ ДЖЕКПОТ! Выигрыш ','⭐ JACKPOT! Won ')+prize.amount+t(' Stars — жди перевода от администратора!',' Stars — wait for admin transfer!'));
+  } else {
+    if (prize.kind === 'coins') {
+      state.coins = Math.round((state.coins + prize.amount) * 100) / 100;
+      state.totalEarned = Math.round((state.totalEarned + prize.amount) * 100) / 100;
+    } else if (prize.kind === 'fish') {
+      for (var fi=0; fi<prize.amount; fi++) {
+        var rf=randFish();
+        pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000});
+      }
+      state.caught += prize.amount;
+    } else if (prize.kind === 'salt') {
+      state.salt = (state.salt||0) + prize.amount;
+      addQuestProgress('buysalt', prize.amount);
+    } else if (prize.kind === 'knife') {
+      state.knife = (state.knife||0) + prize.amount;
+      addQuestProgress('buyknife', prize.amount);
+    } else if (prize.kind === 'truck_ticket') {
+      state.truckTickets = (state.truckTickets||0) + 1;
+      showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
+    }
+    showLotteryResult('🎰 Результат', prize.label, '#b794f6', false);
+    showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+prize.label);
+  }
+  updateUI(); save();
+  if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  if (currentTab==='boosts') renderBoosts();
+}
+
+// Крутка за Stars (платная) или бесплатная Premium-крутка — обе через /lottery_spin
+// (кроме платной, которая обрабатывается сервером сразу в момент оплаты и приходит
+// через pending_boosts/lottery_result — см. checkPendingBoosts).
+function spinLotteryServer(via) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/lottery_spin', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({via: via, init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        if (res.status === 429) {
+          showNotif(t('⏳ Крутка уже использована — попробуй позже','⏳ Spin already used — try again later'));
+        } else {
+          showNotif(t('❌ Не удалось крутнуть лотерею','❌ Lottery spin failed'));
+        }
+        return;
+      }
+      displayServerLotteryPrize(res.data.prize);
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
 function buyWeather(weatherId) {
   buyBoost('weather_'+weatherId);
 }
@@ -2694,6 +2754,8 @@ function watchAdForEnergy() {
 // Бесплатная крутка лотереи за рекламу — не чаще раза в час, джекпот от такой крутки не растёт,
 // но шанс выиграть джекпот сохраняется (activateBoost('lottery', false)).
 function watchAdForLottery() {
+  // Локальный state.lastAdLotterySpin — только для мгновенного отклика кнопки (кулдаун-таймер
+  // на экране). Реальную проверку 1 раз/час теперь делает сервер в /lottery_spin.
   var cooldownLeft = 3600000 - (Date.now() - (state.lastAdLotterySpin||0));
   if (cooldownLeft > 0) {
     showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
@@ -2707,7 +2769,7 @@ function watchAdForLottery() {
   show_11591936().then(function(){
     state.lastAdLotterySpin = Date.now();
     save();
-    activateBoost('lottery', false);
+    spinLotteryServer('ad');
     if (currentTab==='boosts') renderBoosts();
   }).catch(function(err){
     showNotif(t('❌ Реклама недоступна: ','❌ Ad unavailable: ') + (err && err.message || t('попробуй позже','try later')));
@@ -2724,9 +2786,11 @@ function checkAdMilestone() {
 }
 function buyBoost(id) {
   if (id==='lottery' && isPremiumActive() && state.premiumFreeSpinDate !== getTodayDate()) {
+    // Дата бесплатной Premium-крутки теперь тоже проверяется на сервере (в /lottery_spin) —
+    // локальный state.premiumFreeSpinDate только для мгновенного отклика UI (кнопка "занята").
     state.premiumFreeSpinDate = getTodayDate();
     showNotif(t('💎 Бесплатная крутка Premium!','💎 Free Premium spin!'));
-    activateBoost('lottery');
+    spinLotteryServer('premium');
     if(currentTab==='boosts') renderBoosts();
     save();
     return;
@@ -2755,18 +2819,23 @@ function buyBoost(id) {
       try {
         tg.openInvoice(invLink, function(status){
           if(status==='paid') {
-            activateBoost(id);
-            if (id !== 'lottery' && !id.startsWith('weather_')) {
-              showNotif(t('✅ Бустер активирован!','✅ Booster activated!'));
+            if (id === 'lottery') {
+              // Приз уже решает сервер прямо в момент оплаты (successful_payment в bot.py) —
+              // ждём результат в pending_boosts/lottery_result, коротким опросом.
+              showNotif(t('🎰 Крутим...','🎰 Spinning...'));
+              pollLotteryResult();
+            } else {
+              activateBoost(id);
+              if (!id.startsWith('weather_')) {
+                showNotif(t('✅ Бустер активирован!','✅ Booster activated!'));
+              }
+              if (firebaseDB) {
+                var pidForClean = getPlayerId();
+                firebaseDB.ref('pending_boosts/' + pidForClean + '/' + id).remove();
+              }
             }
             if(currentTab==='boosts') renderBoosts();
             if(currentTab==='market') renderMarket();
-            // Удаляем запись о покупке — буст уже активирован здесь и сейчас,
-            // иначе при следующем заходе он ошибочно активируется заново
-            if (firebaseDB) {
-              var pidForClean = getPlayerId();
-              firebaseDB.ref('pending_boosts/' + pidForClean + '/' + id).remove();
-            }
           }
         });
       } catch(err) {
@@ -2780,6 +2849,29 @@ function buyBoost(id) {
       showNotif(t('Ошибка сервера: ','Server error: ')+data.error);
     } else { showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link')); }
   }).catch(function(e){ showNotif(t('Ошибка: ','Error: ')+e.message); });
+}
+
+// После платной крутки лотереи — коротко опрашиваем Firebase, пока сервер (webhook
+// successful_payment) не запишет решённый приз. Обычно занимает доли секунды.
+function pollLotteryResult() {
+  if (!firebaseDB) return;
+  var pid = getPlayerId();
+  var attempts = 0;
+  var maxAttempts = 16; // ~8 секунд при интервале 500мс
+  var poll = function() {
+    attempts++;
+    firebaseDB.ref('pending_boosts/' + pid + '/lottery_result').once('value', function(snap) {
+      var prize = snap.val();
+      if (prize) {
+        firebaseDB.ref('pending_boosts/' + pid + '/lottery_result').remove();
+        displayServerLotteryPrize(prize);
+        return;
+      }
+      if (attempts < maxAttempts) setTimeout(poll, 500);
+      else showNotif(t('🎰 Результат придёт чуть позже — проверь уведомления','🎰 Result will arrive shortly — check notifications'));
+    });
+  };
+  poll();
 }
 
 function activateBoost(id, growJackpot) {
@@ -2807,90 +2899,10 @@ function activateBoost(id, growJackpot) {
     showNotif(t('🌡 Вся сушка завершена мгновенно! Зайди на кухню чтобы собрать пакеты.','🌡 All drying finished instantly! Check the kitchen to collect packs.'));
   }
   if (id==='lottery') {
-    // Загружаем текущий джекпот из Firebase
-    var doLottery = function(jackpot) {
-      var lMult = maxUnlockedMult();
-      var c1=Math.round(300*lMult), c2=Math.round(500*lMult), f1=Math.round(100*lMult), s1=Math.round(15*lMult), k1=Math.round(15*lMult);
-      var prizes = [
-        {label:'🪙 '+c1.toLocaleString('ru-RU')+' монет', coins:c1, weight:40},
-        {label:'🪙 '+c2.toLocaleString('ru-RU')+' монет', coins:c2, weight:25},
-        {label:'🐟 '+f1.toLocaleString('ru-RU')+' рыб на склад', coins:0, fish:f1, weight:15},
-        {label:'🧂 '+s1.toLocaleString('ru-RU')+' соли на склад', coins:0, salt:s1, weight:10},
-        {label:'🔪 '+k1.toLocaleString('ru-RU')+' ножей на склад', coins:0, fish:0, knife:k1, weight:7},
-        {label:'🚛 Билет на аренду грузовика (12ч)', coins:0, truckTicket:true, weight:3},
-        {label:'⭐ ДЖЕКПОТ '+Math.floor(jackpot)+' Stars', coins:0, stars:Math.floor(jackpot), isJackpot:true, weight:(jackpot>=200?1.0101:0.1)},
-      ];
-      var total=0; for (var pi=0;pi<prizes.length;pi++) total+=prizes[pi].weight;
-      var r=Math.random()*total, acc=0, won=prizes[0];
-      for (var pj=0;pj<prizes.length;pj++) { acc+=prizes[pj].weight; if (r<=acc){won=prizes[pj];break;} }
-      state.coins=Math.round((state.coins+won.coins)*100)/100;
-      state.totalEarned=Math.round((state.totalEarned+won.coins)*100)/100;
-      if (won.coins) {
-        queueAction({type:'lottery_coins', loc: state.currentLoc, amount: won.coins});
-      }
-      if (won.fish) {
-        for (var fi=0;fi<won.fish;fi++) {
-          var rf=randFish();
-          pushLiveFish({name:rf.name,emoji:rf.emoji,dieAt:now+3600000});
-        }
-        state.caught+=won.fish;
-        queueAction({type:'grant_fish', loc: state.currentLoc, qty: won.fish});
-      }
-      if (won.knife) {
-        state.knife=(state.knife||0)+won.knife;
-        addQuestProgress('buyknife', won.knife);
-        queueAction({type:'grant_knife', loc: state.currentLoc, qty: won.knife});
-      }
-      if (won.salt) {
-        state.salt=(state.salt||0)+won.salt;
-        addQuestProgress('buysalt', won.salt);
-        queueAction({type:'grant_salt', loc: state.currentLoc, qty: won.salt});
-      }
-      if (won.truckTicket) {
-        state.truckTickets = (state.truckTickets||0) + 1;
-        queueAction({type:'grant_truck_ticket', loc: state.currentLoc});
-        showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
-      }
-      if (won.coins || won.fish || won.knife || won.salt || won.truckTicket) flushActions();
-      // Обновляем джекпот в Firebase
-      if (firebaseDB) {
-        if (won.isJackpot) {
-          firebaseDB.ref('jackpot/amount').set(50);
-          window._jackpotCache = 50;
-          showLotteryResult('⭐ ДЖЕКПОТ!', Math.floor(jackpot)+' Stars', '#FFD700', true);
-          showNotif(t('⭐ ДЖЕКПОТ! Выигрыш ','⭐ JACKPOT! Won ')+Math.floor(jackpot)+t(' Stars — жди перевода от администратора!',' Stars — wait for admin transfer!'));
-          var jpUsername = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name||'Игрок') : 'Игрок';
-          fetch(BOT_API_URL + '/jackpot_broadcast', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username: jpUsername, amount: Math.floor(jackpot), init_data: tg&&tg.initData||''})
-          }).catch(function(){});
-        } else {
-          if (growJackpot) {
-            var newJackpot = Math.round((jackpot + 0.5) * 10) / 10;
-            firebaseDB.ref('jackpot/amount').set(newJackpot);
-            window._jackpotCache = newJackpot;
-          }
-          showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
-          showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+won.label);
-        }
-      } else {
-        showLotteryResult('🎰 Результат', won.label, '#b794f6', false);
-        showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+won.label);
-      }
-      updateUI(); save();
-      if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-      if (currentTab==='boosts') renderBoosts();
-    };
-    if (firebaseDB) {
-      firebaseDB.ref('jackpot/amount').once('value', function(snap) {
-        var j = snap.val();
-        if (!j || j < 50 || j > 1000) j = 50; // минимум 50 — таков порог покупки звёзд
-        doLottery(j);
-      });
-    } else {
-      doLottery(10);
-    }
+    // Рулетка теперь решается сервером (pick_lottery_prize в bot.py), не здесь.
+    // Эта ветка остаётся пустой заглушкой на случай старых вызовов activateBoost('lottery')
+    // из кода, который я мог не найти — реальная логика в displayServerLotteryPrize()
+    // и в трёх точках входа: buyBoost() (Stars/Premium) и watchAdForLottery() (реклама).
   }
 
   if (id==='luckyRod') state.boosts.luckyRod = now + 1800000;

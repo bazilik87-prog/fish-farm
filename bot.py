@@ -517,6 +517,83 @@ PRICE_INTERVAL_MS = 30000
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
+def pick_lottery_prize(mult, jackpot):
+    """
+    Определяет приз лотереи — точная копия весов из index.html, но теперь единственное
+    место, где это решается (сервер), а не клиент. Возвращает dict с полями:
+    kind ('coins'|'fish'|'salt'|'knife'|'truck_ticket'|'jackpot'), amount, label.
+    """
+    import random
+    c1 = round(300 * mult)
+    c2 = round(500 * mult)
+    f1 = round(100 * mult)
+    s1 = round(15 * mult)
+    k1 = round(15 * mult)
+    prizes = [
+        {'kind': 'coins', 'amount': c1, 'label': f'🪙 {c1:,} монет', 'weight': 40},
+        {'kind': 'coins', 'amount': c2, 'label': f'🪙 {c2:,} монет', 'weight': 25},
+        {'kind': 'fish', 'amount': f1, 'label': f'🐟 {f1:,} рыб на склад', 'weight': 15},
+        {'kind': 'salt', 'amount': s1, 'label': f'🧂 {s1:,} соли на склад', 'weight': 10},
+        {'kind': 'knife', 'amount': k1, 'label': f'🔪 {k1:,} ножей на склад', 'weight': 7},
+        {'kind': 'truck_ticket', 'amount': 1, 'label': '🚛 Билет на аренду грузовика (12ч)', 'weight': 3},
+        {'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
+         'weight': 1.0101 if jackpot >= 200 else 0.1},
+    ]
+    total = sum(p['weight'] for p in prizes)
+    r = random.random() * total
+    acc = 0
+    for p in prizes:
+        acc += p['weight']
+        if r <= acc:
+            return p
+    return prizes[0]
+
+
+async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок'):
+    """
+    Применяет уже выбранный сервером приз лотереи к реальным данным игрока в Firebase.
+    Джекпот — отдельная ветка: сброс/рост и оповещение тоже только здесь, атомарно
+    с решением приза (не отдельным вызовом от клиента, как было раньше).
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    async with aiohttp.ClientSession() as session:
+        if prize['kind'] == 'jackpot':
+            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
+            await broadcast_jackpot_win(username, prize['amount'])
+            return
+        if prize['kind'] in ('coins', 'fish', 'salt', 'knife', 'truck_ticket'):
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+            sv = sv or {}
+            patch = {}
+            if prize['kind'] == 'coins':
+                coins = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
+                total_earned = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
+                patch['coins'] = coins
+                patch['totalEarned'] = total_earned
+            elif prize['kind'] == 'fish':
+                patch['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
+                patch['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
+            elif prize['kind'] in ('salt', 'knife'):
+                loc = sv.get('loc') or 'pond'
+                field = 'saltByLoc' if prize['kind'] == 'salt' else 'knifeByLoc'
+                by_loc = sv.get(field) or {}
+                if not isinstance(by_loc, dict):
+                    by_loc = {}
+                by_loc[loc] = (by_loc.get(loc) or 0) + prize['amount']
+                patch[field] = by_loc
+            elif prize['kind'] == 'truck_ticket':
+                patch['truckTickets'] = (sv.get('truckTickets') or 0) + 1
+            if patch:
+                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json=patch)
+        if grow_jackpot:
+            async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp:
+                j = await resp.json()
+            j = j if (j and 50 <= j <= 1000) else 50
+            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=round((j + 0.5) * 10) / 10)
+
+
 async def get_market_prices():
     """
     Глобальные серверные цены рынка — общие для всех игроков, генерируются той же
@@ -589,6 +666,93 @@ async def reset_progress(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True}, headers=CORS)
+
+
+async def lottery_spin(request):
+    """
+    Бесплатные крутки лотереи (за рекламу — раз в час, или Premium — раз в день).
+    Платная крутка за Stars обрабатывается отдельно, прямо в successful_payment.
+    Сервер сам решает приз (pick_lottery_prize) — клиент только просит крутнуть
+    и получает готовый результат, никакой рулетки на клиенте.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+        real_user_id = real_user.get('id')
+    except Exception:
+        real_user = {}
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    username = real_user.get('username') or real_user.get('first_name') or 'Игрок'
+
+    via = data.get('via')
+    if via not in ('ad', 'premium'):
+        return web.json_response({'error': 'invalid via'}, status=400, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    sv = sv or {}
+    now_ms = int(time.time() * 1000)
+
+    if via == 'ad':
+        last = sv.get('lastAdLotterySpin') or 0
+        if now_ms - last < 3600000:
+            return web.json_response({'error': 'cooldown', 'retry_after_ms': 3600000 - (now_ms - last)}, status=429, headers=CORS)
+        grow_jackpot = False
+    else:  # premium
+        if not await is_premium(real_user_id):
+            return web.json_response({'error': 'not premium'}, status=403, headers=CORS)
+        today = time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))
+        if sv.get('premiumFreeSpinDate') == today:
+            return web.json_response({'error': 'already used today'}, status=429, headers=CORS)
+        grow_jackpot = True
+
+    ulocs = sv.get('ulocs') or ['pond']
+    mult = 1
+    for loc_id in ulocs:
+        m = LOCATION_MULT.get(loc_id, 1)
+        if m > mult:
+            mult = m
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp:
+                jackpot = await resp.json()
+    except Exception:
+        jackpot = 50
+    jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
+
+    prize = pick_lottery_prize(mult, jackpot)
+    await apply_lottery_prize(pid, prize, mult, grow_jackpot, username)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            if via == 'ad':
+                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"lastAdLotterySpin": now_ms})
+            else:
+                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"premiumFreeSpinDate": time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))})
+    except Exception:
+        pass
+
+    return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
 
 
 async def process_actions(request):
@@ -1064,7 +1228,61 @@ async def sync_state(request):
     }, headers=CORS)
 
 
+async def broadcast_jackpot_win(username, amount):
+    """
+    Оповещает вас лично и рассылает всем игрокам объявление о выигрыше джекпота.
+    Сброс самого джекпота на 50 делает вызывающий код (apply_lottery_prize) —
+    эта функция только оповещает, не трогает Firebase-джекпот.
+    """
+    text = (
+        f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n\n"
+        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
+        f"Крути колесо и попробуй свою удачу!"
+    )
+    if ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nНужно отправить звёзды вручную."
+            )
+        except Exception:
+            pass
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                players = await resp.json()
+    except Exception:
+        return 0
+    if not players:
+        return 0
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    sent = 0
+    for v in players.values():
+        user_id = v.get('userId')
+        if not user_id:
+            continue
+        try:
+            await bot.send_message(user_id, text, reply_markup=keyboard)
+            sent += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+    return sent
+
+
 async def jackpot_broadcast(request):
+    """
+    Устаревший путь — раньше клиент сам решал, что джекпот выигран, и звал этот endpoint.
+    Теперь решение принимает только сервер (pick_lottery_prize + apply_lottery_prize),
+    который сам вызывает broadcast_jackpot_win() напрямую. Эндпоинт оставлен для
+    обратной совместимости, но требует точного совпадения суммы с реальным джекпотом.
+    """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
     try:
@@ -1079,8 +1297,6 @@ async def jackpot_broadcast(request):
         real_user = json.loads(verified.get('user', '{}'))
     except Exception:
         real_user = {}
-    # Берём имя из проверенной подписи, а не из тела запроса — иначе можно было
-    # разослать всем игрокам фейковое объявление о джекпоте с любым именем
     username = real_user.get('username') or real_user.get('first_name') or data.get('username', 'Игрок')
     amount = data.get('amount', 0)
 
@@ -1093,59 +1309,15 @@ async def jackpot_broadcast(request):
     except Exception:
         current_jackpot = None
     current_jackpot = current_jackpot or 50
-    # Сверяем заявленную сумму с реальным джекпотом в Firebase — не даём разослать
-    # фейковое объявление о выигрыше суммы, которой на самом деле не было.
     if not isinstance(amount, (int, float)) or amount < 50 or abs(amount - current_jackpot) > 1:
-        return web.json_response({'error': 'сумма не совпадает с текущим джекпотом'}, status=400, headers=CORS)
-    # Сбрасываем джекпот на сервере — атомарно относительно проверки выше,
-    # чтобы его нельзя было "выиграть" дважды параллельными запросами.
+        return web.json_response({'error': 'сумма не совпадает с текущим джекпотом — используй /lottery_spin'}, status=400, headers=CORS)
     try:
         async with aiohttp.ClientSession() as session:
             await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
     except Exception:
         pass
 
-    text = (
-        f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n\n"
-        f"@{username} сорвал(а) джекпот и забрал(а) {amount:,}⭐ Stars в лотерее FishFarm! 🎉\n\n"
-        f"Крути колесо и попробуй свою удачу!"
-    )
-
-    if ADMIN_ID:
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nНужно отправить звёзды вручную."
-            )
-        except Exception:
-            pass
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                players = await resp.json()
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-
-    if not players:
-        return web.json_response({'ok': True, 'sent': 0}, headers=CORS)
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-    ]])
-
-    sent = 0
-    for v in players.values():
-        user_id = v.get('userId')
-        if not user_id:
-            continue
-        try:
-            await bot.send_message(user_id, text, reply_markup=keyboard)
-            sent += 1
-        except Exception:
-            pass
-        await asyncio.sleep(0.05)
-
+    sent = await broadcast_jackpot_win(username, amount)
     return web.json_response({'ok': True, 'sent': sent}, headers=CORS)
 
 
@@ -2626,14 +2798,40 @@ async def successful_payment(message: types.Message):
         user_id  = parts[2] if len(parts) > 2 else str(message.from_user.id)
         label    = BOOST_LABELS.get(boost_id, 'Бустер')
         import aiohttp
-        try:
-            pid = f"tg_{user_id}"
-            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
-            import time
-            async with aiohttp.ClientSession() as session:
-                await session.put(url, json=int(time.time() * 1000))
-        except Exception:
-            pass
+        pid = f"tg_{user_id}"
+        if boost_id == 'lottery':
+            # Платная крутка за Stars — сервер сам решает приз здесь же, а не через
+            # общий pending_boosts-таймер (который раньше запускал рулетку на клиенте).
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                        sv = await resp.json()
+                    sv = sv or {}
+                    ulocs = sv.get('ulocs') or ['pond']
+                    mult = 1
+                    for loc_id in ulocs:
+                        m = LOCATION_MULT.get(loc_id, 1)
+                        if m > mult:
+                            mult = m
+                    async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp2:
+                        jackpot = await resp2.json()
+                    jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
+                username = message.from_user.username or message.from_user.first_name or 'Игрок'
+                prize = pick_lottery_prize(mult, jackpot)
+                await apply_lottery_prize(pid, prize, mult, True, username)
+                async with aiohttp.ClientSession() as session:
+                    await session.put(f"{base}/pending_boosts/{pid}/lottery_result.json{FB_AUTH}", json=prize)
+            except Exception:
+                pass
+        else:
+            try:
+                url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
+                import time
+                async with aiohttp.ClientSession() as session:
+                    await session.put(url, json=int(time.time() * 1000))
+            except Exception:
+                pass
 
     elif payload.startswith('sub:'):
         # Срабатывает и на первую оплату, и на каждое ежемесячное автопродление —
@@ -2786,6 +2984,8 @@ async def main():
     app.router.add_options('/referral_notify', referral_notify)
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
+    app.router.add_post('/lottery_spin', lottery_spin)
+    app.router.add_options('/lottery_spin', lottery_spin)
     app.router.add_post('/sync', sync_state)
     app.router.add_options('/sync', sync_state)
     app.router.add_post('/actions', process_actions)
