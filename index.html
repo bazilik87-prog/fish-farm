@@ -871,7 +871,7 @@ function save() {
     if (firebaseDB) {
       var fbSaveData = {};
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       window._pendingFbSave = fbSaveData;
@@ -4530,6 +4530,8 @@ function unlockLoc(id) {
   state.coins=Math.round((state.coins-loc.cost)*100)/100;
   loc.unlocked=true; state.unlockedLocs.push(id);
   if (!state.unlockedFish[id]) state.unlockedFish[id]=[FISH[id]&&FISH[id][0]?FISH[id][0].name:''];
+  queueAction({type:'unlock_location', loc: id});
+  flushActions();
   renderLocBar(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
