@@ -1455,6 +1455,7 @@ async def sync_state(request):
                 "caught": final_caught,
                 "totalEarned": final_total_earned,
                 "energy": final_energy,
+                "lastEnergyUpdate": now_ms,
                 "lastSeen": now_ms
             })
     except Exception as e:
