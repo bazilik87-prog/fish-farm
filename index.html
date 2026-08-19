@@ -871,7 +871,7 @@ function save() {
     if (firebaseDB) {
       var fbSaveData = {};
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       window._pendingFbSave = fbSaveData;
@@ -1023,6 +1023,8 @@ function claimComebackBonus(coins) {
   state.coins = Math.round((state.coins + coins) * 100) / 100;
   state.totalEarned = Math.round((state.totalEarned + coins) * 100) / 100;
   addQuestProgress('earn', coins);
+  queueAction({type:'comeback_bonus', loc: state.currentLoc});
+  flushActions();
   updateUI(); save();
 }
 
@@ -2288,6 +2290,8 @@ function addQuestProgress(type, amount) {
       var questBonus=Math.round(500*lm*100)/100;
       state.coins=Math.round((state.coins+questBonus)*100)/100;
       state.totalEarned=Math.round((state.totalEarned+questBonus)*100)/100;
+      queueAction({type:'quest_bonus', loc: state.currentLoc});
+      flushActions();
       showNotif(t('🏆 Все квесты выполнены! +🪙','🏆 All quests completed! +🪙')+fmt(questBonus), true);
       if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     }
@@ -4064,6 +4068,7 @@ function tapOcean(e) {
     state.coins = Math.round((state.coins + rareEarned)*100)/100;
     state.totalEarned = Math.round((state.totalEarned + rareEarned)*100)/100;
     state.caught++;
+    queueAction({type:'rare_fish_catch', loc: state.currentLoc});
     checkAdMilestone();
     spendEnergyForCatch();
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
@@ -4546,6 +4551,8 @@ function claimDaily() {
   state.totalEarned=Math.round((state.totalEarned+reward)*100)/100;
   state.dailyLastClaim=Date.now();
   state.dailyDay=state.dailyDay>=6?0:state.dailyDay+1;
+  queueAction({type:'daily_bonus', loc: state.currentLoc});
+  flushActions();
   showNotif(t('🎁 День ','🎁 Day ')+state.dailyDay+t(' — получено 🪙',' — received 🪙')+fmt(reward)+'!');
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
