@@ -62,7 +62,7 @@ html{overflow-x:hidden;width:100%}
 .btn-gold{background:#8B6914;color:#FFD700}
 .btn-red{background:#c0392b}
 .btn-full{width:100%;padding:12px;font-size:13px}
-.notif{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#0f3460;border:1.5px solid #1565c0;border-radius:12px;padding:10px 16px;font-size:13px;color:#fff;z-index:999;animation:slideup .3s ease-out,fadeout .5s ease-in 2.5s forwards;white-space:nowrap;max-width:90vw;text-align:center}
+.notif{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#0f3460;border:1.5px solid #1565c0;border-radius:12px;padding:10px 16px;font-size:13px;color:#fff;z-index:999;animation:slideup .3s ease-out,fadeout .5s ease-in 2.5s forwards;white-space:normal;max-width:90vw;text-align:center}
 .notif.dead{border-color:#c0392b}
 @keyframes slideup{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
 @keyframes fadeout{to{opacity:0}}
@@ -1237,7 +1237,7 @@ function updateEnergyBar() {
   var max = getEnergyMax();
   var pct = Math.round(state.energy/max*100);
   var color = state.energy<=0 ? '#e53935' : (pct<30 ? '#ff9944' : '#4fc3f7');
-  var label = state.energy<=0 ? t('Нет энергии — восстанавливается','No energy — recovering') : (state.energy+'/'+max+t(' ⚡ энергия',' ⚡ energy'));
+  var label = state.energy<=0 ? t('Нет энергии — восстанавливается','No energy — recovering') : (Math.floor(state.energy)+'/'+max+t(' ⚡ энергия',' ⚡ energy'));
   el.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:10px;color:#90caf9;margin-bottom:3px"><span>'+label+'</span></div>'
     + '<div style="background:#1a1a2e;border-radius:5px;height:6px"><div style="background:'+color+';height:6px;border-radius:5px;width:'+pct+'%;transition:width 0.3s"></div></div>';
 }
@@ -2571,7 +2571,7 @@ function renderBoosts() {
     +'<div style="font-size:28px">⚡</div>'
     +'<div style="flex:1">'
     +'<div style="font-size:14px;font-weight:600;color:#4fc3f7">'+t('Энергия','Energy')+'</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+state.energy+' / '+eMax+' · '+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+Math.floor(state.energy)+' / '+eMax+' · '+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</div>'
     +'</div></div>'
     +'<div style="display:flex;gap:8px">'
     +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐5 '+t('Заполнить','Fill up')+'</button>'
