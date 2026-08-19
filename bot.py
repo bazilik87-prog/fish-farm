@@ -514,6 +514,8 @@ MAX_UPGRADE_LEVEL = 5
 TRANSPORT_COST = {'bike': 0, 'moped': 5000, 'car': 50000, 'truck': 300000}
 TRANSPORT_REPAIR_COST = {'bike': 50, 'moped': 500, 'car': 5000, 'truck': 30000}
 DAILY_REWARDS = [10, 25, 50, 100, 200, 400, 1000]
+LOCATION_UNLOCK_COST = {'pond': 0, 'river': 100000, 'tropics': 300000, 'deep': 1500000, 'space': 10000000}
+LOCATION_ORDER_LIST = ['pond', 'river', 'tropics', 'deep', 'space']
 QUEST_BONUS_BASE = 500
 RARE_FISH_PRICE = 25
 DRIED_SELL_MULT = 3
@@ -923,12 +925,32 @@ async def process_actions(request):
     comeback_changed = False
     quest_bonus_date = sv.get('questBonusDate') or ''
     quest_bonus_changed = False
+    ulocs_changed = False
 
     for act in actions:
         if not isinstance(act, dict):
             rejected += 1
             continue
         a_type = act.get('type')
+
+        if a_type == 'unlock_location':
+            # Разблокировка локации — раньше клиент списывал стоимость только локально,
+            # следующая синхронизация откатывала баланс обратно, а локация оставалась открыта.
+            # Отдельная ветка ДО общей проверки "локация уже разлочена", потому что тут
+            # разблокируемая локация как раз ЕЩЁ не в списке открытых.
+            target_loc = act.get('loc')
+            unlock_cost = LOCATION_UNLOCK_COST.get(target_loc)
+            if unlock_cost is None or target_loc in ulocs:
+                rejected += 1
+                continue
+            if coins < unlock_cost:
+                rejected += 1
+                continue
+            coins -= unlock_cost
+            ulocs.append(target_loc)
+            ulocs_changed = True
+            continue
+
         loc = act.get('loc', 'pond')
         if loc not in LOCATION_MULT or loc not in ulocs:
             rejected += 1
@@ -1299,6 +1321,8 @@ async def process_actions(request):
         extra_fields['comebackClaimedAt'] = comeback_claimed_at
     if quest_bonus_changed:
         extra_fields['questBonusDate'] = quest_bonus_date
+    if ulocs_changed:
+        extra_fields['ulocs'] = ulocs
 
     try:
         async with aiohttp.ClientSession() as session:
