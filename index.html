@@ -514,6 +514,8 @@ function checkRareFish() {
   var now = Date.now();
   if (rareFishActive && now >= rareFishEndsAt) {
     rareFishActive = false;
+    rareFishEndsAt = 0; // сбрасываем сразу — иначе updateRareFishUI() ниже увидит "просроченный"
+                         // rareFishEndsAt>0 и запустит гонку с ещё не подтверждённой записью в Firebase
     // Если истекла — планируем следующую
     if (firebaseDB) {
       var nextAt = now + RARE_FISH_INTERVAL;
