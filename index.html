@@ -4059,6 +4059,15 @@ function tapOcean(e) {
     spawnAnim(x,y,'⚡',t('Нет энергии!','No energy!'));
     showNotif(t('⚡ Энергия закончилась! Подожди восстановления или пополни в разделе Бустеры','⚡ Out of energy! Wait for it to regen or refill it in the Boosters section'));
     if(currentTab==='upgrades') renderUpgrades();
+    // Даже без улова — лёгкий пинг серверу (не чаще раза в 20с), чтобы lastEnergyUpdate
+    // не "застаивался" на время ожидания регена, иначе при первом же успешном тапе после
+    // паузы сервер досчитает всю накопленную регенерацию разом, и энергия резко "прыгнет".
+    if (!window._energyPingTimer && tg && tg.initData) {
+      window._energyPingTimer = setTimeout(function(){
+        window._energyPingTimer = null;
+        syncMoneyToServer();
+      }, 1000);
+    }
     return;
   }
 
