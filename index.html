@@ -2698,7 +2698,18 @@ function displayServerLotteryPrize(prize) {
   }
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  if (currentTab==='boosts') renderBoosts();
+  // Джекпот на сервере мог измениться (вырос при проигрыше или сбросился при выигрыше) —
+  // кэш на экране раньше обновлялся только в ветке самого выигрыша, поэтому после обычного
+  // приза цифра "зависала" до перезахода. Обновляем всегда, при любом результате крутки.
+  if (firebaseDB) {
+    firebaseDB.ref('jackpot/amount').once('value', function(snap) {
+      var v = snap.val();
+      window._jackpotCache = (v && v>=50 && v<=1000) ? v : 50;
+      if (currentTab==='boosts') renderBoosts();
+    });
+  } else if (currentTab==='boosts') {
+    renderBoosts();
+  }
 }
 
 // Крутка за Stars (платная) или бесплатная Premium-крутка — обе через /lottery_spin
@@ -4172,7 +4183,7 @@ function sendDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt}); }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0}); }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -4314,7 +4325,7 @@ function sendDriverDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt}); }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0}); }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -4395,7 +4406,7 @@ function hireDriver(transportId) {
           earn+=mpF.cur*5*pk; takenF+=pk;
         } else {
           earn+=mpF.cur*5*room; takenF+=room;
-          restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt});
+          restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0});
         }
       } else restFilets.push(ff);
     }
