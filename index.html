@@ -2744,11 +2744,31 @@ function watchAdForEnergy() {
   }
   showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
   show_11591936().then(function(){
-    state.energy = Math.min(max, state.energy + 25);
     state.lastAdEnergyRefill = Date.now();
-    showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
-    save(); updateUI();
-    if (currentTab==='boosts') renderBoosts();
+    if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
+      state.energy = Math.min(max, state.energy + 25);
+      showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
+      save(); updateUI();
+      if (currentTab==='boosts') renderBoosts();
+      return;
+    }
+    fetch(BOT_API_URL + '/refill_energy_ad', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({init_data: tg.initData})
+    }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; }); })
+      .then(function(res){
+        if (!res.ok) {
+          showNotif(t('❌ Не удалось начислить энергию — попробуй позже','❌ Failed to add energy — try again later'));
+          return;
+        }
+        state.energy = res.data.energy;
+        showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
+        updateUI();
+        if (currentTab==='boosts') renderBoosts();
+      }).catch(function(){
+        showNotif(t('❌ Нет связи с сервером','❌ No connection to server'));
+      });
   }).catch(function(err){
     showNotif(t('❌ Реклама недоступна: ','❌ Ad unavailable: ') + (err && err.message || t('попробуй позже','try later')));
   });
