@@ -2221,6 +2221,13 @@ function checkCutting() {
 function getTodayDate() {
   var d=new Date(); return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();
 }
+function ruTimesWord(n) {
+  // Склонение "раз/раза/раз" по числу — 1 раз, 2-4 раза, 5+ раз (кроме 11-14 — тоже "раз")
+  var n10 = n % 10, n100 = n % 100;
+  if (n10===1 && n100!==11) return 'раз';
+  if (n10>=2 && n10<=4 && (n100<12 || n100>14)) return 'раза';
+  return 'раз';
+}
 function generateQuests() {
   var today=getTodayDate();
   if (state.questsDate===today && state.quests.length===5) return;
@@ -2307,7 +2314,14 @@ function renderQuests() {
     var q=getQuest(state.quests[i]); if(!q) continue;
     var goal=Math.round(q.goal*qMultR);
     var baseText = t(q.text, q.textEn);
-    var qText=qMultR>1?baseText.replace(new RegExp('\\b'+q.goal+'\\b'),goal):baseText;
+    var qText=baseText;
+    if (qMultR>1) {
+      qText = baseText.replace(new RegExp('\\b'+q.goal+'\\b'),goal);
+      // Число заменилось, но старая словоформа "раз/раза" могла остаться неверной — чиним отдельно.
+      if (LANG!=='en' && /\bраз(а)?\b/.test(qText)) {
+        qText = qText.replace(/\bраз(а)?\b/, ruTimesWord(goal));
+      }
+    }
     var prog=state.questProgress[q.id]||0;
     var done=prog>=goal;
     if(done) completed++;
@@ -4035,10 +4049,10 @@ function tapOcean(e) {
   var x=(touch.clientX||touch.pageX)-rect.left, y=(touch.clientY||touch.pageY)-rect.top;
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
-  if (Math.random()>catchChance()) { spawnAnim(x,y,'💨','Мимо!'); if(currentTab==='upgrades') renderUpgrades(); return; }
+  if (Math.random()>catchChance()) { spawnAnim(x,y,'💨',t('Мимо!','Miss!')); if(currentTab==='upgrades') renderUpgrades(); return; }
 
   if (!hasEnergy()) {
-    spawnAnim(x,y,'⚡','Нет энергии!');
+    spawnAnim(x,y,'⚡',t('Нет энергии!','No energy!'));
     showNotif(t('⚡ Энергия закончилась! Подожди восстановления или пополни в разделе Бустеры','⚡ Out of energy! Wait for it to regen or refill it in the Boosters section'));
     if(currentTab==='upgrades') renderUpgrades();
     return;
