@@ -2597,8 +2597,24 @@ async def audit_command(message: types.Message):
             registered_at = ks.get('registered_at') if isinstance(ks, dict) else None
 
             if not registered_at:
-                if total_earned > 10000:  # без даты регистрации — просто отмечаем крупные балансы отдельно
-                    no_reg_date.append(f"{identity} | заработано:{total_earned:,.0f} | монет:{coins:,.0f}")
+                # Без даты регистрации не проверить по времени — но можно проверить по количеству
+                # уловов: даже в лучшем случае (макс. апгрейды на его локации, каждая рыба продана
+                # как филе редкого вида по пиковой цене) есть потолок дохода НА ОДИН улов.
+                loc = v.get('loc') or 'pond'
+                loc_mult = LOCATION_MULT.get(loc, 1)
+                max_tap_per_catch = ROD_TAP[-1] * loc_mult
+                max_fish_price = LOCATION_MAX_FISH_PRICE.get(loc, 6)
+                max_sale_per_catch = max_fish_price * MARKET_PRICE_MAX_MULT * FILET_SELL_MULT_EXACT
+                catches_ceiling = caught * (max_tap_per_catch + max_sale_per_catch) * 2  # x2 запас, как и выше
+                if total_earned > catches_ceiling:
+                    flagged.append(
+                        f"{identity} (ID:{user_id}) — БЕЗ ДАТЫ РЕГИСТРАЦИИ\n"
+                        f"  📍 Локация: {loc} · 🐟 Поймано: {caught}\n"
+                        f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f}\n"
+                        f"  ⚠️ Потолок по уловам: {catches_ceiling:,.0f} — превышен в {(total_earned/max(catches_ceiling,1)):.1f}x раз"
+                    )
+                elif total_earned > 10000:
+                    no_reg_date.append(f"{identity} | заработано:{total_earned:,.0f} | монет:{coins:,.0f} | поймано:{caught}")
                 continue
 
             elapsed_ms = max(0, now_ms - registered_at)
