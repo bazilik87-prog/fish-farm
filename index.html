@@ -2855,7 +2855,6 @@ function buyBoost(id) {
             if (id === 'lottery') {
               // Приз уже решает сервер прямо в момент оплаты (successful_payment в bot.py) —
               // ждём результат в pending_boosts/lottery_result, коротким опросом.
-              showNotif(t('🎰 Крутим...','🎰 Spinning...'));
               pollLotteryResult();
             } else {
               activateBoost(id);
