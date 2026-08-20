@@ -1248,6 +1248,17 @@ async def process_actions(request):
             current_transport = tr_id
             transport_changed = True
 
+        elif a_type == 'transport_wear':
+            # Естественный износ транспорта (-10 за каждую доставку, кроме арендованного грузовика) —
+            # не деньги, но пишется в то же заблокированное поле durability, поэтому тоже
+            # нужен серверный путь, иначе транспорт никогда не будет "снашиваться" по-настоящему.
+            tr_id = act.get('transport')
+            if tr_id not in unlocked_transports or tr_id == 'rentalTruck':
+                rejected += 1
+                continue
+            durability[tr_id] = max(0, (durability.get(tr_id, 100) or 100) - 10)
+            transport_changed = True
+
         elif a_type == 'repair_transport':
             tr_id = act.get('transport')
             repair_cost = TRANSPORT_REPAIR_COST.get(tr_id)
