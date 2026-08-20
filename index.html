@@ -4605,7 +4605,26 @@ function resetGame() {
     localStorage.removeItem('ff5');
     localStorage.removeItem('ff4');
     localStorage.removeItem('ff3');
-    state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,currentLoc:'pond',unlockedLocs:['pond'],unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],durability:{bike:100,moped:100,car:100,truck:100},dailyDay:0,dailyLastClaim:0,lastSeen:0,selectedFish:null,selectedDried:false,selectedItems:[],drying:[],driedFish:[],boosts:{doubleTap:0,turboDry:false,luckyRod:0,turboSpeed:0,truckRental:0},quests:[],questsDate:0,questProgress:{},salt:0,saltOrder:0,salting:[],saltByLoc:{},knifeByLoc:{},truckTickets:0,energy:100,lastEnergyUpdate:Date.now(),lastAdEnergyRefill:0,fishSinceEnergySpend:0,upgLevels:{}};
+    var keepName = state.playerName || '';
+    state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,
+      currentLoc:'pond',unlockedLocs:['pond'],
+      unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
+      transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],
+      durability:{bike:100,moped:100,car:100,truck:100},
+      dailyDay:0,dailyLastClaim:0,lastSeen:0,totalEarned:0,selectedFish:null,selectedDried:false,selectedFilet:false,
+      selectedItems:[],
+      driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,selectedDriverItems:[],driverSaltOrder:0,driverKnifeOrder:0,
+      drying:[],driedFish:[],
+      boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
+      truckTickets:0,
+      premiumUntil:0, premiumFreeSpinDate:0, premiumFreeRepairDate:0,
+      energy:100, lastEnergyUpdate:Date.now(), lastAdEnergyRefill:0, lastAdLotterySpin:0, fishSinceEnergySpend:0,
+      quests:[], questsDate:0, questProgress:{},
+      salt:0, saltOrder:0, salting:[],
+      knife:0, knifeOrder:0, cutting:[], filets:[],
+      saltByLoc:{}, knifeByLoc:{},
+      upgLevels:{},
+      playerName:keepName};
     for (var j=0;j<LOCATIONS.length;j++) LOCATIONS[j].unlocked=j===0;
     marketPrices={}; initPrices(); lastPriceUpdate=Date.now();
     tapped=false; scareFactor=1.0;
