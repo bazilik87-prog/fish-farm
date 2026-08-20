@@ -3076,9 +3076,18 @@ function loadWithdrawalsLog() {
     for (var i=0;i<liveItems.length;i++) {
       var it = liveItems[i];
       var gram = (typeof it.gram === 'number' ? it.gram : (it.amount||0)/100000).toFixed(5);
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px">'
+      var dateStr = '—';
+      if (it.ts) {
+        var d = new Date(it.ts);
+        var dd = ('0'+d.getDate()).slice(-2);
+        var mm = ('0'+(d.getMonth()+1)).slice(-2);
+        var yy = String(d.getFullYear()).slice(-2);
+        dateStr = dd+'/'+mm+'/'+yy;
+      }
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px;gap:8px">'
+        + '<span style="color:#666;font-family:monospace;white-space:nowrap">'+dateStr+'</span>'
         + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
-        + '<span style="color:#6ddc6d;font-weight:600">💎 '+gram+' GRAM</span>'
+        + '<span style="color:#6ddc6d;font-weight:600;white-space:nowrap">💎 '+gram+' GRAM</span>'
         + '</div>';
     }
     el2.innerHTML = html;
