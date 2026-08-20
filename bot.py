@@ -676,6 +676,8 @@ async def reset_progress(request):
                 "questBonusDate": "",
                 "lastAdLotterySpin": 0,
                 "premiumFreeSpinDate": 0,
+                "deliveryEscrow": 0,
+                "deliveryEscrow2": 0,
                 "lastSeen": now_ms
             })
     except Exception as e:
@@ -935,6 +937,8 @@ async def process_actions(request):
     quest_bonus_date = sv.get('questBonusDate') or ''
     quest_bonus_changed = False
     ulocs_changed = False
+    escrow = float(sv.get('deliveryEscrow', 0) or 0)
+    escrow2 = float(sv.get('deliveryEscrow2', 0) or 0)
 
     for act in actions:
         if not isinstance(act, dict):
@@ -980,6 +984,10 @@ async def process_actions(request):
             unsold += 1
 
         elif a_type == 'sell':
+            # Продажа через доставку (транспорт/водитель) — деньги теперь начисляются НЕ сразу,
+            # а откладываются в "эскроу" до прибытия доставки (queueAction 'collect_delivery').
+            # Так честнее по смыслу игры: рыба физически едет, деньги приходят вместе с ней.
+            # Инвентарь (unsoldCaught) списывается сразу — рыба реально уехала со склада.
             name = str(act.get('name', ''))
             kind = act.get('kind', 'fresh')
             via_driver = bool(act.get('via') == 'driver')
@@ -1004,8 +1012,26 @@ async def process_actions(request):
             earned = round(unit * qty * 100) / 100
             if via_driver:
                 earned = round(earned * 0.7 * 100) / 100  # водитель забирает 30%
-            coins += earned
-            total_earned += earned
+                escrow2 += earned
+            else:
+                escrow += earned
+
+        elif a_type == 'collect_delivery':
+            # Доставка прибыла — клиент сам обнаруживает это по истечению таймера
+            # (state.delivery.endsAt) и присылает этот сигнал. Сумма берётся из эскроу
+            # на сервере — клиент не может указать сумму сам, только "забрать что скопилось".
+            # via:'driver' указывает, какой из двух слотов доставки собирать.
+            via_driver_collect = bool(act.get('via') == 'driver')
+            target_escrow = escrow2 if via_driver_collect else escrow
+            if target_escrow <= 0:
+                rejected += 1
+                continue
+            coins += target_escrow
+            total_earned += target_escrow
+            if via_driver_collect:
+                escrow2 = 0
+            else:
+                escrow = 0
 
         elif a_type == 'bulk_sell':
             kind = act.get('kind', 'fresh')
@@ -1332,6 +1358,8 @@ async def process_actions(request):
         extra_fields['questBonusDate'] = quest_bonus_date
     if ulocs_changed:
         extra_fields['ulocs'] = ulocs
+    extra_fields['deliveryEscrow'] = round(escrow * 100) / 100
+    extra_fields['deliveryEscrow2'] = round(escrow2 * 100) / 100
 
     try:
         async with aiohttp.ClientSession() as session:
