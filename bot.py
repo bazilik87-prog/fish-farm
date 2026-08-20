@@ -667,6 +667,15 @@ async def reset_progress(request):
                 "energy": 100,
                 "lastEnergyUpdate": now_ms,
                 "unsoldCaught": 0,
+                "ulocs": ["pond"],
+                "unlockedTransports": ["bike"],
+                "durability": {"bike": 100, "moped": 100, "car": 100, "truck": 100},
+                "dailyDay": 0,
+                "dailyLastClaim": 0,
+                "comebackClaimedAt": 0,
+                "questBonusDate": "",
+                "lastAdLotterySpin": 0,
+                "premiumFreeSpinDate": 0,
                 "lastSeen": now_ms
             })
     except Exception as e:
