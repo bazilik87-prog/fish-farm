@@ -3056,7 +3056,7 @@ function renderBank() {
     +'<div style="font-size:11px;color:#90caf9">'+t('Бот пришлёт кнопку оплаты ⭐ прямо в чат','The bot will send a ⭐ payment button right in the chat')+'</div>'
     +'</div>'
     +'<div class="card"><div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px">📜 '+t('История выплат','Payout history')+'</div>'
-    +'<div id="withdrawals-log">⏳ '+t('Загрузка...','Loading...')+'</div></div>';
+    +'<div id="withdrawals-log" style="max-height:300px;overflow-y:auto">⏳ '+t('Загрузка...','Loading...')+'</div></div>';
   loadWithdrawalsLog();
 }
 function shortWallet(w) {
@@ -3093,7 +3093,7 @@ function loadWithdrawalsLog() {
     el2.innerHTML = html;
   }
   if (!firebaseDB) { render(); return; }
-  firebaseDB.ref('withdrawals_log').orderByKey().limitToLast(15).once('value', function(snap) {
+  firebaseDB.ref('withdrawals_log').orderByKey().limitToLast(150).once('value', function(snap) {
     var data = snap.val();
     if (data) liveItems = Object.values(data).sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
     render();
