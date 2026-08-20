@@ -874,7 +874,7 @@ function save() {
     if (firebaseDB) {
       var fbSaveData = {};
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       window._pendingFbSave = fbSaveData;
@@ -1053,6 +1053,7 @@ function processOffline() {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
+    queueAction({type:'collect_delivery'});
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
     if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; addQuestProgress('buysalt', saltArrived); }
@@ -1067,6 +1068,7 @@ function processOffline() {
     state.coins=Math.round((state.coins+state.delivery2.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery2.earnings)*100)/100;
     addQuestProgress('earn', state.delivery2.earnings);
+    queueAction({type:'collect_delivery', via:'driver'});
     var d2salt=state.delivery2.saltOrder||0;
     var d2knife=state.delivery2.knifeOrder||0;
     var d2msg='🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings);
@@ -2984,6 +2986,7 @@ function activateBoost(id, growJackpot) {
       state.coins = Math.round((state.coins + state.delivery.earnings)*100)/100;
       state.totalEarned = Math.round((state.totalEarned + state.delivery.earnings)*100)/100;
       addQuestProgress('earn', state.delivery.earnings);
+      queueAction({type:'collect_delivery'});
       var saltA = state.delivery.saltOrder||0;
       var knifeA = state.delivery.knifeOrder||0;
       var msg = '🚀 Доставка прибыла мгновенно! +🪙'+fmt(state.delivery.earnings);
@@ -2996,6 +2999,7 @@ function activateBoost(id, growJackpot) {
       state.coins = Math.round((state.coins + state.delivery2.earnings)*100)/100;
       state.totalEarned = Math.round((state.totalEarned + state.delivery2.earnings)*100)/100;
       addQuestProgress('earn', state.delivery2.earnings);
+      queueAction({type:'collect_delivery', via:'driver'});
       var d2saltI=state.delivery2.saltOrder||0;
       var d2knifeI=state.delivery2.knifeOrder||0;
       var d2msgI='🚀 Водитель прибыл мгновенно! +🪙'+fmt(state.delivery2.earnings);
@@ -4637,6 +4641,8 @@ function checkDelivery() {
     state.coins=Math.round((state.coins+state.delivery.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery.earnings)*100)/100;
     addQuestProgress('earn', state.delivery.earnings);
+    queueAction({type:'collect_delivery'});
+    flushActions();
     var saltArrived=state.delivery.saltOrder||0;
     var knifeArrived=state.delivery.knifeOrder||0;
     var msg='💰 Доставка прибыла! +🪙'+fmt(state.delivery.earnings);
@@ -4650,6 +4656,8 @@ function checkDelivery() {
     state.coins=Math.round((state.coins+state.delivery2.earnings)*100)/100;
     state.totalEarned=Math.round((state.totalEarned+state.delivery2.earnings)*100)/100;
     addQuestProgress('earn', state.delivery2.earnings);
+    queueAction({type:'collect_delivery', via:'driver'});
+    flushActions();
     var d2salt=state.delivery2.saltOrder||0;
     var d2knife=state.delivery2.knifeOrder||0;
     var d2msg='🧑‍✈️ Водитель вернулся! +🪙'+fmt(state.delivery2.earnings);
