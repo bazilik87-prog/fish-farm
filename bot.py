@@ -1490,6 +1490,13 @@ async def broadcast_jackpot_win(username, amount):
             )
         except Exception:
             pass
+    try:
+        await bot.send_message(
+            SUPPORT_GROUP_ID,
+            f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nТребует выплаты звёздами!"
+        )
+    except Exception:
+        pass
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -3201,17 +3208,12 @@ async def successful_payment(message: types.Message):
         if ADMIN_ID:
             ul = f"@{username}" if username else f"ID: {user_id}"
             try:
-                sent = await bot.send_message(
+                await bot.send_message(
                     ADMIN_ID,
                     f"💰 Новый обмен!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Отправь токены!"
                 )
             except Exception:
-                sent = None
-            if sent:
-                try:
-                    await bot.pin_chat_message(ADMIN_ID, sent.message_id, disable_notification=True)
-                except Exception:
-                    pass
+                pass
             try:
                 await bot.send_message(
                     SUPPORT_GROUP_ID,
