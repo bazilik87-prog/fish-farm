@@ -793,10 +793,10 @@ function migrate(s) {
         s.live   = old.live   || [];
         s.transport  = old.transport  || 'bike';
         s.delivery   = old.delivery   || null;
-        s.utrans     = old.utrans     || ['bike'];
-        s.dur        = old.dur        || {bike:100,moped:100,car:100,truck:100};
+        s.unlockedTransports = old.utrans     || ['bike'];
+        s.durability         = old.dur        || {bike:100,moped:100,car:100,truck:100};
         s.dailyDay   = old.dailyDay   || 0;
-        s.dailyLast  = old.dailyLast  || 0;
+        s.dailyLastClaim = old.dailyLast || 0;
         s.lastSeen   = old.lastSeen   || Date.now();
         s.upg        = old.upg        || {};
         s.prices     = old.prices     || {};
@@ -865,8 +865,8 @@ function save() {
       loc:state.currentLoc, ulocs:state.unlockedLocs,
       ufish:state.unlockedFish, cfish:state.caughtFish, live:state.liveFish,
       transport:state.transport, delivery:state.delivery, delivery2:state.delivery2,
-      utrans:state.unlockedTransports, dur:state.durability,
-      dailyDay:state.dailyDay, dailyLast:state.dailyLastClaim,
+      unlockedTransports:state.unlockedTransports, durability:state.durability,
+      dailyDay:state.dailyDay, dailyLastClaim:state.dailyLastClaim,
       lastSeen:Date.now(), totalEarned:state.totalEarned, upg:upg, upgLevels:state.upgLevels, prices:marketPrices, priceTs:lastPriceUpdate,
       drying:state.drying, driedFish:state.driedFish, boosts:state.boosts,
       quests:state.quests, questsDate:state.questsDate, questProgress:state.questProgress,
@@ -951,10 +951,10 @@ function load() {
     state.transport         = s.transport || 'bike';
     state.delivery          = s.delivery  || null;
     state.delivery2         = s.delivery2 || null;
-    state.unlockedTransports= s.utrans    || ['bike'];
-    state.durability        = s.dur || {bike:100,moped:100,car:100,truck:100};
+    state.unlockedTransports= s.unlockedTransports || ['bike'];
+    state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
     state.dailyDay          = s.dailyDay  || 0;
-    state.dailyLastClaim    = s.dailyLast || 0;
+    state.dailyLastClaim    = s.dailyLastClaim || 0;
     state.lastSeen          = s.lastSeen  || Date.now();
     state.totalEarned       = s.totalEarned || 0;
     state.drying            = s.drying    || [];
@@ -4796,10 +4796,10 @@ function applyState(s) {
   state.transport         = s.transport || 'bike';
   state.delivery          = s.delivery  || null;
   state.delivery2         = s.delivery2 || null;
-  state.unlockedTransports= s.utrans    || ['bike'];
-  state.durability        = s.dur || {bike:100,moped:100,car:100,truck:100};
+  state.unlockedTransports= s.unlockedTransports || ['bike'];
+  state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
   state.dailyDay          = s.dailyDay  || 0;
-  state.dailyLastClaim    = s.dailyLast || 0;
+  state.dailyLastClaim    = s.dailyLastClaim || 0;
   state.lastSeen          = s.lastSeen  || Date.now();
   state.totalEarned       = s.totalEarned || 0;
   state.drying            = s.drying    || [];
