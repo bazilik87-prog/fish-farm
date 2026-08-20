@@ -657,22 +657,25 @@ function syncEnergy() {
   if (state.energy >= max) { state.energy = max; state.lastEnergyUpdate = Date.now(); return; }
   var now = Date.now();
   var elapsedSec = (now - (state.lastEnergyUpdate||now)) / 1000;
-  var gained = Math.floor(elapsedSec / ENERGY_REGEN_SEC);
+  // Дробная регенерация — ровно как на сервере (energy/сек = 1/ENERGY_REGEN_SEC), без округления
+  // вниз до целых. Раньше здесь было Math.floor(), что расходилось с сервером после каждой
+  // синхронизации и постепенно "теряло" накопленную дробную часть энергии.
+  var gained = elapsedSec / ENERGY_REGEN_SEC;
   if (gained > 0) {
-    state.energy = Math.min(max, state.energy + gained);
-    state.lastEnergyUpdate += gained * ENERGY_REGEN_SEC * 1000;
+    state.energy = Math.min(max, Math.round((state.energy + gained) * 1000) / 1000);
+    state.lastEnergyUpdate = now;
   }
 }
 function hasEnergy() {
   syncEnergy();
-  return state.energy > 0;
+  return state.energy >= 1/3; // >0 не годится — сервер списывает ровно 1/3 за улов и отклонит
+                               // тап, если дробного остатка не хватает даже на один улов
 }
 function spendEnergyForCatch() {
-  state.fishSinceEnergySpend = (state.fishSinceEnergySpend||0) + 1;
-  if (state.fishSinceEnergySpend >= 3) {
-    state.fishSinceEnergySpend = 0;
-    state.energy = Math.max(0, state.energy - 1);
-  }
+  // Дробное списание — ровно как на сервере (1/3 за каждый улов), чтобы счётчики никогда
+  // не расходились. Раньше здесь был отдельный "счётчик до третьего улова" с целыми числами,
+  // который постепенно расходился с сервером после каждой синхронизации и пропускал лишние уловы.
+  state.energy = Math.max(0, Math.round((state.energy - 1/3) * 1000) / 1000);
 }
 function maxUnlockedMult() {
   var best = 1;
