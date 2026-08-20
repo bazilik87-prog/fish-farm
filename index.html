@@ -635,6 +635,13 @@ function fmt(c) {
   if (c >= 10000) return (c/1000).toFixed(1)+'k';
   return c.toFixed(1);
 }
+// Для крупных "круглых" цен (транспорт, локации) — без лишнего ".0", просто 5k/50k/300k.
+function fmtCost(c) {
+  if (typeof c !== 'number' || isNaN(c)) return '0';
+  if (c >= 1000000) { var m = c/1000000; return (m%1===0 ? m : m.toFixed(1))+'M'; }
+  if (c >= 1000) { var k = c/1000; return (k%1===0 ? k : k.toFixed(1))+'k'; }
+  return String(c);
+}
 function fmtTime(s) {
   var m = Math.floor(s/60); var r = s%60;
   if (LANG === 'en') return m>0 ? (m+'m'+(r>0?' '+r+'s':'')) : s+'s';
@@ -1601,7 +1608,7 @@ function renderMarket() {
     var canBuy=!owned&&state.coins>=trItem.cost;
     var td=getDur(trItem.id), tbroken=td<=0;
     if (owned) trBtns+='<button class="btn '+(active?'btn-green':'')+'" onclick="selectTransport(\''+trItem.id+'\')">'+trItem.emoji+' '+trName(trItem.id)+(active?' ✓':'')+(tbroken?' 🔴':'')+'</button>';
-    else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+trItem.id+'\')" '+(canBuy?'':'disabled')+'>'+trItem.emoji+' 🪙'+fmt(trItem.cost)+'</button>';
+    else trBtns+='<button class="btn '+(canBuy?'btn-gold':'')+'" onclick="buyTransport(\''+trItem.id+'\')" '+(canBuy?'':'disabled')+'>'+trItem.emoji+' 🪙'+fmtCost(trItem.cost)+'</button>';
   }
   var rentalActive = state.boosts.truckRental > Date.now();
   if (rentalActive) {
@@ -3197,10 +3204,10 @@ function renderLocations() {
   for (var i=0;i<LOCATIONS.length;i++) {
     var loc=LOCATIONS[i], isCur=loc.id===state.currentLoc, canU=!loc.unlocked&&state.coins>=loc.cost;
     var btn=loc.unlocked?(isCur?'<button class="btn" disabled>'+t('Здесь','Here')+'</button>':'<button class="btn btn-green" onclick="switchLoc(\''+loc.id+'\')">'+t('Перейти','Go')+'</button>')
-      :'<button class="btn '+(canU?'btn-gold':'')+'" onclick="unlockLoc(\''+loc.id+'\')" '+(canU?'':'disabled')+'>🔓 '+t('Открыть','Unlock')+' 🪙'+fmt(loc.cost)+'</button>';
+      :'<button class="btn '+(canU?'btn-gold':'')+'" onclick="unlockLoc(\''+loc.id+'\')" '+(canU?'':'disabled')+'>🔓 '+t('Открыть','Unlock')+' 🪙'+fmtCost(loc.cost)+'</button>';
     html+='<div class="loc-card'+(isCur?' current':'')+'">'
       +'<h4>'+loc.emoji+' '+locName(loc.id)+(isCur?' <span class="badge">'+t('текущая','current')+'</span>':'')+'</h4>'
-      +'<p>x'+loc.tapMult+' '+t('к монетам','to coins')+(loc.cost>0?' · 🪙'+fmt(loc.cost):'')+'</p>'+btn+'</div>';
+      +'<p>x'+loc.tapMult+' '+t('к монетам','to coins')+(loc.cost>0?' · 🪙'+fmtCost(loc.cost):'')+'</p>'+btn+'</div>';
   }
   document.getElementById('content').innerHTML=html;
 }
@@ -4608,6 +4615,8 @@ function resetGame() {
     localStorage.removeItem('ff5');
     localStorage.removeItem('ff4');
     localStorage.removeItem('ff3');
+    localStorage.removeItem('ff_notiflog');
+    notifLog = [];
     var keepName = state.playerName || '';
     state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,
       currentLoc:'pond',unlockedLocs:['pond'],
