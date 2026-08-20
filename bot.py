@@ -2001,7 +2001,14 @@ async def starttournament_command(message: types.Message):
             "🥇 1 место — 85⭐\n"
             "🥈 2 место — 65⭐\n"
             "🥉 3 место — 50⭐\n\n"
-            "Заходи в игру и проверь свою позицию в разделе 🏆 Лидеры!"
+            "Заходи в игру и проверь свою позицию в разделе 🏆 Лидеры!\n\n"
+            "🇬🇧 *WEEKLY TOURNAMENT HAS STARTED!*\n\n"
+            "Earn as many coins as you can in 48 hours! 🪙⚡\n\n"
+            "Prize pool — 200 Stars ⭐ for the top 3:\n"
+            "🥇 1st place — 85⭐\n"
+            "🥈 2nd place — 65⭐\n"
+            "🥉 3rd place — 50⭐\n\n"
+            "Open the game and check your spot in the 🏆 Leaders section!"
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
