@@ -740,20 +740,30 @@ function initPrices() {
   for (var n in BASE_PRICES) {
     if (!marketPrices[n]) marketPrices[n]={cur:BASE_PRICES[n],prev:BASE_PRICES[n],trend:0};
   }
+  fetchRealPrices();
+}
+// Цены рынка теперь считает только сервер (в bot.py, при продаже) — раньше клиент
+// параллельно вёл свою собственную случайную симуляцию, из-за чего показанная при
+// отправке доставки сумма расходилась с тем, что реально начислялось при получении.
+// Здесь просто читаем то же самое место в Firebase, откуда берёт цены сам сервер.
+function fetchRealPrices() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('market/prices').once('value', function(snap) {
+    var d = snap.val();
+    if (!d || !d.cur) return;
+    for (var n in d.cur) {
+      if (!marketPrices[n]) marketPrices[n] = {cur:BASE_PRICES[n]||1, prev:BASE_PRICES[n]||1, trend:0};
+      var newVal = d.cur[n];
+      marketPrices[n].trend = newVal>marketPrices[n].cur ? 1 : newVal<marketPrices[n].cur ? -1 : 0;
+      marketPrices[n].prev = marketPrices[n].cur;
+      marketPrices[n].cur = newVal;
+    }
+    lastPriceUpdate = d.ts || Date.now();
+    if (currentTab==='market') renderMarket();
+  });
 }
 function updatePrices() {
-  var wm = currentWeather.priceMult || 1.0;
-  for (var n in BASE_PRICES) {
-    var p=marketPrices[n], base=BASE_PRICES[n];
-    var chg=(Math.random()-0.48)*0.3;
-    var nv=Math.max(base*0.3,Math.min(base*3,p.cur*(1+chg)));
-    nv = nv * wm;
-    nv = Math.max(base*0.3, Math.min(base*4, nv));
-    p.prev=p.cur; p.cur=Math.round(nv*100)/100;
-    p.trend=p.cur>p.prev?1:p.cur<p.prev?-1:0;
-  }
-  lastPriceUpdate=Date.now();
-  if (currentTab==='market') renderMarket();
+  fetchRealPrices();
 }
 
 // ── Сохранение ────────────────────────────────────────
