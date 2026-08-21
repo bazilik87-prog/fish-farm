@@ -2366,33 +2366,46 @@ async def playerinfo_command(message: types.Message):
         return
     args = message.text.strip().split()
     if len(args) < 2:
-        await message.answer("Использование:\n`/playerinfo @username`", parse_mode="Markdown")
+        await message.answer("Использование:\n`/playerinfo @username` или `/playerinfo 123456789` (по ID)", parse_mode="Markdown")
         return
-    username = args[1].lstrip('@').lower()
+    arg = args[1].lstrip('@')
     import aiohttp, time
     from datetime import datetime, timezone, timedelta
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                lb = await resp.json()
-            uid = None
-            lb_entry = None
-            if lb:
-                for v in lb.values():
-                    if str(v.get('username', '')).lower() == username:
-                        uid = v.get('userId')
-                        lb_entry = v
-                        break
-            if not uid:
-                await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
-                return
+            if arg.isdigit():
+                uid = int(arg)
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                lb_entry = None
+                if lb:
+                    for v in lb.values():
+                        if v.get('userId') == uid:
+                            lb_entry = v
+                            break
+                username = (lb_entry.get('username') if lb_entry and lb_entry.get('username') else None)
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                uid = None
+                lb_entry = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            uid = v.get('userId')
+                            lb_entry = v
+                            break
+                if not uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
 
             pid = f"tg_{uid}"
             async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
                 sv = await resp.json()
             if not sv:
-                await message.answer(f"❌ Нет сохранения для @{username} (ID: {uid}).")
+                await message.answer(f"❌ Нет сохранения для ID {uid}.")
                 return
 
             async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
@@ -2407,7 +2420,8 @@ async def playerinfo_command(message: types.Message):
             async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as resp:
                 referred_by_him = await resp.json()
 
-        lines = [f"👤 @{username} (ID: {uid})"]
+        display_name = f"@{username}" if username else "без ника"
+        lines = [f"👤 {display_name} (ID: {uid})"]
 
         registered_at = known_start.get('registered_at') if isinstance(known_start, dict) else None
         if registered_at:
