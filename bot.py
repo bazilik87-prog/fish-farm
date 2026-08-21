@@ -3304,6 +3304,7 @@ async def successful_payment(message: types.Message):
         # Перепроверяем ещё раз (на случай, если кто-то параллельно перехватил того же
         # игрока между созданием счёта и оплатой) — атомарности тут по сути нет, поэтому
         # смотрим ещё раз перед записью, чтобы не перезаписать чужую уже установленную связь.
+        import aiohttp
         parts = payload.split(':')
         buyer_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
         target_id = parts[2] if len(parts) > 2 else None
@@ -3331,8 +3332,15 @@ async def successful_payment(message: types.Message):
                             )
                         except Exception:
                             pass
-            except Exception:
-                pass
+            except Exception as e:
+                if ADMIN_ID:
+                    try:
+                        await bot.send_message(ADMIN_ID, f"⚠️ Ошибка при покупке реферала (buyer:{buyer_id}, target:{target_id}): {e}")
+                    except Exception:
+                        pass
+                await message.answer(t(message.from_user,
+                    "❌ Что-то пошло не так при покупке — напиши администратору, разберёмся.",
+                    "❌ Something went wrong with the purchase — message the admin, we'll sort it out."))
 
     elif payload.startswith('sub:'):
         # Срабатывает и на первую оплату, и на каждое ежемесячное автопродление —
