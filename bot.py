@@ -482,10 +482,13 @@ async def referral_market_list(request):
                 players = await resp.json()
             async with session.get(f"{base}/referrals/used.json{FB_AUTH}") as resp2:
                 used = await resp2.json()
+            async with session.get(f"{base}/banned.json{FB_AUTH}") as resp3:
+                banned = await resp3.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     used = used or {}
+    banned = banned or {}
     players = players or {}
     result = []
     for v in players.values():
@@ -494,6 +497,8 @@ async def referral_market_list(request):
             continue
         if str(uid) in used:
             continue  # уже есть реферер — не продаётся
+        if banned.get(str(uid)):
+            continue  # забаненный игрок — не продаётся
         username = v.get('username') or ''
         if not username:
             continue  # без ника не на что смотреть покупателю
@@ -2289,6 +2294,8 @@ async def comm_command(message: types.Message):
         "/maintenance on|off — включить/выключить технические работы\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"
+        "/breakref_all @username — разорвать ВСЕ реферальные связи этого реферера разом\n"
+        "/ban_referrals @username — забанить всех рефералов этого реферера разом (фермы ботов)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
@@ -2702,6 +2709,63 @@ async def breakref_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('breakref_all'))
+async def breakref_all_command(message: types.Message):
+    """
+    Массовый разрыв ВСЕХ рефералов конкретного реферера — для случаев фермы ботов
+    (сотни-тысячи фейковых аккаунтов, приведённых по одной ссылке). Разрывать по одному
+    через /breakref в таком масштабе нереально.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n`/breakref_all @username` или `/breakref_all 123456789` (по ID)\n\n"
+            "⚠️ Разрывает ВСЕ реферальные связи указанного реферера разом — используй для ферм ботов, "
+            "не для единичных случаев (там `/breakref`).",
+            parse_mode="Markdown"
+        )
+        return
+    arg = args[1].lstrip('@')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            if arg.isdigit():
+                referrer_uid = arg
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                referrer_uid = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            referrer_uid = str(v.get('userId', ''))
+                            break
+                if not referrer_uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
+
+            async with session.get(f"{base}/referrals/by/{referrer_uid}.json{FB_AUTH}") as resp:
+                his_refs = await resp.json()
+
+            if not his_refs or not isinstance(his_refs, dict):
+                await message.answer(f"— У ID:{referrer_uid} нет рефералов, разрывать нечего.")
+                return
+
+            count = 0
+            for target_uid in his_refs.keys():
+                await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
+                count += 1
+            await session.delete(f"{base}/referrals/by/{referrer_uid}.json{FB_AUTH}")
+
+        await message.answer(f"✅ Разорвано {count} реферальных связей у ID:{referrer_uid}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('delnum'))
 async def delnum_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -2791,6 +2855,79 @@ async def ban_command(message: types.Message):
                 await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
 
         await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('ban_referrals'))
+async def ban_referrals_command(message: types.Message):
+    """
+    Массовый бан ВСЕХ рефералов конкретного реферера — для ферм ботов (сотни-тысячи
+    фейковых аккаунтов по одной ссылке). Банит каждого (лидерборд+прогресс+блокировка входа),
+    разрывает связь с реферером. Обрабатывает пачками, чтобы не зависнуть на тысяче аккаунтов.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n`/ban_referrals @username` или `/ban_referrals 123456789` (по ID реферера)\n\n"
+            "⚠️ Банит ВСЕХ рефералов этого игрока разом (лидерборд+прогресс+запрет входа) — для ферм ботов.",
+            parse_mode="Markdown"
+        )
+        return
+    arg = args[1].lstrip('@')
+    import aiohttp, asyncio as _asyncio
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            if arg.isdigit():
+                referrer_uid = arg
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                referrer_uid = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            referrer_uid = str(v.get('userId', ''))
+                            break
+                if not referrer_uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
+
+            async with session.get(f"{base}/referrals/by/{referrer_uid}.json{FB_AUTH}") as resp:
+                his_refs = await resp.json()
+
+            if not his_refs or not isinstance(his_refs, dict):
+                await message.answer(f"— У ID:{referrer_uid} нет рефералов, банить некого.")
+                return
+
+            target_uids = list(his_refs.keys())
+            await message.answer(f"⏳ Баню {len(target_uids)} аккаунтов пачками, это может занять пару минут...")
+
+            async def ban_one(target_uid):
+                pid = f"tg_{target_uid}"
+                try:
+                    await session.delete(f"{base}/leaderboard/{pid}.json{FB_AUTH}")
+                    await session.delete(f"{base}/saves/{pid}.json{FB_AUTH}")
+                    await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
+                    await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
+                    return True
+                except Exception:
+                    return False
+
+            banned_count = 0
+            chunk_size = 30
+            for i in range(0, len(target_uids), chunk_size):
+                chunk = target_uids[i:i+chunk_size]
+                results = await _asyncio.gather(*[ban_one(u) for u in chunk])
+                banned_count += sum(1 for r in results if r)
+
+            await session.delete(f"{base}/referrals/by/{referrer_uid}.json{FB_AUTH}")
+
+        await message.answer(f"✅ Забанено {banned_count} из {len(target_uids)} аккаунтов. Связь с реферером ID:{referrer_uid} разорвана.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
