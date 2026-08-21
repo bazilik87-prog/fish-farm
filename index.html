@@ -1553,6 +1553,7 @@ function bulkSell(type) {
 function renderMarket() {
   if (state.transport==='rentalTruck' && state.boosts.truckRental<=Date.now()) { state.transport='bike'; save(); }
   if (state.marketSubpage === 'driver') { renderDriver(); return; }
+  if (state.marketSubpage === 'refmarket') { renderReferralMarket(); return; }
   var tr=getTr(), dlv=state.delivery;
   var next=Math.max(0,Math.ceil((lastPriceUpdate+PRICE_INTERVAL-Date.now())/1000));
   grouped={};
@@ -1570,6 +1571,7 @@ function renderMarket() {
   var html='<div style="display:flex;gap:6px;margin-bottom:8px">'
     +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#1565c0;font-size:13px">🏪 '+t('Рынок','Market')+'</button>'
     +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🧑‍✈️ '+t('Водитель','Driver')+(dlv2?' ●':'')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'refmarket\';renderMarket()" style="flex:1;background:#6a4520;font-size:13px">🔄 '+t('Биржа','Referrals')+'</button>'
     +'</div>';
   html+='<div class="card" style="display:flex;justify-content:space-between;align-items:center">'
     +'<span style="font-size:12px;color:#90caf9">🏪 '+t('Рынок рыбы','Fish market')+'</span>'
@@ -2388,6 +2390,84 @@ function renderQuests() {
 
   document.getElementById('content').innerHTML=html;
 }
+var refMarketCache = null; // {players, price} — кэш последнего запроса к бирже рефералов
+var refMarketLoading = false;
+function renderReferralMarket() {
+  var dlv2 = state.delivery2;
+  var html = '<div style="display:flex;gap:6px;margin-bottom:8px">'
+    +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🏪 '+t('Рынок','Market')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🧑‍✈️ '+t('Водитель','Driver')+(dlv2?' ●':'')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'refmarket\';renderMarket()" style="flex:1;background:#a56a2a;font-size:13px">🔄 '+t('Биржа','Referrals')+'</button>'
+    +'</div>';
+
+  html += '<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:6px">🔄 '+t('Биржа рефералов','Referral Market')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9">'+t('Эти игроки зашли в игру без приглашения — купи право стать их рефером за ⭐, и бонусы с их будущих выводов будут твои.','These players joined without an invite — buy the right to become their referrer for ⭐, and bonuses from their future withdrawals will be yours.')+'</div></div>';
+
+  if (refMarketLoading) {
+    html += '<div class="card" style="text-align:center;color:#90caf9">⏳ '+t('Загружаем список...','Loading list...')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+  if (!refMarketCache) {
+    fetchReferralMarket();
+    html += '<div class="card" style="text-align:center;color:#90caf9">⏳ '+t('Загружаем список...','Loading list...')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  var list = refMarketCache.players || [];
+  var price = refMarketCache.price || 10;
+  if (!list.length) {
+    html += '<div class="card" style="text-align:center;color:#90caf9">'+t('Сейчас никого нет в продаже — загляни позже.','No one is up for sale right now — check back later.')+'</div>';
+  } else {
+    for (var i=0;i<list.length;i++) {
+      var p = list[i];
+      var daysAgo = p.lastSeen ? Math.floor((Date.now()-p.lastSeen)/86400000) : null;
+      var activityStr = daysAgo===null ? t('давно','a while ago') : daysAgo===0 ? t('сегодня','today') : t(daysAgo+'д назад', daysAgo+'d ago');
+      html += '<div class="card" style="display:flex;align-items:center;gap:10px">'
+        +'<div style="flex:1">'
+        +'<div style="font-size:14px;font-weight:600;color:#fff">@'+p.username+'</div>'
+        +'<div style="font-size:11px;color:#90caf9">🪙 '+fmt(p.totalEarned||0)+' · 🐟 '+(p.caught||0)+' · 🕐 '+activityStr+'</div>'
+        +'</div>'
+        +'<button class="btn btn-gold" onclick="buyReferral(\''+p.uid+'\')">⭐ '+price+'</button>'
+        +'</div>';
+    }
+  }
+  document.getElementById('content').innerHTML = html;
+}
+function fetchReferralMarket() {
+  if (refMarketLoading || !tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  refMarketLoading = true;
+  fetch(BOT_API_URL + '/referral_market_list', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    refMarketLoading = false;
+    if (res && res.ok) { refMarketCache = res; if (state.marketSubpage==='refmarket') renderReferralMarket(); }
+  }).catch(function(){ refMarketLoading = false; });
+}
+function buyReferral(targetUid) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL + '/invoice', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action:'buy_referral', target_uid: targetUid, init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif(t('❌ Ошибка: ','❌ Error: ')+(res.data&&res.data.error||t('неизвестная','unknown'))); return; }
+      var invLink = res.data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if (status==='paid') {
+          showNotif(t('✅ Куплено!','✅ Purchased!'));
+          refMarketCache = null; // сбрасываем кэш, чтобы список обновился без уже купленного
+          renderReferralMarket();
+        }
+      });
+    }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
+}
+
 function renderDriver() {
   if (state.driverTransport==='rentalTruck' && state.boosts.truckRental<=Date.now()) { state.driverTransport=null; save(); }
   var dlv = state.delivery;
@@ -2395,6 +2475,7 @@ function renderDriver() {
   var html = '<div style="display:flex;gap:6px;margin-bottom:8px">'
     +'<button class="btn" onclick="state.marketSubpage=null;renderMarket()" style="flex:1;background:#3a2a5c;font-size:13px">🏪 '+t('Рынок','Market')+'</button>'
     +'<button class="btn" onclick="state.marketSubpage=\'driver\';renderDriver()" style="flex:1;background:#6a4fc2;font-size:13px">🧑‍✈️ '+t('Водитель','Driver')+(dlv2?' ●':'')+'</button>'
+    +'<button class="btn" onclick="state.marketSubpage=\'refmarket\';renderMarket()" style="flex:1;background:#6a4520;font-size:13px">🔄 '+t('Биржа','Referrals')+'</button>'
     +'</div>';
 
   // Доставка водителя если в пути
