@@ -2643,42 +2643,47 @@ async def breakref_command(message: types.Message):
     args = message.text.strip().split()
     if len(args) < 2:
         await message.answer(
-            "Использование:\n`/breakref @username`\n\n"
+            "Использование:\n`/breakref @username` или `/breakref 123456789` (по ID)\n\n"
             "Убирает связь «кем был приглашён» у указанного игрока — "
-            "используется для разрыва круговых реферальных цепочек (A пригласил B, B пригласил A).",
+            "используется для разрыва круговых реферальных цепочек (A пригласил B, B пригласил A), "
+            "или чтобы сделать игрока снова доступным на бирже рефералов.",
             parse_mode="Markdown"
         )
         return
-    username = args[1].lstrip('@').lower()
+    arg = args[1].lstrip('@')
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                lb = await resp.json()
-
-            target_uid = None
-            if lb:
-                for v in lb.values():
-                    if str(v.get('username', '')).lower() == username:
-                        target_uid = str(v.get('userId', ''))
-                        break
-
-            if not target_uid:
-                await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
-                return
+            if arg.isdigit():
+                target_uid = arg
+                display_name = f"ID:{target_uid}"
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                target_uid = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            target_uid = str(v.get('userId', ''))
+                            break
+                if not target_uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
+                display_name = f"@{username}"
 
             async with session.get(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}") as resp:
                 old_referrer = await resp.json()
 
             if not old_referrer:
-                await message.answer(f"— У @{username} и так нет реферера, разрывать нечего.")
+                await message.answer(f"— У {display_name} и так нет реферера, разрывать нечего.")
                 return
 
             await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
             await session.delete(f"{base}/referrals/by/{old_referrer}/{target_uid}.json{FB_AUTH}")
 
-        await message.answer(f"✅ Связь разорвана: @{username} больше не считается рефералом ID:{old_referrer}.")
+        await message.answer(f"✅ Связь разорвана: {display_name} больше не считается рефералом ID:{old_referrer}.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
