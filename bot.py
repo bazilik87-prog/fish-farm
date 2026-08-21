@@ -110,6 +110,7 @@ BOOST_PRICES = {
     'energyFull': 5,
 }
 PREMIUM_PRICE = 250  # ⭐/месяц
+REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
 
 SUPPORT_GROUP_ID = -5478312122
 
@@ -415,6 +416,31 @@ async def create_invoice(request):
                 )
             return web.json_response({'link': link}, headers=CORS)
 
+        elif action == 'buy_referral':
+            # Биржа рефералов — покупка права стать рефером игроку, который зашёл без ссылки.
+            target_uid = str(data.get('target_uid', '')).strip()
+            if not target_uid or not target_uid.isdigit():
+                return web.json_response({'error': 'invalid target'}, status=400, headers=CORS)
+            if target_uid == str(real_user_id):
+                return web.json_response({'error': 'нельзя купить самого себя'}, status=400, headers=CORS)
+            import aiohttp as _aiohttp
+            fb_base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            async with _aiohttp.ClientSession() as session:
+                async with session.get(f"{fb_base}/referrals/used/{target_uid}.json{FB_AUTH}") as resp:
+                    existing_ref = await resp.json()
+            if existing_ref:
+                return web.json_response({'error': 'этот игрок уже занят'}, status=400, headers=CORS)
+            payload = f"rb:{real_user_id}:{target_uid}"
+            link = await bot.create_invoice_link(
+                title="Referral Market",
+                description=f"Купить право на реферала (ID {target_uid})",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Referral", amount=REFERRAL_MARKET_PRICE)],
+                provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -423,6 +449,63 @@ async def create_invoice(request):
 
 async def health(request):
     return web.json_response({'ok': True}, headers=CORS)
+
+
+async def referral_market_list(request):
+    """
+    Биржа рефералов — список игроков, зашедших БЕЗ реферальной ссылки (значит их ещё
+    можно "купить"). Показывает ник и базовую статистику, чтобы покупатель мог выбрать
+    конкретного, а не тыкать вслепую.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                players = await resp.json()
+            async with session.get(f"{base}/referrals/used.json{FB_AUTH}") as resp2:
+                used = await resp2.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    used = used or {}
+    players = players or {}
+    result = []
+    for v in players.values():
+        uid = v.get('userId')
+        if not uid or uid == real_user_id:
+            continue
+        if str(uid) in used:
+            continue  # уже есть реферер — не продаётся
+        username = v.get('username') or ''
+        if not username:
+            continue  # без ника не на что смотреть покупателю
+        result.append({
+            'uid': uid,
+            'username': username,
+            'totalEarned': v.get('totalEarned', 0),
+            'caught': v.get('caught', 0),
+            'lastSeen': v.get('ts', 0),
+        })
+    result.sort(key=lambda p: p['lastSeen'], reverse=True)
+    return web.json_response({'ok': True, 'players': result[:50], 'price': REFERRAL_MARKET_PRICE}, headers=CORS)
 
 
 async def partner_check(request):
@@ -2932,8 +3015,8 @@ async def selftest_command(message: types.Message):
     check('Улов: Космос + удочка 5 = 35', catch_space_lvl5 == 35, f'получено {catch_space_lvl5}')
 
     # Стоимость апгрейда: удочка ур.0 в Пруду = 200, в Космосе = 10000
-    check('Апгрейд: удочка ур.0 в Пруду = 200⭐', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['pond'] == 200)
-    check('Апгрейд: удочка ур.0 в Космосе = 10000⭐', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['space'] == 10000)
+    check('Апгрейд: удочка ур.0 в Пруду = 200🪙', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['pond'] == 200)
+    check('Апгрейд: удочка ур.0 в Космосе = 10000🪙', UPGRADE_COSTS['rod'][0] * LOCATION_MULT['space'] == 10000)
 
     # Продажа: сушёная x3, филе x5 от базовой цены
     base = BASE_PRICES['Карась']
@@ -3175,6 +3258,40 @@ async def successful_payment(message: types.Message):
             except Exception:
                 pass
 
+    elif payload.startswith('rb:'):
+        # Биржа рефералов — покупатель оплатил, привязываем реферальную связь.
+        # Перепроверяем ещё раз (на случай, если кто-то параллельно перехватил того же
+        # игрока между созданием счёта и оплатой) — атомарности тут по сути нет, поэтому
+        # смотрим ещё раз перед записью, чтобы не перезаписать чужую уже установленную связь.
+        parts = payload.split(':')
+        buyer_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
+        target_id = parts[2] if len(parts) > 2 else None
+        if target_id:
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/referrals/used/{target_id}.json{FB_AUTH}") as resp:
+                        existing = await resp.json()
+                    if existing:
+                        await message.answer(t(message.from_user,
+                            "❌ Этого игрока уже купил кто-то другой. Свяжись с администратором для возврата.",
+                            "❌ This player was already claimed by someone else. Contact the admin for a refund."))
+                    else:
+                        await session.put(f"{base}/referrals/used/{target_id}.json{FB_AUTH}", json=buyer_id)
+                        await message.answer(t(message.from_user,
+                            "✅ Реферал куплен! Он привязан к тебе — бонусы с его выводов теперь твои.",
+                            "✅ Referral purchased! They're now linked to you — bonuses from their withdrawals are yours."))
+                        try:
+                            await bot.send_message(
+                                int(target_id),
+                                "👥 У тебя появился реферер! Кто-то из игроков FishFarm пригласил тебя (задним числом) — "
+                                "теперь при выводе монет часть уйдёт ему как бонус за приглашение, это никак не влияет на твои собственные выплаты."
+                            )
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
     elif payload.startswith('sub:'):
         # Срабатывает и на первую оплату, и на каждое ежемесячное автопродление —
         # каждый раз просто ставим срок действия на 30 дней вперёд от текущего момента.
@@ -3319,6 +3436,8 @@ async def main():
     app.router.add_options('/invoice', create_invoice)
     app.router.add_post('/referral_notify', referral_notify)
     app.router.add_options('/referral_notify', referral_notify)
+    app.router.add_post('/referral_market_list', referral_market_list)
+    app.router.add_options('/referral_market_list', referral_market_list)
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/lottery_spin', lottery_spin)
