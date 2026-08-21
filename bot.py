@@ -2346,10 +2346,13 @@ async def playerinfo_command(message: types.Message):
                 lines.append(f"  {LOC_NAMES.get(loc_id, loc_id)}: " + ", ".join(parts))
 
         transport = sv.get('transport', 'bike')
-        dur = sv.get('dur', {})
+        dur = sv.get('durability', {})
         dur_str = ", ".join(f"{k}:{v}%" for k, v in dur.items()) if dur else "—"
+        owned = sv.get('unlockedTransports', ['bike'])
+        owned_str = ", ".join(owned) if owned else "bike"
         lines.append("")
-        lines.append(f"🚛 Транспорт: {transport} ({dur_str})")
+        lines.append(f"🚛 Куплено: {owned_str}")
+        lines.append(f"🚛 Сейчас выбран: {transport} ({dur_str})")
 
         coins = sv.get('coins', 0)
         total_earned = sv.get('totalEarned', 0)
