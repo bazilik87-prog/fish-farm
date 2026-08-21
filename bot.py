@@ -2540,6 +2540,42 @@ async def clear_stale_bonuses_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('fix_ref_index'))
+async def fix_ref_index_command(message: types.Message):
+    """
+    Разовая починка: биржа рефералов писала связь только в referrals/used (кто чей реферал),
+    но забывала дублировать в referrals/by (обратный индекс, "кого я пригласил") — из-за
+    этого купленные на бирже рефералы не отображались у покупателя в списке друзей.
+    Проходит по всем referrals/used и дописывает недостающие записи в referrals/by.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/referrals/used.json{FB_AUTH}") as resp:
+                used = await resp.json()
+            async with session.get(f"{base}/referrals/by.json{FB_AUTH}") as resp2:
+                by = await resp2.json()
+
+            used = used or {}
+            by = by or {}
+            fixed = 0
+            for target_id, referrer_id in used.items():
+                if not referrer_id:
+                    continue
+                referrer_id = str(referrer_id)
+                existing = by.get(referrer_id, {})
+                if not isinstance(existing, dict) or target_id not in existing:
+                    await session.put(f"{base}/referrals/by/{referrer_id}/{target_id}.json{FB_AUTH}", json=True)
+                    fixed += 1
+
+        await message.answer(f"🔧 Восстановлено недостающих связей в referrals/by: {fixed}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('premium'))
 async def premium_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -3278,6 +3314,7 @@ async def successful_payment(message: types.Message):
                             "❌ This player was already claimed by someone else. Contact the admin for a refund."))
                     else:
                         await session.put(f"{base}/referrals/used/{target_id}.json{FB_AUTH}", json=buyer_id)
+                        await session.put(f"{base}/referrals/by/{buyer_id}/{target_id}.json{FB_AUTH}", json=True)
                         await message.answer(t(message.from_user,
                             "✅ Реферал куплен! Он привязан к тебе — бонусы с его выводов теперь твои.",
                             "✅ Referral purchased! They're now linked to you — bonuses from their withdrawals are yours."))
