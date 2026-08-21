@@ -2404,6 +2404,9 @@ async def playerinfo_command(message: types.Message):
             async with session.get(f"{base}/premium/{pid}.json{FB_AUTH}") as resp:
                 premium_until = await resp.json()
 
+            async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as resp:
+                referred_by_him = await resp.json()
+
         lines = [f"👤 @{username} (ID: {uid})"]
 
         registered_at = known_start.get('registered_at') if isinstance(known_start, dict) else None
@@ -2454,6 +2457,8 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"👥 Пришёл по рефералке от ID: {referrer_id}")
         else:
             lines.append("👥 Реферер: нет")
+        ref_count = len(referred_by_him) if isinstance(referred_by_him, dict) else 0
+        lines.append(f"👥 Сам пригласил рефералов: {ref_count}")
 
         daily_day = sv.get('dailyDay', 0)
         daily_last = sv.get('dailyLast', 0)
