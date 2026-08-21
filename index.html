@@ -3578,22 +3578,24 @@ function showMyFriends() {
 
     var refIds = Object.keys(refs);
     var loaded = 0;
-    var names = [];
+    var entries = [];
 
     refIds.forEach(function(rid) {
-      firebaseDB.ref('leaderboard/tg_' + rid).once('value', function(s) {
-        var p = s.val();
-        if (p) {
-          var name = p.username ? '@' + p.username : (p.firstName || t('Игрок #','Player #') + rid);
-          names.push(name);
-        } else {
-          names.push('ID:' + rid);
-        }
+      Promise.all([
+        new Promise(function(res){ firebaseDB.ref('leaderboard/tg_' + rid).once('value', function(s){ res(s.val()); }); }),
+        new Promise(function(res){ firebaseDB.ref('known_starts/' + rid).once('value', function(s){ res(s.val()); }); })
+      ]).then(function(results){
+        var p = results[0];
+        var ks = results[1];
+        var name = p && p.username ? '@' + p.username : (p && p.firstName || t('Игрок #','Player #') + rid);
+        var registeredAt = (ks && typeof ks === 'object' && ks.registered_at) ? ks.registered_at : 0;
+        entries.push({name: name, registeredAt: registeredAt});
         loaded++;
         if (loaded === refIds.length) {
-          html += '<div style="font-size:12px;color:#666;margin-bottom:10px">'+t('Приглашено: ','Invited: ') + names.length + '</div>';
-          names.forEach(function(n) {
-            html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">🎣 ' + n + '</div>';
+          entries.sort(function(a,b){ return b.registeredAt - a.registeredAt; }); // новые сверху
+          html += '<div style="font-size:12px;color:#666;margin-bottom:10px">'+t('Приглашено: ','Invited: ') + entries.length + '</div>';
+          entries.forEach(function(en) {
+            html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">🎣 ' + en.name + '</div>';
           });
           html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">'+t('Закрыть','Close')+'</button>';
           inner.innerHTML = html;
