@@ -609,6 +609,7 @@ RARE_FISH_PRICE = 25
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
+WEATHER_PRICE_MULT = {'sunny': 1.0, 'cloudy': 1.1, 'rain': 1.25, 'storm': 1.5, 'perfect': 0.9}
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
@@ -695,6 +696,7 @@ async def get_market_prices():
     формулой случайного блуждания, что и раньше в index.html, но теперь на сервере,
     поэтому их нельзя подделать записью в собственное сохранение.
     Обновляются лениво, не чаще раза в 30с (PRICE_INTERVAL_MS).
+    Учитывают текущую погоду (тот же множитель, что был в клиентской версии).
     """
     import aiohttp, time, random
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -705,12 +707,23 @@ async def get_market_prices():
         if data and isinstance(data, dict) and data.get('ts') and data.get('cur') \
                 and now_ms - data['ts'] < PRICE_INTERVAL_MS:
             return data['cur']
+
+        weather_mult = 1.0
+        try:
+            async with session.get(f"{base}/weather.json{FB_AUTH}") as wresp:
+                w = await wresp.json()
+            if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
+                weather_mult = WEATHER_PRICE_MULT.get(w.get('id'), 1.0)
+        except Exception:
+            pass
+
         cur = (data or {}).get('cur') or {} if isinstance(data, dict) else {}
         new_cur = {}
         for name, base_price in BASE_PRICES.items():
             p = cur.get(name, base_price)
             chg = (random.random() - 0.48) * 0.3
             nv = max(base_price * 0.3, min(base_price * 3, p * (1 + chg)))
+            nv = nv * weather_mult
             nv = max(base_price * 0.3, min(base_price * 4, nv))
             new_cur[name] = round(nv * 100) / 100
         await session.put(f"{base}/market/prices.json{FB_AUTH}", json={'cur': new_cur, 'ts': now_ms})
@@ -3636,6 +3649,21 @@ async def any_message(message: types.Message):
     await message.answer("Нажми кнопку чтобы играть 👇", reply_markup=keyboard)
 
 
+async def price_regeneration_loop():
+    """
+    Фоновая задача — обновляет глобальные цены рынка раз в 30 секунд НЕЗАВИСИМО от того,
+    продаёт ли кто-то прямо сейчас. Раньше цены пересчитывались только "по требованию"
+    (лениво, в момент чьей-то продажи) — если торговли мало, цены и таймер на экране
+    у игроков зависали на старом значении.
+    """
+    while True:
+        try:
+            await get_market_prices()
+        except Exception as e:
+            print(f"Ошибка фонового обновления цен: {e}")
+        await asyncio.sleep(PRICE_INTERVAL_MS / 1000)
+
+
 async def main():
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
@@ -3679,6 +3707,7 @@ async def main():
             print(f"Не удалось установить webhook: {e}")
 
         print("Бот запущен!")
+        asyncio.create_task(price_regeneration_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -3691,6 +3720,7 @@ async def main():
         except Exception as e:
             print(f"delete_webhook не удался, продолжаем без него: {e}")
         print("Бот запущен! (PUBLIC_URL не задан — используется polling)")
+        asyncio.create_task(price_regeneration_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
