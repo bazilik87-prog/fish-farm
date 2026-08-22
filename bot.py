@@ -2995,6 +2995,52 @@ async def pay_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('msg'))
+async def msg_command(message: types.Message):
+    """
+    Отправить игроку произвольный текст от имени бота — по нику или по ID.
+    Удобно для случаев, когда игроку нужно что-то передать лично (например, попросить
+    написать вам напрямую, чтобы получить выплату, если у него нет username).
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.split(maxsplit=2)
+    if len(text) < 3:
+        await message.answer(
+            "Использование:\n`/msg @username ТЕКСТ` или `/msg 123456789 ТЕКСТ` (по ID)\n\n"
+            "Пример:\n`/msg 7659448624 Привет! Напиши, пожалуйста, @elbanderass, чтобы получить свои звёзды за джекпот 🎉`",
+            parse_mode="Markdown"
+        )
+        return
+    arg = text[1].lstrip('@')
+    custom_text = text[2]
+    import aiohttp
+    try:
+        if arg.isdigit():
+            user_id = int(arg)
+            display = f"ID:{user_id}"
+        else:
+            username = arg.lower()
+            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+            user_id = None
+            if data:
+                for v in data.values():
+                    if str(v.get('username','')).lower() == username:
+                        user_id = v.get('userId')
+                        break
+            if not user_id:
+                await message.answer(f"❌ Игрок @{username} не найден. Попробуй по ID.")
+                return
+            display = f"@{username}"
+        await bot.send_message(user_id, custom_text)
+        await message.answer(f"✅ Сообщение отправлено {display} (ID: {user_id})")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('paystars'))
 async def paystars_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
