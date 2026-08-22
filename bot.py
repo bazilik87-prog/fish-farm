@@ -645,15 +645,30 @@ def pick_lottery_prize(mult, jackpot):
     return prizes[0]
 
 
-async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок'):
+async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок', via='unknown'):
     """
     Применяет уже выбранный сервером приз лотереи к реальным данным игрока в Firebase.
     Джекпот — отдельная ветка: сброс/рост и оповещение тоже только здесь, атомарно
     с решением приза (не отдельным вызовом от клиента, как было раньше).
+    Заодно ведёт статистику круток (via: 'ad'/'star'/'premium') и выигранных призов —
+    видно через /playerinfo, помогает заметить аномально частые редкие выигрыши.
     """
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"{base}/saves/{pid}/lotteryStats.json{FB_AUTH}") as r:
+                stats = await r.json()
+            stats = stats if isinstance(stats, dict) else {}
+            spins_key = f"{via}Spins"
+            stats[spins_key] = (stats.get(spins_key) or 0) + 1
+            wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
+            wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
+            stats['wins'] = wins
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"lotteryStats": stats})
+        except Exception:
+            pass
+
         if prize['kind'] == 'jackpot':
             await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
             await broadcast_jackpot_win(username, prize['amount'])
@@ -922,7 +937,7 @@ async def lottery_spin(request):
     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
 
     prize = pick_lottery_prize(mult, jackpot)
-    await apply_lottery_prize(pid, prize, mult, grow_jackpot, username)
+    await apply_lottery_prize(pid, prize, mult, grow_jackpot, username, via)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -2500,6 +2515,19 @@ async def playerinfo_command(message: types.Message):
         ref_count = len(referred_by_him) if isinstance(referred_by_him, dict) else 0
         lines.append(f"👥 Сам пригласил рефералов: {ref_count}")
 
+        lottery_stats = sv.get('lotteryStats') or {}
+        if isinstance(lottery_stats, dict) and lottery_stats:
+            ad_spins = lottery_stats.get('adSpins', 0)
+            star_spins = lottery_stats.get('starSpins', 0)
+            prem_spins = lottery_stats.get('premiumSpins', 0)
+            total_spins = ad_spins + star_spins + prem_spins
+            wins = lottery_stats.get('wins') or {}
+            wins_str = ", ".join(f"{k}:{v}" for k, v in wins.items()) if wins else "—"
+            lines.append(
+                f"🎰 Лотерея: {total_spins} круток (реклама:{ad_spins}, ⭐:{star_spins}, premium:{prem_spins})\n"
+                f"   Выигрыши по типам: {wins_str}"
+            )
+
         daily_day = sv.get('dailyDay', 0)
         daily_last = sv.get('dailyLast', 0)
         if daily_last:
@@ -3494,7 +3522,7 @@ async def successful_payment(message: types.Message):
                     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
                 username = message.from_user.username or message.from_user.first_name or 'Игрок'
                 prize = pick_lottery_prize(mult, jackpot)
-                await apply_lottery_prize(pid, prize, mult, True, username)
+                await apply_lottery_prize(pid, prize, mult, True, username, 'star')
                 async with aiohttp.ClientSession() as session:
                     await session.put(f"{base}/pending_boosts/{pid}/lottery_result.json{FB_AUTH}", json=prize)
             except Exception:
