@@ -3002,28 +3002,34 @@ async def paystars_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/paystars @username СУММА`\n\nПример:\n`/paystars @Metelegram12 27`",
+            "Использование:\n`/paystars @username СУММА` или `/paystars 123456789 СУММА` (по ID)\n\nПример:\n`/paystars @Metelegram12 27`",
             parse_mode="Markdown"
         )
         return
-    username = text[1].lstrip('@').lower()
+    arg = text[1].lstrip('@')
     amount = text[2]
     import aiohttp
     try:
-        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
-        user_id = None
-        if data:
-            for v in data.values():
-                if str(v.get('username','')).lower() == username:
-                    user_id = v.get('userId')
-                    break
-        if not user_id:
-            found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
-            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
-            return
+        if arg.isdigit():
+            user_id = int(arg)
+            display = f"ID:{user_id}"
+        else:
+            username = arg.lower()
+            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+            user_id = None
+            if data:
+                for v in data.values():
+                    if str(v.get('username','')).lower() == username:
+                        user_id = v.get('userId')
+                        break
+            if not user_id:
+                found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
+                await message.answer(f"❌ Игрок @{username} не найден. Попробуй по ID.\nИмена в базе: {', '.join(found_names[:10])}")
+                return
+            display = f"@{username}"
         await bot.send_message(
             user_id,
             f"✅ *Выплата выполнена!*\n\n"
@@ -3034,7 +3040,7 @@ async def paystars_command(message: types.Message):
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount}⭐ Stars")
+        await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате {amount}⭐ Stars")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
