@@ -1426,7 +1426,13 @@ async def process_actions(request):
                                 ref_coins = (ref_coins or 0) + 1000
                                 await session.patch(f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}", json={"coins": ref_coins})
                                 try:
-                                    await bot.send_message(int(referrer_id), "🎁 Реферальный бонус: +🪙1000! Твой реферал прокачал удочку до ур.2")
+                                    async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
+                                        ref_lb = await r4.json()
+                                    ref_label = f"@{ref_lb.get('username')}" if ref_lb and ref_lb.get('username') else f"ID:{real_user_id}"
+                                except Exception:
+                                    ref_label = f"ID:{real_user_id}"
+                                try:
+                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙1000! Твой реферал {ref_label} прокачал удочку до ур.2")
                                 except Exception:
                                     pass
                 except Exception:
