@@ -513,6 +513,132 @@ async def referral_market_list(request):
     return web.json_response({'ok': True, 'players': result[:50], 'price': REFERRAL_MARKET_PRICE}, headers=CORS)
 
 
+async def social_tasks_list(request):
+    """
+    Список активных «социальных» заданий (вступи в группу рекламодателя за монеты) —
+    показывает игроку, что ещё не подтверждено на его аккаунте.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/social_tasks.json{FB_AUTH}") as resp:
+                tasks = await resp.json()
+            async with session.get(f"{base}/saves/{pid}/socialClaimed.json{FB_AUTH}") as resp2:
+                claimed = await resp2.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    tasks = tasks or {}
+    claimed = claimed or {}
+    result = []
+    for task_id, t in tasks.items():
+        if not isinstance(t, dict) or not t.get('active'):
+            continue
+        result.append({
+            'id': task_id,
+            'label': t.get('label', 'Задание'),
+            'link': t.get('link', ''),
+            'reward': t.get('reward', 0),
+            'claimed': bool(claimed.get(task_id)),
+        })
+    return web.json_response({'ok': True, 'tasks': result}, headers=CORS)
+
+
+async def claim_social_task(request):
+    """
+    Подтверждение выполнения социального задания — сервер сам проверяет через Telegram API,
+    что игрок реально состоит в группе (getChatMember), а не просто верит клику "Подтвердить".
+    Бот должен быть добавлен в группу рекламодателя, иначе проверка технически невозможна.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    task_id = str(data.get('task_id', '')).strip()
+    if not task_id:
+        return web.json_response({'error': 'invalid task'}, status=400, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/social_tasks/{task_id}.json{FB_AUTH}") as resp:
+                task = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    if not task or not isinstance(task, dict) or not task.get('active'):
+        return web.json_response({'error': 'задание не найдено или неактивно'}, status=400, headers=CORS)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/socialClaimed/{task_id}.json{FB_AUTH}") as resp:
+                already = await resp.json()
+    except Exception:
+        already = False
+    if already:
+        return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
+
+    chat_id = task.get('chat_id')
+    try:
+        member = await bot.get_chat_member(chat_id, real_user_id)
+        if member.status in ('left', 'kicked'):
+            return web.json_response({'error': 'не в группе'}, status=400, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': f'не удалось проверить вступление: {e}'}, status=400, headers=CORS)
+
+    reward = float(task.get('reward', 0))
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                sv = await resp.json()
+            sv = sv or {}
+            new_coins = round((float(sv.get('coins', 0) or 0) + reward) * 100) / 100
+            new_total = round((float(sv.get('totalEarned', 0) or 0) + reward) * 100) / 100
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "coins": new_coins,
+                "totalEarned": new_total
+            })
+            await session.put(f"{base}/saves/{pid}/socialClaimed/{task_id}.json{FB_AUTH}", json=True)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True, 'reward': reward}, headers=CORS)
+
+
 async def partner_check(request):
     """
     Кросс-промо-задание: партнёр спрашивает, поймал ли игрок 20 рыб.
@@ -2335,6 +2461,109 @@ async def stoppromo_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('getchatid'))
+async def getchatid_command(message: types.Message):
+    """
+    Написать эту команду ПРЯМО В ГРУППЕ рекламодателя (после добавления туда бота) —
+    покажет chat_id этой группы, нужен для /addsocial.
+    """
+    await message.answer(f"🆔 Chat ID этой группы: `{message.chat.id}`", parse_mode="Markdown")
+
+
+@dp.message(Command('addsocial'))
+async def addsocial_command(message: types.Message):
+    """
+    Добавить социальное задание (вступи в группу за монеты).
+    Формат: /addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ
+    Пример: /addsocial https://t.me/+abc123|-1001234567890|100|Крипто-канал XYZ
+    Бот ОБЯЗАТЕЛЬНО должен уже быть добавлен в группу — иначе проверка вступления не сработает.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    raw = message.text[len('/addsocial'):].strip()
+    parts = raw.split('|')
+    if len(parts) < 4:
+        await message.answer(
+            "Использование:\n`/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ`\n\n"
+            "Пример:\n`/addsocial https://t.me/+abc123|-1001234567890|100|Крипто-канал XYZ`\n\n"
+            "CHAT_ID узнать командой /getchatid, написанной ПРЯМО В ГРУППЕ рекламодателя "
+            "(бот должен быть туда уже добавлен).",
+            parse_mode="Markdown"
+        )
+        return
+    link = parts[0].strip()
+    try:
+        chat_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("❌ CHAT_ID должен быть числом (обычно отрицательным для групп). Используй /getchatid в группе.")
+        return
+    try:
+        reward = float(parts[2].strip())
+    except ValueError:
+        await message.answer("❌ Награда должна быть числом.")
+        return
+    label = parts[3].strip()
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    task_id = f"task_{int(time.time())}"
+    try:
+        # Проверяем, что бот реально в этой группе, прежде чем сохранять задание
+        await bot.get_chat(chat_id)
+    except Exception as e:
+        await message.answer(f"❌ Бот не может получить доступ к этой группе (добавлен ли он туда?): {e}")
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
+                "link": link, "chat_id": chat_id, "reward": reward, "label": label, "active": True
+            })
+        await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: `{task_id}`", parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('listsocial'))
+async def listsocial_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/social_tasks.json{FB_AUTH}") as resp:
+                tasks = await resp.json()
+        if not tasks:
+            await message.answer("Нет социальных заданий.")
+            return
+        lines = ["📋 Социальные задания:\n"]
+        for tid, t in tasks.items():
+            status = "🟢" if t.get('active') else "🔴"
+            lines.append(f"{status} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
+        await message.answer("\n".join(lines), parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('removesocial'))
+async def removesocial_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer("Использование:\n`/removesocial task_ID`\n\nID смотри через /listsocial", parse_mode="Markdown")
+        return
+    task_id = args[1]
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.delete(f"{base}/social_tasks/{task_id}.json{FB_AUTH}")
+        await message.answer(f"✅ Задание {task_id} удалено.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('comm'))
 async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -2364,6 +2593,10 @@ async def comm_command(message: types.Message):
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
+        "/getchatid — узнать ID группы (написать прямо в группе рекламодателя)\n"
+        "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание\n"
+        "/listsocial — список соц.заданий\n"
+        "/removesocial ID — удалить соц.задание\n"
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
@@ -3784,6 +4017,10 @@ async def main():
     app.router.add_options('/referral_notify', referral_notify)
     app.router.add_post('/referral_market_list', referral_market_list)
     app.router.add_options('/referral_market_list', referral_market_list)
+    app.router.add_post('/social_tasks_list', social_tasks_list)
+    app.router.add_options('/social_tasks_list', social_tasks_list)
+    app.router.add_post('/claim_social_task', claim_social_task)
+    app.router.add_options('/claim_social_task', claim_social_task)
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/lottery_spin', lottery_spin)
