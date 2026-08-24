@@ -2884,6 +2884,7 @@ function showLotteryResult(title, prize, color, isJackpot) {
 // уже готовый результат (для мгновенного UI — реальные данные сервер уже записал сам).
 function displayServerLotteryPrize(prize) {
   if (!prize) return;
+  addQuestProgress('boost', 1);
   if (prize.kind === 'jackpot') {
     window._jackpotCache = 50;
     showLotteryResult('⭐ ДЖЕКПОТ!', prize.amount + ' Stars', '#FFD700', true);
@@ -3721,6 +3722,7 @@ function getRefLink() {
 
 function activateBoostWithTime(id, elapsed) {
   var now = Date.now();
+  addQuestProgress('boost', 1);
   if (id==='energyFull') {
     state.energy = getEnergyMax();
     state.lastEnergyUpdate = now;
