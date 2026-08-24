@@ -1055,6 +1055,7 @@ async def process_actions(request):
     ulocs_changed = False
     escrow = float(sv.get('deliveryEscrow', 0) or 0)
     escrow2 = float(sv.get('deliveryEscrow2', 0) or 0)
+    net_promo_claimed = sv.get('netPromoClaimed')
 
     for act in actions:
         if not isinstance(act, dict):
@@ -1283,6 +1284,29 @@ async def process_actions(request):
             comeback_claimed_at = now_ms
             comeback_changed = True
 
+        elif a_type == 'net_promo_bonus':
+            # Разовый промо-бонус +500 монет за покупку Сети (запускается /startpromo) —
+            # сервер сам проверяет, что акция реально активна СЕЙЧАС, и что этот игрок
+            # ещё не получал бонус именно за ЭТУ конкретную акцию (по её endsAt — если
+            # запустить новую акцию позже, endsAt будет другим, и бонус можно получить снова).
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/promo/net_bonus.json{FB_AUTH}") as resp:
+                        promo = await resp.json()
+            except Exception:
+                promo = None
+            promo_ends_at = promo.get('endsAt') if isinstance(promo, dict) else None
+            if not promo_ends_at or now_ms > promo_ends_at:
+                rejected += 1
+                continue
+            if sv.get('netPromoClaimed') == promo_ends_at:
+                rejected += 1
+                continue
+            bonus_amount = float(promo.get('bonus', 500)) if isinstance(promo, dict) else 500
+            coins += bonus_amount
+            total_earned += bonus_amount
+            net_promo_claimed = promo_ends_at
+
         elif a_type == 'rare_fish_catch':
             # Улов редкой рыбы (Осетрина) — сервер сверяет, что она РЕАЛЬНО была активна
             # именно сейчас (по общему для всех игроков состоянию rare_fish в Firebase),
@@ -1493,6 +1517,8 @@ async def process_actions(request):
         extra_fields['ulocs'] = ulocs
     extra_fields['deliveryEscrow'] = round(escrow * 100) / 100
     extra_fields['deliveryEscrow2'] = round(escrow2 * 100) / 100
+    if net_promo_claimed and net_promo_claimed != sv.get('netPromoClaimed'):
+        extra_fields['netPromoClaimed'] = net_promo_claimed
 
     try:
         async with aiohttp.ClientSession() as session:
