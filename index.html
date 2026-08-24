@@ -4250,9 +4250,11 @@ function checkNetBonus() {
     var d = snap.val();
     if (!d || !d.endsAt || Date.now() > d.endsAt) return;
     // Акция активна — начисляем бонус
-    state.coins = Math.round((state.coins + 500)*100)/100;
-    state.totalEarned = Math.round((state.totalEarned + 500)*100)/100;
-    showNotif(t('🎁 Бонус за покупку Сети! +🪙500','🎁 Net purchase bonus! +🪙500'));
+    state.coins = Math.round((state.coins + (d.bonus||500))*100)/100;
+    state.totalEarned = Math.round((state.totalEarned + (d.bonus||500))*100)/100;
+    queueAction({type:'net_promo_bonus', loc: state.currentLoc});
+    flushActions();
+    showNotif(t('🎁 Бонус за покупку Сети! +🪙','🎁 Net purchase bonus! +🪙')+fmt(d.bonus||500));
     updateUI(); save();
   });
 }
