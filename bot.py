@@ -1962,6 +1962,24 @@ async def start(message: types.Message):
     # Обрабатываем реферальную ссылку
     args = message.text.split() if message.text else []
     ref_arg = args[1] if len(args) > 1 else ''
+
+    if ref_arg.startswith('campaign_'):
+        # Метка рекламного источника (?start=campaign_НАЗВАНИЕ) — отдельно от реферальной
+        # системы, просто считает, сколько новых регистраций пришло с конкретной площадки.
+        campaign_name = ref_arg[len('campaign_'):]
+        if campaign_name:
+            import aiohttp, time
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    await session.put(
+                        f"{base}/campaign_sources/{campaign_name}/{user_id}.json{FB_AUTH}",
+                        json=int(time.time() * 1000)
+                    )
+            except Exception:
+                pass
+        return
+
     if not ref_arg.startswith('ref_'):
         return
 
@@ -2519,6 +2537,44 @@ async def addsocial_command(message: types.Message):
                 "link": link, "chat_id": chat_id, "reward": reward, "label": label, "active": True
             })
         await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: `{task_id}`", parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('campaignstats'))
+async def campaignstats_command(message: types.Message):
+    """
+    Статистика по рекламным площадкам (ссылки вида ?start=campaign_НАЗВАНИЕ) —
+    сколько новых регистраций реально пришло с конкретного источника.
+    Без аргумента — список всех кампаний с количеством. С аргументом — детали одной.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/campaign_sources.json{FB_AUTH}") as resp:
+                data = await resp.json()
+        if not data:
+            await message.answer("Пока нет данных ни по одной рекламной кампании.")
+            return
+        if len(args) < 2:
+            lines = ["📊 Рекламные кампании:\n"]
+            for name, users in data.items():
+                cnt = len(users) if isinstance(users, dict) else 0
+                lines.append(f"  `{name}` — {cnt} регистраций")
+            lines.append("\nПодробности: `/campaignstats НАЗВАНИЕ`")
+            await message.answer("\n".join(lines), parse_mode="Markdown")
+        else:
+            name = args[1]
+            users = data.get(name)
+            if not users:
+                await message.answer(f"Кампания `{name}` не найдена.", parse_mode="Markdown")
+                return
+            cnt = len(users) if isinstance(users, dict) else 0
+            await message.answer(f"📊 Кампания `{name}`: {cnt} регистраций", parse_mode="Markdown")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
