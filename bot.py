@@ -3553,10 +3553,29 @@ async def audit_command(message: types.Message):
             registered_at = ks.get('registered_at') if isinstance(ks, dict) else None
 
             if not registered_at:
+                loc = v.get('loc') or 'pond'
+
+                if caught == 0:
+                    # При caught=0 потолок "по уловам" формально равен нулю (0 * что угодно = 0),
+                    # что превращает ЛЮБОЙ стартовый/реферальный/дневной бонус (10-300 монет без
+                    # единого улова — это нормально для только что зашедшего игрока) в "превышение
+                    # потолка в 100x/300x раз". Это не эксплойт, а особенность формулы — здесь нечего
+                    # делить на количество уловов. Проверяем только явное расхождение coins/totalEarned,
+                    # как и в ветке с известной датой регистрации.
+                    if coins > 5000 and total_earned < coins * 0.1:
+                        flagged.append(
+                            f"{identity} (ID:{user_id}) — БЕЗ ДАТЫ РЕГИСТРАЦИИ, РАСХОЖДЕНИЕ coins/totalEarned\n"
+                            f"  📍 Локация: {loc} · 🐟 Поймано: {caught}\n"
+                            f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f}\n"
+                            f"  ⚠️ Баланс в {(coins/max(total_earned,1)):.0f}x больше заработанного — похоже на sync_state-эксплойт"
+                        )
+                    elif total_earned > 10000:
+                        no_reg_date.append(f"{identity} | заработано:{total_earned:,.0f} | монет:{coins:,.0f} | поймано:{caught}")
+                    continue
+
                 # Без даты регистрации не проверить по времени — но можно проверить по количеству
                 # уловов: даже в лучшем случае (макс. апгрейды на его локации, каждая рыба продана
                 # как филе редкого вида по пиковой цене) есть потолок дохода НА ОДИН улов.
-                loc = v.get('loc') or 'pond'
                 loc_mult = LOCATION_MULT.get(loc, 1)
                 max_tap_per_catch = ROD_TAP[-1] * loc_mult
                 max_fish_price = LOCATION_MAX_FISH_PRICE.get(loc, 6)
