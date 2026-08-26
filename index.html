@@ -406,7 +406,7 @@ var QUEST_TEMPLATES = [
 
 // ── Состояние ─────────────────────────────────────────
 var state = {
-  coins:0,caught:0,tapPower:0.1,autoPerSec:0,
+  coins:0,caught:0,tapPower:0.1,autoPerMin:0,
   currentLoc:'pond',unlockedLocs:['pond'],
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],
@@ -1094,8 +1094,8 @@ function processOffline() {
     showNotif(d2msg);
     state.delivery2=null;
   }
-  if (state.autoPerSec > 0) {
-    var autoEarned = Math.round(state.autoPerSec * elapsed / 1000 / 60 * 100) / 100;
+  if (state.autoPerMin > 0) {
+    var autoEarned = Math.round(state.autoPerMin * elapsed / 1000 / 60 * 100) / 100;
     if (autoEarned > 0) {
       state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + autoEarned) * 100) / 100;
@@ -1134,7 +1134,7 @@ function calcStats() {
   var lm=getLoc().tapMult||1;
   state.tapPower=Math.round(ROD_TAP[rodBought]*lm*10)/10;
   var premiumMult=isPremiumActive()?1.25:1;
-  state.autoPerSec=Math.round(auto*lm*premiumMult*10)/10;
+  state.autoPerMin=Math.round(auto*lm*premiumMult*10)/10;
 }
 function catchChance() {
   var rod=null;
@@ -1294,7 +1294,7 @@ function updateUI() {
   var autoBoostActive = state.boosts.doubleTap > Date.now();
   var autoEl = document.getElementById('s-auto');
   if (autoEl) {
-    autoEl.textContent = state.autoPerSec;
+    autoEl.textContent = state.autoPerMin;
     var bonus = autoEl.nextSibling;
     var bonusEl = document.getElementById('s-auto-bonus');
     if (!bonusEl) {
@@ -4071,7 +4071,7 @@ function renderSettings() {
     +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 '+t('Статистика','Statistics')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
-    +t('Монет: ','Coins: ')+fmt(state.coins)+t('<br>Живых рыб: ','<br>Live fish: ')+state.liveFish.length+t('<br>За тап: ','<br>Per tap: ')+state.tapPower.toFixed(1)+t('<br>Авто/мин: ','<br>Auto/min: ')+state.autoPerSec+t('<br>Локация: ','<br>Location: ')+li.emoji+' '+locName(li.id)+t('<br>Настроение: ','<br>Mood: ')+mood+'</div></div>'
+    +t('Монет: ','Coins: ')+fmt(state.coins)+t('<br>Живых рыб: ','<br>Live fish: ')+state.liveFish.length+t('<br>За тап: ','<br>Per tap: ')+state.tapPower.toFixed(1)+t('<br>Авто/мин: ','<br>Auto/min: ')+state.autoPerMin+t('<br>Локация: ','<br>Location: ')+li.emoji+' '+locName(li.id)+t('<br>Настроение: ','<br>Mood: ')+mood+'</div></div>'
     +'<div class="card">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🌐 Язык / Language</div>'
     +'<div style="display:flex;gap:8px">'
@@ -4789,7 +4789,7 @@ function resetGame() {
     localStorage.removeItem('ff_notiflog');
     notifLog = [];
     var keepName = state.playerName || '';
-    state={coins:0,caught:0,tapPower:0.1,autoPerSec:0,
+    state={coins:0,caught:0,tapPower:0.1,autoPerMin:0,
       currentLoc:'pond',unlockedLocs:['pond'],
       unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
       transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],
@@ -4884,8 +4884,8 @@ function checkDelivery() {
 function tick() {
   try {
     var now=Date.now(), dt=(now-lastAuto)/1000; lastAuto=now;
-    if (state.autoPerSec>0 || state.boosts.doubleTap>Date.now()) {
-      var autoBase = state.autoPerSec + (state.boosts.doubleTap>Date.now() ? 2 : 0);
+    if (state.autoPerMin>0 || state.boosts.doubleTap>Date.now()) {
+      var autoBase = state.autoPerMin + (state.boosts.doubleTap>Date.now() ? 2 : 0);
       autoAccum += autoBase * dt / 60;
       if (autoAccum >= 0.01) {
         var pay = Math.floor(autoAccum * 100) / 100;

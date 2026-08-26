@@ -134,7 +134,7 @@ LOCATION_ORDER = {'pond': 1, 'river': 2, 'tropics': 3, 'deep': 4, 'space': 5}
 # ── Формулы экономики (зеркалят index.html) — используются ТОЛЬКО для расчёта
 # верхнего "потолка" правдоподобного заработка на /sync, не для точной симуляции игры.
 ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]           # монет за улов по уровню удочки (0-5)
-AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда
+AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда, монет В МИНУТУ (не в секунду — см. index.html: autoPerMin, деление elapsed/1000/60)
 ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
 PREMIUM_AUTO_MULT = 1.25
 MISC_BUFFER_PER_MIN = 200   # запас на доставку/лотерею/квесты/ежедневный бонус, * множитель локации
@@ -154,10 +154,16 @@ SELL_THROUGHPUT_PER_SEC = 100 / 1200
 
 def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
     """
-    Возвращает (max_tap_power, max_auto_per_sec, max_location_mult) — самые щедрые
+    Возвращает (max_tap_power, max_auto_per_min, max_location_mult) — самые щедрые
     из ВСЕХ разлоченных локаций игрока (на случай, если он переключался между ними
     в течение периода между синками). Небольшой запас в пользу игрока — это ceiling,
     не точная симуляция.
+
+    ВАЖНО: max_auto_per_min — монеты В МИНУТУ (как autoPerMin в index.html), не в
+    секунду. Раньше здесь и в AUTO_PER_LEVEL было название "per_sec" при том, что вся
+    игра всегда считала эту величину за минуту (elapsed/1000/60 в index.html) — сама
+    формула ceiling (auto_ceiling = max_auto * elapsed_sec / 60 ниже) была верной, но
+    название вводило в заблуждение при устных расчётах.
     """
     ulocs = ulocs or ['pond']
     upg_levels = upg_levels or {}
