@@ -2560,7 +2560,8 @@ async def addsocial_command(message: types.Message):
 async def campaignstats_command(message: types.Message):
     """
     Статистика по рекламным площадкам (ссылки вида ?start=campaign_НАЗВАНИЕ) —
-    сколько новых регистраций реально пришло с конкретного источника.
+    сколько новых регистраций реально пришло с конкретного источника, и сколько
+    из них дошли до реальной игры (есть сохранение) и стали активными (есть уловы).
     Без аргумента — список всех кампаний с количеством. С аргументом — детали одной.
     """
     if message.from_user.id != ADMIN_ID:
@@ -2572,24 +2573,59 @@ async def campaignstats_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/campaign_sources.json{FB_AUTH}") as resp:
                 data = await resp.json()
-        if not data:
-            await message.answer("Пока нет данных ни по одной рекламной кампании.")
-            return
-        if len(args) < 2:
-            lines = ["📊 Рекламные кампании:\n"]
-            for name, users in data.items():
-                cnt = len(users) if isinstance(users, dict) else 0
-                lines.append(f"  `{name}` — {cnt} регистраций")
-            lines.append("\nПодробности: `/campaignstats НАЗВАНИЕ`")
-            await message.answer("\n".join(lines), parse_mode="HTML")
-        else:
-            name = args[1]
-            users = data.get(name)
-            if not users:
-                await message.answer(f"Кампания <code>{name}</code> не найдена.", parse_mode="HTML")
+            if not data:
+                await message.answer("Пока нет данных ни по одной рекламной кампании.")
                 return
-            cnt = len(users) if isinstance(users, dict) else 0
-            await message.answer(f"📊 Кампания <code>{name}</code>: {cnt} регистраций", parse_mode="HTML")
+
+            async def conversion_stats(users: dict) -> tuple[int, int]:
+                # Заходов (стартов бота по ссылке) в campaign_sources всегда >= установок,
+                # т.к. сюда падает КАЖДЫЙ /start с этим параметром, даже без открытия игры.
+                # "Установил" = есть сохранение в saves/tg_{user_id}.
+                # "Активен" = в сохранении есть хотя бы 1 улов ИЛИ totalEarned > 0.
+                installed = 0
+                active = 0
+                for uid in users:
+                    pid = f"tg_{uid}"
+                    async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as r:
+                        save = await r.json()
+                    if not save:
+                        continue
+                    installed += 1
+                    if (save.get('caught', 0) or 0) > 0 or (save.get('totalEarned', 0) or 0) > 0:
+                        active += 1
+                return installed, active
+
+            if len(args) < 2:
+                lines = ["📊 Рекламные кампании:\n"]
+                for name, users in data.items():
+                    if not isinstance(users, dict) or not users:
+                        continue
+                    cnt = len(users)
+                    installed, active = await conversion_stats(users)
+                    inst_pct = (installed / cnt * 100) if cnt else 0
+                    act_pct = (active / cnt * 100) if cnt else 0
+                    lines.append(
+                        f"  `{name}` — {cnt} заходов → {installed} установок ({inst_pct:.0f}%) → {active} активных ({act_pct:.0f}%)"
+                    )
+                lines.append("\nПодробности: `/campaignstats НАЗВАНИЕ`")
+                await message.answer("\n".join(lines), parse_mode="HTML")
+            else:
+                name = args[1]
+                users = data.get(name)
+                if not users or not isinstance(users, dict):
+                    await message.answer(f"Кампания <code>{name}</code> не найдена.", parse_mode="HTML")
+                    return
+                cnt = len(users)
+                installed, active = await conversion_stats(users)
+                inst_pct = (installed / cnt * 100) if cnt else 0
+                act_pct = (active / cnt * 100) if cnt else 0
+                await message.answer(
+                    f"📊 Кампания <code>{name}</code>\n"
+                    f"  Заходов по ссылке: {cnt}\n"
+                    f"  Установили игру: {installed} ({inst_pct:.0f}%)\n"
+                    f"  Стали активны (есть улов/заработок): {active} ({act_pct:.0f}%)",
+                    parse_mode="HTML"
+                )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
