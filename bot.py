@@ -1901,7 +1901,7 @@ async def start(message: types.Message):
     ])
     await message.answer(
         t(message.from_user,
-            "🐟 *Добро пожаловать в FishFarm!* 🎣\n\n"
+            "🐟 <b>Добро пожаловать в FishFarm!</b> 🎣\n\n"
             "Здесь можно:\n"
             "🎣 Ловить рыбу тапами — чем круче удочка, тем больше монет за улов\n"
             "🌍 Открывать локации от Пруда до Космоса — каждая выгоднее прошлой\n"
@@ -1912,7 +1912,7 @@ async def start(message: types.Message):
             "👥 Приглашать друзей — бонусы обоим\n"
             "💬 Общаться с другими игроками в чате\n\n"
             "Жми кнопку и закидывай удочку! 👇",
-            "🐟 *Welcome to FishFarm!* 🎣\n\n"
+            "🐟 <b>Welcome to FishFarm!</b> 🎣\n\n"
             "Here you can:\n"
             "🎣 Catch fish by tapping — the better your rod, the more coins per catch\n"
             "🌍 Unlock locations from the Pond to Space — each more rewarding than the last\n"
@@ -1923,7 +1923,7 @@ async def start(message: types.Message):
             "👥 Invite friends — bonuses for both\n"
             "💬 Chat with other players\n\n"
             "Tap the button and cast your rod! 👇"),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=keyboard
     )
 
@@ -2050,8 +2050,8 @@ async def addcoins_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/addcoins @username СУММА`\n\nПример:\n`/addcoins @nikolanaz 500`",
-            parse_mode="Markdown"
+            "Использование:\n<code>/addcoins @username СУММА</code>\n\nПример:\n<code>/addcoins @nikolanaz 500</code>",
+            parse_mode="HTML"
         )
         return
     username = text[1].lstrip('@').lower()
@@ -2091,9 +2091,9 @@ async def addcoins_command(message: types.Message):
         try:
             await bot.send_message(
                 int(user_id),
-                f"🎁 *Администратор начислил тебе {amount} монет!*\n\n"
+                f"🎁 <b>Администратор начислил тебе {amount} монет!</b>\n\n"
                 f"Зайди в игру чтобы получить их 👇",
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
                 ]])
@@ -2366,7 +2366,7 @@ async def starttournament_command(message: types.Message):
             if not user_id:
                 continue
             try:
-                await bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=keyboard)
                 sent += 1
             except Exception:
                 pass
@@ -2485,7 +2485,7 @@ async def getchatid_command(message: types.Message):
     Написать эту команду ПРЯМО В ГРУППЕ рекламодателя (после добавления туда бота) —
     покажет chat_id этой группы, нужен для /addsocial.
     """
-    await message.answer(f"🆔 Chat ID этой группы: `{message.chat.id}`", parse_mode="Markdown")
+    await message.answer(f"🆔 Chat ID этой группы: <code>{message.chat.id}</code>", parse_mode="HTML")
 
 
 @dp.message(Command('addsocial'))
@@ -2502,11 +2502,11 @@ async def addsocial_command(message: types.Message):
     parts = raw.split('|')
     if len(parts) < 4:
         await message.answer(
-            "Использование:\n`/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ`\n\n"
-            "Пример:\n`/addsocial https://t.me/+abc123|-1001234567890|100|Крипто-канал XYZ`\n\n"
+            "Использование:\n<code>/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ</code>\n\n"
+            "Пример:\n<code>/addsocial https://t.me/+abc123|-1001234567890|100|Крипто-канал XYZ</code>\n\n"
             "CHAT_ID узнать командой /getchatid, написанной ПРЯМО В ГРУППЕ рекламодателя "
             "(бот должен быть туда уже добавлен).",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
     link = parts[0].strip()
@@ -2536,7 +2536,7 @@ async def addsocial_command(message: types.Message):
             await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
                 "link": link, "chat_id": chat_id, "reward": reward, "label": label, "active": True
             })
-        await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: `{task_id}`", parse_mode="Markdown")
+        await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -2566,15 +2566,15 @@ async def campaignstats_command(message: types.Message):
                 cnt = len(users) if isinstance(users, dict) else 0
                 lines.append(f"  `{name}` — {cnt} регистраций")
             lines.append("\nПодробности: `/campaignstats НАЗВАНИЕ`")
-            await message.answer("\n".join(lines), parse_mode="Markdown")
+            await message.answer("\n".join(lines), parse_mode="HTML")
         else:
             name = args[1]
             users = data.get(name)
             if not users:
-                await message.answer(f"Кампания `{name}` не найдена.", parse_mode="Markdown")
+                await message.answer(f"Кампания <code>{name}</code> не найдена.", parse_mode="HTML")
                 return
             cnt = len(users) if isinstance(users, dict) else 0
-            await message.answer(f"📊 Кампания `{name}`: {cnt} регистраций", parse_mode="Markdown")
+            await message.answer(f"📊 Кампания <code>{name}</code>: {cnt} регистраций", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -2596,7 +2596,7 @@ async def listsocial_command(message: types.Message):
         for tid, t in tasks.items():
             status = "🟢" if t.get('active') else "🔴"
             lines.append(f"{status} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
-        await message.answer("\n".join(lines), parse_mode="Markdown")
+        await message.answer("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -2607,7 +2607,7 @@ async def removesocial_command(message: types.Message):
         return
     args = message.text.strip().split()
     if len(args) < 2:
-        await message.answer("Использование:\n`/removesocial task_ID`\n\nID смотри через /listsocial", parse_mode="Markdown")
+        await message.answer("Использование:\n<code>/removesocial task_ID</code>\n\nID смотри через /listsocial", parse_mode="HTML")
         return
     task_id = args[1]
     import aiohttp
@@ -2625,7 +2625,7 @@ async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     await message.answer(
-        "🛠 *Команды администратора:*\n\n"
+        "🛠 <b>Команды администратора:</b>\n\n"
         "/players — список всех игроков (файл .txt)\n"
         "/audit — найти аккаунты с накрученным балансом (сверка с реальным временем)\n"
         "/selftest — автопроверка формул экономики на сервере (без клика по игре)\n"
@@ -2653,14 +2653,15 @@ async def comm_command(message: types.Message):
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание\n"
         "/listsocial — список соц.заданий\n"
         "/removesocial ID — удалить соц.задание\n"
+        "/campaignstats [НАЗВАНИЕ] — статистика по рекламным кампаниям\n"
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
         "/comm — список команд\n\n"
-        "🎮 *Команды для всех:*\n\n"
+        "🎮 <b>Команды для всех:</b>\n\n"
         "/start — запустить игру\n\n"
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -2722,7 +2723,7 @@ async def playerinfo_command(message: types.Message):
         return
     args = message.text.strip().split()
     if len(args) < 2:
-        await message.answer("Использование:\n`/playerinfo @username` или `/playerinfo 123456789` (по ID)", parse_mode="Markdown")
+        await message.answer("Использование:\n<code>/playerinfo @username</code> или <code>/playerinfo 123456789</code> (по ID)", parse_mode="HTML")
         return
     arg = args[1].lstrip('@')
     import aiohttp, time
@@ -2882,9 +2883,9 @@ async def maintenance_command(message: types.Message):
     if len(args) < 2 or args[1].lower() not in ('on', 'off'):
         await message.answer(
             "Использование:\n"
-            "`/maintenance on` — включить технические работы (игра покажет заглушку)\n"
-            "`/maintenance off` — выключить, игра снова доступна",
-            parse_mode="Markdown"
+            "<code>/maintenance on</code> — включить технические работы (игра покажет заглушку)\n"
+            "<code>/maintenance off</code> — выключить, игра снова доступна",
+            parse_mode="HTML"
         )
         return
     turn_on = args[1].lower() == 'on'
@@ -2972,10 +2973,10 @@ async def premium_command(message: types.Message):
     if len(args) < 2:
         await message.answer(
             "Использование:\n"
-            "`/premium @username` — проверить статус\n"
-            "`/premium @username 30` — выдать/продлить на N дней вручную\n"
-            "`/premium @username 0` — отозвать подписку",
-            parse_mode="Markdown"
+            "<code>/premium @username</code> — проверить статус\n"
+            "<code>/premium @username 30</code> — выдать/продлить на N дней вручную\n"
+            "<code>/premium @username 0</code> — отозвать подписку",
+            parse_mode="HTML"
         )
         return
     username = args[1].lstrip('@').lower()
@@ -3026,11 +3027,11 @@ async def breakref_command(message: types.Message):
     args = message.text.strip().split()
     if len(args) < 2:
         await message.answer(
-            "Использование:\n`/breakref @username` или `/breakref 123456789` (по ID)\n\n"
+            "Использование:\n<code>/breakref @username</code> или <code>/breakref 123456789</code> (по ID)\n\n"
             "Убирает связь «кем был приглашён» у указанного игрока — "
             "используется для разрыва круговых реферальных цепочек (A пригласил B, B пригласил A), "
             "или чтобы сделать игрока снова доступным на бирже рефералов.",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
     arg = args[1].lstrip('@')
@@ -3083,10 +3084,10 @@ async def breakref_all_command(message: types.Message):
     args = message.text.strip().split()
     if len(args) < 2:
         await message.answer(
-            "Использование:\n`/breakref_all @username` или `/breakref_all 123456789` (по ID)\n\n"
+            "Использование:\n<code>/breakref_all @username</code> или <code>/breakref_all 123456789</code> (по ID)\n\n"
             "⚠️ Разрывает ВСЕ реферальные связи указанного реферера разом — используй для ферм ботов, "
-            "не для единичных случаев (там `/breakref`).",
-            parse_mode="Markdown"
+            "не для единичных случаев (там <code>/breakref</code>).",
+            parse_mode="HTML"
         )
         return
     arg = args[1].lstrip('@')
@@ -3135,10 +3136,10 @@ async def delnum_command(message: types.Message):
     args = message.text.strip().split()
     if len(args) < 2 or not args[1].isdigit():
         await message.answer(
-            "Использование:\n`/delnum 478`\n\n"
-            "Удаляет запись из лидерборда/сохранения по номеру (`num`) — "
+            "Использование:\n<code>/delnum 478</code>\n\n"
+            "Удаляет запись из лидерборда/сохранения по номеру (<code>num</code>) — "
             "для анонимных записей без username и userId (например, старые эксплойт-аккаунты типа «Рыбак #478»).",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
     target_num = int(args[1])
@@ -3177,7 +3178,7 @@ async def ban_command(message: types.Message):
         return
     args = message.text.strip().split()
     if len(args) < 2:
-        await message.answer("Использование:\n`/ban @username`\n\nУдаляет игрока из лидерборда/турнира, стирает прогресс, убирает из рефералов и блокирует повторный вход.", parse_mode="Markdown")
+        await message.answer("Использование:\n<code>/ban @username</code>\n\nУдаляет игрока из лидерборда/турнира, стирает прогресс, убирает из рефералов и блокирует повторный вход.", parse_mode="HTML")
         return
     username = args[1].lstrip('@').lower()
     import aiohttp
@@ -3233,9 +3234,9 @@ async def ban_referrals_command(message: types.Message):
     args = message.text.strip().split()
     if len(args) < 2:
         await message.answer(
-            "Использование:\n`/ban_referrals @username` или `/ban_referrals 123456789` (по ID реферера)\n\n"
+            "Использование:\n<code>/ban_referrals @username</code> или <code>/ban_referrals 123456789</code> (по ID реферера)\n\n"
             "⚠️ Банит ВСЕХ рефералов этого игрока разом (лидерборд+прогресс+запрет входа) — для ферм ботов.",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
     arg = args[1].lstrip('@')
@@ -3301,8 +3302,8 @@ async def pay_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/pay @username СУММА`\n\nПример:\n`/pay @Metelegram12 0.073`",
-            parse_mode="Markdown"
+            "Использование:\n<code>/pay @username СУММА</code>\n\nПример:\n<code>/pay @Metelegram12 0.073</code>",
+            parse_mode="HTML"
         )
         return
     username = text[1].lstrip('@').lower()
@@ -3325,10 +3326,10 @@ async def pay_command(message: types.Message):
             return
         await bot.send_message(
             user_id,
-            f"✅ *Выплата выполнена!*\n\n"
+            f"✅ <b>Выплата выполнена!</b>\n\n"
             f"💎 {amount} GRAM отправлены на твой кошелёк.\n\n"
             f"Спасибо что играешь в FishFarm! 🎣",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
@@ -3350,9 +3351,9 @@ async def msg_command(message: types.Message):
     text = message.text.split(maxsplit=2)
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/msg @username ТЕКСТ` или `/msg 123456789 ТЕКСТ` (по ID)\n\n"
-            "Пример:\n`/msg 7659448624 Привет! Напиши, пожалуйста, @elbanderass, чтобы получить свои звёзды за джекпот 🎉`",
-            parse_mode="Markdown"
+            "Использование:\n<code>/msg @username ТЕКСТ</code> или <code>/msg 123456789 ТЕКСТ</code> (по ID)\n\n"
+            "Пример:\n<code>/msg 7659448624 Привет! Напиши, пожалуйста, @elbanderass, чтобы получить свои звёзды за джекпот 🎉</code>",
+            parse_mode="HTML"
         )
         return
     arg = text[1].lstrip('@')
@@ -3391,8 +3392,8 @@ async def paystars_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n`/paystars @username СУММА` или `/paystars 123456789 СУММА` (по ID)\n\nПример:\n`/paystars @Metelegram12 27`",
-            parse_mode="Markdown"
+            "Использование:\n<code>/paystars @username СУММА</code> или <code>/paystars 123456789 СУММА</code> (по ID)\n\nПример:\n<code>/paystars @Metelegram12 27</code>",
+            parse_mode="HTML"
         )
         return
     arg = text[1].lstrip('@')
@@ -3421,10 +3422,10 @@ async def paystars_command(message: types.Message):
             display = f"@{username}"
         await bot.send_message(
             user_id,
-            f"✅ *Выплата выполнена!*\n\n"
+            f"✅ <b>Выплата выполнена!</b>\n\n"
             f"⭐ {amount} Stars отправлены тебе.\n\n"
             f"Спасибо что играешь в FishFarm! 🎣",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
@@ -3664,8 +3665,8 @@ async def broadcast_command(message: types.Message):
     text = message.text.strip()[len('/broadcast'):].strip()
     if not text:
         await message.answer(
-            "Использование:\n`/broadcast Текст сообщения`\n\nПример:\n`/broadcast 🎉 Новое обновление! Заходи в игру!`",
-            parse_mode="Markdown"
+            "Использование:\n<code>/broadcast Текст сообщения</code>\n\nПример:\n<code>/broadcast 🎉 Новое обновление! Заходи в игру!</code>",
+            parse_mode="HTML"
         )
         return
     await message.answer("⏳ Рассылка начата...")
@@ -3718,11 +3719,11 @@ async def broadcast_command(message: types.Message):
                 failed += 1
             await asyncio.sleep(0.05)
         await message.answer(
-            f"✅ *Рассылка завершена*\n\n"
+            f"✅ <b>Рассылка завершена</b>\n\n"
             f"📨 Отправлено: {success}\n"
             f"❌ Не доставлено: {failed}\n"
             f"👥 Всего: {total}",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -3735,11 +3736,11 @@ async def pushcomeback_command(message: types.Message):
     text = message.text.strip()[len('/pushcomeback'):].strip()
     if not text:
         await message.answer(
-            "Использование:\n`/pushcomeback Текст сообщения`\n\n"
+            "Использование:\n<code>/pushcomeback Текст сообщения</code>\n\n"
             "Отправит только игрокам, которые заходили 1-3 дня назад "
             "(лучший момент вернуть в игру, пока не забыли).\n\n"
-            "Пример:\n`/pushcomeback 🐡 Редкая рыба уже в пруду! Успей поймать!`",
-            parse_mode="Markdown"
+            "Пример:\n<code>/pushcomeback 🐡 Редкая рыба уже в пруду! Успей поймать!</code>",
+            parse_mode="HTML"
         )
         return
     await message.answer("⏳ Ищу игроков, заходивших 1-3 дня назад...")
