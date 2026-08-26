@@ -619,7 +619,11 @@ async def claim_social_task(request):
         return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
 
     chat_id = task.get('chat_id')
-    if task.get('type') == 'bot':
+    if task.get('type') == 'link':
+        # Без проверки — считаем сам факт клика "Забрать" достаточным. Защита от
+        # повторного клейма (socialClaimed) ниже точно такая же, как у остальных типов.
+        pass
+    elif task.get('type') == 'bot':
         # Задание за переход в бота-партнёра — проверяем через ЕГО API, не через getChatMember
         # (для ботов этот метод Telegram недоступен в принципе, только для групп/каналов).
         verify_url = task.get('verify_url')
@@ -2750,6 +2754,50 @@ async def addsocialbot_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('addsociallink'))
+async def addsociallink_command(message: types.Message):
+    """
+    Простое кросс-промо БЕЗ проверки — считаем сам переход, а не подтверждённое
+    выполнение условия у партнёра. Награда выдаётся сразу по клику "Забрать", один раз
+    на игрока (защита от повторного клейма остаётся та же, что и у остальных соц.заданий —
+    просто без шага верификации через getChatMember/API партнёра).
+    Формат: /addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ
+    Пример: /addsociallink https://t.me/PartnerBot|100|Партнёр XYZ
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    raw = message.text[len('/addsociallink'):].strip()
+    parts = raw.split('|')
+    if len(parts) < 3:
+        await message.answer(
+            "Использование:\n<code>/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ</code>\n\n"
+            "Пример:\n<code>/addsociallink https://t.me/PartnerBot|100|Партнёр XYZ</code>\n\n"
+            "Без проверки: награда выдаётся сразу по клику, один раз на игрока. "
+            "Для проверки реального выполнения через API партнёра используй /addsocialbot.",
+            parse_mode="HTML"
+        )
+        return
+    link = parts[0].strip()
+    try:
+        reward = float(parts[1].strip())
+    except ValueError:
+        await message.answer("❌ Награда должна быть числом.")
+        return
+    label = parts[2].strip()
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    task_id = f"task_{int(time.time())}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
+                "type": "link", "link": link, "reward": reward, "label": label, "active": True
+            })
+        await message.answer(f"✅ Задание-ссылка добавлено (без проверки): {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('campaignstats'))
 async def campaignstats_command(message: types.Message):
     """
@@ -2840,7 +2888,7 @@ async def listsocial_command(message: types.Message):
         lines = ["📋 Социальные задания:\n"]
         for tid, t in tasks.items():
             status = "🟢" if t.get('active') else "🔴"
-            kind = "🤖" if t.get('type') == 'bot' else "👥"
+            kind = "🤖" if t.get('type') == 'bot' else "🔗" if t.get('type') == 'link' else "👥"
             lines.append(f"{status}{kind} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
         await message.answer("\n".join(lines), parse_mode="HTML")
     except Exception as e:
@@ -2898,6 +2946,7 @@ async def comm_command(message: types.Message):
         "/getchatid — узнать ID группы (написать прямо в группе рекламодателя)\n"
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
         "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
+        "/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ — соц.задание-ссылка БЕЗ проверки (сразу по клику)\n"
         "/listsocial — список соц.заданий\n"
         "/removesocial ID — удалить соц.задание\n"
         "/campaignstats [НАЗВАНИЕ] — статистика по рекламным кампаниям\n"
