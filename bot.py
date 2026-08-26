@@ -1945,6 +1945,13 @@ async def start(message: types.Message):
     user = message.from_user
     user_id = str(user.id)
 
+    # Обрабатываем реферальную ссылку (нужно определить ref_arg ДО уведомления админу,
+    # чтобы сразу видеть в самом уведомлении, долетел ли параметр ?start=... вообще —
+    # это помогает диагностировать случаи, когда трекинг-ссылка теряет параметр где-то
+    # на стороне рекламной площадки/редиректа ещё до того, как Telegram передаст его боту).
+    args = message.text.split() if message.text else []
+    ref_arg = args[1] if len(args) > 1 else ''
+
     # Уведомляем админа о НОВОМ игроке — только если он правда жмёт /start впервые
     if ADMIN_ID and user.id != ADMIN_ID:
         import aiohttp
@@ -1966,17 +1973,15 @@ async def start(message: types.Message):
 
         if is_new:
             name = f"@{user.username}" if user.username else (user.first_name or 'Без имени')
+            param_line = f"🔗 Параметр старта: <code>{ref_arg}</code>" if ref_arg else "🔗 Параметр старта: (пусто — пришёл без ?start=)"
             try:
                 await bot.send_message(
                     ADMIN_ID,
-                    f"🆕 Новый игрок!\n👤 {name}\n🆔 {user.id}"
+                    f"🆕 Новый игрок!\n👤 {name}\n🆔 {user.id}\n{param_line}",
+                    parse_mode="HTML"
                 )
             except Exception:
                 pass
-
-    # Обрабатываем реферальную ссылку
-    args = message.text.split() if message.text else []
-    ref_arg = args[1] if len(args) > 1 else ''
 
     if ref_arg.startswith('campaign_'):
         # Метка рекламного источника (?start=campaign_НАЗВАНИЕ) — отдельно от реферальной
