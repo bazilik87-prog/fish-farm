@@ -619,12 +619,28 @@ async def claim_social_task(request):
         return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
 
     chat_id = task.get('chat_id')
-    try:
-        member = await bot.get_chat_member(chat_id, real_user_id)
-        if member.status in ('left', 'kicked'):
-            return web.json_response({'error': 'не в группе'}, status=400, headers=CORS)
-    except Exception as e:
-        return web.json_response({'error': f'не удалось проверить вступление: {e}'}, status=400, headers=CORS)
+    if task.get('type') == 'bot':
+        # Задание за переход в бота-партнёра — проверяем через ЕГО API, не через getChatMember
+        # (для ботов этот метод Telegram недоступен в принципе, только для групп/каналов).
+        verify_url = task.get('verify_url')
+        verify_key = task.get('verify_key')
+        if not verify_url:
+            return web.json_response({'error': 'задание настроено некорректно'}, status=400, headers=CORS)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(verify_url, params={'apiKey': verify_key, 'telegramId': real_user_id}) as resp:
+                    result = await resp.json()
+        except Exception as e:
+            return web.json_response({'error': f'не удалось проверить у партнёра: {e}'}, status=400, headers=CORS)
+        if not isinstance(result, dict) or not result.get('completed'):
+            return web.json_response({'error': 'задание пока не выполнено у партнёра'}, status=400, headers=CORS)
+    else:
+        try:
+            member = await bot.get_chat_member(chat_id, real_user_id)
+            if member.status in ('left', 'kicked'):
+                return web.json_response({'error': 'не в группе'}, status=400, headers=CORS)
+        except Exception as e:
+            return web.json_response({'error': f'не удалось проверить вступление: {e}'}, status=400, headers=CORS)
 
     reward = float(task.get('reward', 0))
     try:
@@ -1083,6 +1099,85 @@ async def lottery_spin(request):
     return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
 
 
+async def resolve_escrow_ops(session, base, pid, escrow_ops, legacy_a=0.0, legacy_b=0.0):
+    """
+    Разрешает операции с эскроу доставки (add/collect) через ОТДЕЛЬНЫЙ путь в Firebase
+    (escrow/{pid}, а не saves/{pid}) с оптимистичной блокировкой по ETag.
+
+    Зачем отдельно от основного sv: доставка держит деньги в подвешенном состоянии
+    ЧАСАМИ (1-2+ часа таймер), и всё это время любой другой параллельный /actions-запрос
+    того же игрока (авто-доход, тап, другая продажа — что угодно) читает старую версию
+    ВСЕГО sv-объекта целиком и, записывая свой результат, тихо перезаписывает уже
+    добавленные в эскроу деньги. Реальный подтверждённый случай — доставка на 1500.2
+    монет, стёртая ещё до того, как игрок успел её забрать.
+
+    Механизм: читаем escrow/{pid} с ETag, ПРИМЕНЯЕМ операции этого запроса к СВЕЖЕМУ
+    значению (а не к тому, что было в начале обработки — оно могло успеть устареть за
+    время долгого таймера), пишем обратно с If-Match. Если кто-то успел записать
+    между чтением и записью — Firebase вернёт 412, читаем заново и повторяем. Так
+    гонка не пропадает молча, а честно разрешается в правильном порядке.
+
+    Если escrow/{pid} ещё не существует (первый вызов после деплоя этого фикса) —
+    разово мигрируем старые значения из sv.deliveryEscrow/deliveryEscrow2, чтобы никто
+    не потерял уже накопленные в старом месте деньги при переходе на новую схему.
+
+    Возвращает (credited, migrated) — начисленные монеты и флаг "миграция/запись
+    подтверждённо прошла успешно" (вызывающий код должен обнулять старые sv-поля
+    ТОЛЬКО если migrated=True, иначе можно стереть деньги, которые так и не
+    переехали в новую схему из-за сетевой ошибки).
+    """
+    # ВАЖНО: не выходим рано только по признаку "нет операций в этом батче" — если у
+    # игрока есть legacy-деньги (legacy_a/legacy_b), миграцию всё равно нужно выполнить
+    # прямо сейчас, иначе вызывающий код обнулит старые поля БЕЗ переноса суммы.
+    if not escrow_ops and legacy_a == 0 and legacy_b == 0:
+        return 0.0, False
+
+    url = f"{base}/escrow/{pid}.json{FB_AUTH}"
+    credited = 0.0
+
+    for attempt in range(6):
+        try:
+            async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                etag = resp.headers.get("ETag")
+                cur = await resp.json()
+        except Exception:
+            return credited, False  # Firebase недоступен — ничего не начисляем и не мигрируем,
+            # старые sv-поля останутся нетронутыми, попробуем снова следующим запросом.
+
+        if cur is None:
+            a, b = legacy_a, legacy_b  # первая миграция со старой схемы хранения
+        else:
+            a = float((cur or {}).get('a', 0) or 0)
+            b = float((cur or {}).get('b', 0) or 0)
+
+        credited = 0.0
+        for op, is_b, *rest in escrow_ops:
+            if op == 'add':
+                amount = rest[0]
+                if is_b:
+                    b += amount
+                else:
+                    a += amount
+            elif op == 'collect':
+                if is_b:
+                    credited += b
+                    b = 0.0
+                else:
+                    credited += a
+                    a = 0.0
+
+        headers = {"If-Match": etag} if etag else {}
+        try:
+            async with session.put(url, json={"a": round(a * 100) / 100, "b": round(b * 100) / 100}, headers=headers) as put_resp:
+                if put_resp.status == 412:
+                    continue  # кто-то записал раньше нас — перечитываем и повторяем
+                return round(credited * 100) / 100, True
+        except Exception:
+            return 0.0, False  # не смогли записать — безопаснее ничего не начислить и не мигрировать
+
+    return 0.0, False  # исчерпали попытки — крайне маловероятно, но не начисляем вслепую
+
+
 async def process_actions(request):
     """
     Принимает список конкретных действий (улов/продажа/покупка апгрейда) и считает
@@ -1185,8 +1280,11 @@ async def process_actions(request):
     quest_bonus_date = sv.get('questBonusDate') or ''
     quest_bonus_changed = False
     ulocs_changed = False
-    escrow = float(sv.get('deliveryEscrow', 0) or 0)
-    escrow2 = float(sv.get('deliveryEscrow2', 0) or 0)
+    escrow_ops = []  # ('add', via_driver, amount) | ('collect', via_driver) — эскроу теперь
+    # разрешается ОТДЕЛЬНО, через собственный retry-цикл с ETag ниже. Здесь только собираем
+    # список операций в порядке появления в actions — сама сумма читается заново из
+    # актуального Firebase-состояния в момент разрешения, а не из локальной переменной,
+    # которая могла успеть устареть за долгое время ожидания таймера доставки.
     net_promo_claimed = sv.get('netPromoClaimed')
 
     for act in actions:
@@ -1261,26 +1359,21 @@ async def process_actions(request):
             earned = round(unit * qty * 100) / 100
             if via_driver:
                 earned = round(earned * 0.7 * 100) / 100  # водитель забирает 30%
-                escrow2 += earned
+                escrow_ops.append(('add', True, earned))
             else:
-                escrow += earned
+                escrow_ops.append(('add', False, earned))
 
         elif a_type == 'collect_delivery':
             # Доставка прибыла — клиент сам обнаруживает это по истечению таймера
             # (state.delivery.endsAt) и присылает этот сигнал. Сумма берётся из эскроу
             # на сервере — клиент не может указать сумму сам, только "забрать что скопилось".
             # via:'driver' указывает, какой из двух слотов доставки собирать.
+            # Само списание/начисление происходит позже, в resolve_escrow_ops — там же,
+            # где и 'add', на СВЕЖЕМ прочитанном значении, а не на том, что было в начале
+            # этого запроса (деньги могли лежать в эскроу часами, за которые их мог
+            # переписать любой другой параллельный запрос).
             via_driver_collect = bool(act.get('via') == 'driver')
-            target_escrow = escrow2 if via_driver_collect else escrow
-            if target_escrow <= 0:
-                rejected += 1
-                continue
-            coins += target_escrow
-            total_earned += target_escrow
-            if via_driver_collect:
-                escrow2 = 0
-            else:
-                escrow = 0
+            escrow_ops.append(('collect', via_driver_collect))
 
         elif a_type == 'bulk_sell':
             kind = act.get('kind', 'fresh')
@@ -1652,13 +1745,31 @@ async def process_actions(request):
         extra_fields['questBonusDate'] = quest_bonus_date
     if ulocs_changed:
         extra_fields['ulocs'] = ulocs
-    extra_fields['deliveryEscrow'] = round(escrow * 100) / 100
-    extra_fields['deliveryEscrow2'] = round(escrow2 * 100) / 100
+    # deliveryEscrow/deliveryEscrow2 больше НЕ пишутся сюда — эскроу теперь живёт в
+    # отдельном пути escrow/{pid} с ETag-блокировкой (см. resolve_escrow_ops). Старые
+    # поля обнуляем НИЖЕ, только после подтверждённой миграции — а не здесь заранее,
+    # чтобы не потерять деньги при сетевой ошибке во время переноса.
     if net_promo_claimed and net_promo_claimed != sv.get('netPromoClaimed'):
         extra_fields['netPromoClaimed'] = net_promo_claimed
 
     try:
         async with aiohttp.ClientSession() as session:
+            # Разрешаем эскроу ОТДЕЛЬНОЙ ETag-защищённой операцией до основной записи —
+            # legacy_a/legacy_b используются только один раз, если escrow/{pid} ещё не
+            # существует (миграция со старой схемы хранения прямо в sv).
+            credited, migrated = await resolve_escrow_ops(
+                session, base, pid, escrow_ops,
+                legacy_a=float(sv.get('deliveryEscrow', 0) or 0),
+                legacy_b=float(sv.get('deliveryEscrow2', 0) or 0)
+            )
+            coins += credited
+            total_earned += credited
+            if migrated:
+                # Подтверждённо перенесено (или уже было в новой схеме и просто обновлено) —
+                # теперь безопасно обнулить старые поля, дублей не будет.
+                extra_fields['deliveryEscrow'] = 0
+                extra_fields['deliveryEscrow2'] = 0
+
             await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
                 "coins": coins,
                 "caught": caught,
@@ -2589,6 +2700,56 @@ async def addsocial_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('addsocialbot'))
+async def addsocialbot_command(message: types.Message):
+    """
+    Соц.задание за переход/старт в БОТЕ партнёра (взаимный кросс-промо), а не за
+    вступление в группу/канал. getChatMember тут не подходит — Telegram не даёт узнать,
+    нажимал ли произвольный пользователь /start у чужого бота. Поэтому проверка идёт
+    через API партнёра: он должен поднять у себя эндпоинт в ТОЧНО ТОМ ЖЕ формате, что
+    и наш собственный /api/check (GET ?apiKey=...&telegramId=... -> {"completed": bool}),
+    и прислать нам его URL + ключ. Это симметрично тому, что мы уже даём партнёрам сами.
+    Формат: /addsocialbot ССЫЛКА_НА_БОТА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ
+    Пример: /addsocialbot https://t.me/PartnerBot?start=fishfarm|https://partner.com/api/check|SECRET123|150|Партнёр XYZ
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    raw = message.text[len('/addsocialbot'):].strip()
+    parts = raw.split('|')
+    if len(parts) < 5:
+        await message.answer(
+            "Использование:\n<code>/addsocialbot ССЫЛКА_НА_БОТА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ</code>\n\n"
+            "Пример:\n<code>/addsocialbot https://t.me/PartnerBot?start=fishfarm|https://partner.com/api/check|SECRET123|150|Партнёр XYZ</code>\n\n"
+            "VERIFY_URL — эндпоинт ПАРТНЁРА, который отвечает {\"completed\": true/false} по\n"
+            "GET-запросу ?apiKey=VERIFY_KEY&telegramId=ID — попроси у партнёра сделать так же,\n"
+            "как наш собственный /api/check (он написан именно под такой обмен).",
+            parse_mode="HTML"
+        )
+        return
+    link = parts[0].strip()
+    verify_url = parts[1].strip()
+    verify_key = parts[2].strip()
+    try:
+        reward = float(parts[3].strip())
+    except ValueError:
+        await message.answer("❌ Награда должна быть числом.")
+        return
+    label = parts[4].strip()
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    task_id = f"task_{int(time.time())}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
+                "type": "bot", "link": link, "verify_url": verify_url, "verify_key": verify_key,
+                "reward": reward, "label": label, "active": True
+            })
+        await message.answer(f"✅ Бот-задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('campaignstats'))
 async def campaignstats_command(message: types.Message):
     """
@@ -2679,7 +2840,8 @@ async def listsocial_command(message: types.Message):
         lines = ["📋 Социальные задания:\n"]
         for tid, t in tasks.items():
             status = "🟢" if t.get('active') else "🔴"
-            lines.append(f"{status} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
+            kind = "🤖" if t.get('type') == 'bot' else "👥"
+            lines.append(f"{status}{kind} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
         await message.answer("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -2734,7 +2896,8 @@ async def comm_command(message: types.Message):
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
         "/getchatid — узнать ID группы (написать прямо в группе рекламодателя)\n"
-        "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание\n"
+        "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
+        "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
         "/listsocial — список соц.заданий\n"
         "/removesocial ID — удалить соц.задание\n"
         "/campaignstats [НАЗВАНИЕ] — статистика по рекламным кампаниям\n"
