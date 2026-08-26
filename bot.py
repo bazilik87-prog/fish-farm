@@ -1747,6 +1747,21 @@ async def sync_state(request):
     final_total_earned = req_total_earned
     final_caught = req_caught
 
+    # Рост coins должен быть подкреплён соответствующим ростом totalEarned — честно
+    # заработанные монеты ВСЕГДА увеличивают оба поля вместе (тап/автодоход/продажа
+    # добавляют одинаковую сумму к обоим). Единственный легальный способ, которым coins
+    # растёт, а totalEarned нет, отсутствует — поэтому если клиент прислал coin_delta
+    # больше, чем реально подтверждённый earned_delta, урезаем coins до заявленного
+    # earned_delta. Это отдельная проверка ДО общего потолка ceiling, потому что раньше
+    # оба потолка проверялись независимо и позволяли раздувать coins, не трогая
+    # totalEarned (см. кейс @pskenny — coins на десятки тысяч при totalEarned:0).
+    if coin_delta > 0:
+        backed_delta = max(0.0, earned_delta)
+        if coin_delta > backed_delta + 0.01:  # небольшой допуск на округление
+            suspicious = True
+            coin_delta = backed_delta
+            final_coins = round((prev_coins + coin_delta) * 100) / 100
+
     if coin_delta > coin_ceiling:
         suspicious = True
         final_coins = round((prev_coins + coin_ceiling) * 100) / 100
@@ -3554,6 +3569,13 @@ async def audit_command(message: types.Message):
                         f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f}\n"
                         f"  ⚠️ Потолок по уловам: {catches_ceiling:,.0f} — превышен в {(total_earned/max(catches_ceiling,1)):.1f}x раз"
                     )
+                elif coins > 5000 and total_earned < coins * 0.1:
+                    flagged.append(
+                        f"{identity} (ID:{user_id}) — БЕЗ ДАТЫ РЕГИСТРАЦИИ, РАСХОЖДЕНИЕ coins/totalEarned\n"
+                        f"  📍 Локация: {loc} · 🐟 Поймано: {caught}\n"
+                        f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f}\n"
+                        f"  ⚠️ Баланс в {(coins/max(total_earned,1)):.0f}x больше заработанного — похоже на sync_state-эксплойт"
+                    )
                 elif total_earned > 10000:
                     no_reg_date.append(f"{identity} | заработано:{total_earned:,.0f} | монет:{coins:,.0f} | поймано:{caught}")
                 continue
@@ -3572,6 +3594,20 @@ async def audit_command(message: types.Message):
                     f"  📅 Регистрация: {reg_dt.strftime('%d.%m.%Y %H:%M')} МСК ({age_min:,.0f} мин назад)\n"
                     f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f} · Поймано: {caught}\n"
                     f"  ⚠️ Теоретический потолок: {ceiling:,.0f} — превышен в {(total_earned/max(ceiling,1)):.1f}x раз"
+                )
+            elif coins > 5000 and total_earned < coins * 0.1:
+                # Баланс сильно больше заработанного — при честной игре coins не может
+                # надолго превышать totalEarned (заработанное растёт вместе с балансом
+                # и не уменьшается при тратах). Такое расхождение — сигнатура эксплойта
+                # sync_state, где coins раздували без соответствующего роста totalEarned
+                # (см. кейс @pskenny), а не старой дыры с прямой записью в Firebase.
+                reg_dt = datetime.fromtimestamp(registered_at / 1000, tz=timezone(timedelta(hours=3)))
+                age_min = elapsed_ms / 60000
+                flagged.append(
+                    f"{identity} (ID:{user_id}) — РАСХОЖДЕНИЕ coins/totalEarned\n"
+                    f"  📅 Регистрация: {reg_dt.strftime('%d.%m.%Y %H:%M')} МСК ({age_min:,.0f} мин назад)\n"
+                    f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f} · Поймано: {caught}\n"
+                    f"  ⚠️ Баланс в {(coins/max(total_earned,1)):.0f}x больше заработанного — похоже на sync_state-эксплойт"
                 )
 
         lines = []
