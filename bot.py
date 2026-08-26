@@ -1199,8 +1199,10 @@ async def process_actions(request):
     if not verified:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
     try:
-        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+        tg_user = json.loads(verified.get('user', '{}'))
+        real_user_id = tg_user.get('id')
     except Exception:
+        tg_user = {}
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
@@ -1788,6 +1790,36 @@ async def process_actions(request):
             if claim_pending_clear:
                 await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
                 await session.delete(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
+
+            # Таблица лидеров — теперь пишется СЕРВЕРОМ из уже провалидированных coins/
+            # caught/totalEarned, а не клиентом напрямую в Firebase. Раньше клиент писал
+            # это сам (свой firebaseDB.ref('leaderboard/'+pid).set(...) в index.html) с
+            # троттлингом в 60с И только пока вкладка активна на переднем плане — из-за
+            # этого лидерборд мог отставать от реального баланса на произвольное время
+            # (например, если игрок свернул приложение). Плюс это был прямой клиентский
+            # write в публичный путь — теоретически можно было подправить значения в
+            # консоли браузера перед отправкой и накрутить себе позицию без реальной игры.
+            # Теперь: пишем на каждый /actions-запрос, значения уже посчитаны сервером —
+            # отставания и подмены больше нет. username/firstName берём из Telegram
+            # initData (тоже подписано и проверено, не из тела запроса от игрока).
+            # PATCH — частичное слияние, не трогает поля, которые пишет только клиент
+            # (num, playerName — их присвоение самим себе не даёт денежного профита).
+            try:
+                async with session.get(f"{base}/premium/{pid}.json{FB_AUTH}") as presp:
+                    premium_until = await presp.json()
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={
+                    "coins": round(coins),
+                    "caught": caught,
+                    "totalEarned": round(total_earned),
+                    "loc": cur_loc,
+                    "ts": now_ms,
+                    "userId": real_user_id,
+                    "username": tg_user.get('username') or '',
+                    "firstName": tg_user.get('first_name') or '',
+                    "premiumUntil": premium_until if isinstance(premium_until, (int, float)) else 0
+                })
+            except Exception:
+                pass  # лидерборд не должен ронять сам запрос игрока
 
             # Диагностический лог для поиска гонки записи (несколько параллельных /actions
             # читают один и тот же стартовый баланс и перезаписывают друг друга — см. жалобы

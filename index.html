@@ -3803,7 +3803,14 @@ function getPlayerNumber(playerId, callback) {
   });
 }
 
-// Отправляем счёт в Firebase (не чаще раза в минуту)
+// Отправляем в Firebase только "косметические" поля лидерборда, которыми владеет
+// клиент (num, playerName) — не чаще раза в минуту. coins/caught/totalEarned/loc/
+// premiumUntil больше НЕ пишутся отсюда: это делает сервер при каждом /actions,
+// используя уже провалидированные значения (см. process_actions в bot.py). Раньше
+// именно эта функция писала деньги напрямую в публичный путь Firebase — с троттлингом
+// в 60с и только пока вкладка на переднем плане, из-за чего лидерборд мог отставать от
+// реального баланса на произвольное время, а теоретически значения можно было
+// подправить в консоли браузера перед отправкой.
 var lastScoreUpload = 0;
 function uploadScore() {
   if (!firebaseDB) return;
@@ -3811,39 +3818,10 @@ function uploadScore() {
   if (now - lastScoreUpload < 60000) return;
   lastScoreUpload = now;
   var pid = getPlayerId();
-  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-  var userId = tgUser ? tgUser.id : 0;
-  var username = tgUser ? (tgUser.username || '') : '';
-  var firstName = tgUser ? (tgUser.first_name || '') : '';
   getPlayerNumber(pid, function(num) {
-    // coins/caught/totalEarned теперь авторитетно считает сервер (см. /actions, /sync) —
-    // раньше здесь была защита "не даём заработку откатиться", которая брала максимум
-    // между старым и новым значением. Она задумывалась для защиты от устаревших сессий
-    // на других устройствах, но теперь мешает легитимным случаям (сброс прогресса,
-    // исправление накрученного баланса) — с сервером как источником правды она не нужна.
-    firebaseDB.ref('leaderboard/' + pid).once('value', function(snap) {
-      var cur = snap.val();
-      var premiumToWrite = state.premiumUntil || 0;
-      if (cur) {
-        // Защита от гонки при старте: если локальная проверка премиума ещё не подгрузилась
-        // (state.premiumUntil всё ещё 0), не затираем уже известную активную подписку из базы
-        if (!window._premiumCheckedOnce && typeof cur.premiumUntil === 'number' && cur.premiumUntil > now) {
-          premiumToWrite = cur.premiumUntil;
-        }
-      }
-      firebaseDB.ref('leaderboard/' + pid).set({
-        num:         num,
-        coins:       Math.floor(state.coins),
-        caught:      state.caught,
-        totalEarned: Math.floor(state.totalEarned || 0),
-        loc:         state.currentLoc,
-        ts:          now,
-        userId:      userId,
-        username:    username,
-        firstName:   firstName,
-        playerName:  state.playerName || '',
-        premiumUntil: premiumToWrite
-      });
+    firebaseDB.ref('leaderboard/' + pid).update({
+      num:        num,
+      playerName: state.playerName || ''
     });
   });
 }
