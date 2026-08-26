@@ -2798,6 +2798,55 @@ async def addsociallink_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('editsocial'))
+async def editsocial_command(message: types.Message):
+    """
+    Изменить награду уже существующего соц.задания, не создавая новое — task_id
+    остаётся прежним, поэтому у игроков, которые уже забрали задание (socialClaimed),
+    статус "получено" не сбрасывается и повторно наградить их нельзя.
+    Формат: /editsocial ID|НОВАЯ_НАГРАДА
+    Пример: /editsocial task_1700000000|150
+    ID смотри через /listsocial.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    raw = message.text[len('/editsocial'):].strip()
+    parts = raw.split('|')
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n<code>/editsocial ID|НОВАЯ_НАГРАДА</code>\n\n"
+            "Пример:\n<code>/editsocial task_1700000000|150</code>\n\n"
+            "ID смотри через /listsocial.",
+            parse_mode="HTML"
+        )
+        return
+    task_id = parts[0].strip()
+    try:
+        new_reward = float(parts[1].strip())
+    except ValueError:
+        await message.answer("❌ Награда должна быть числом.")
+        return
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/social_tasks/{task_id}.json{FB_AUTH}") as resp:
+                task = await resp.json()
+            if not task or not isinstance(task, dict):
+                await message.answer(f"❌ Задание <code>{task_id}</code> не найдено. Проверь ID через /listsocial.", parse_mode="HTML")
+                return
+            old_reward = task.get('reward', 0)
+            await session.patch(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={"reward": new_reward})
+        await message.answer(
+            f"✅ Награда обновлена: {task.get('label', task_id)}\n"
+            f"{old_reward}🪙 → {new_reward}🪙\nID: <code>{task_id}</code>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('campaignstats'))
 async def campaignstats_command(message: types.Message):
     """
@@ -2947,6 +2996,7 @@ async def comm_command(message: types.Message):
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
         "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
         "/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ — соц.задание-ссылка БЕЗ проверки (сразу по клику)\n"
+        "/editsocial ID|НОВАЯ_НАГРАДА — изменить награду уже существующего соц.задания\n"
         "/listsocial — список соц.заданий\n"
         "/removesocial ID — удалить соц.задание\n"
         "/campaignstats [НАЗВАНИЕ] — статистика по рекламным кампаниям\n"
