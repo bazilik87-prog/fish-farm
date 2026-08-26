@@ -1673,6 +1673,23 @@ async def process_actions(request):
             if claim_pending_clear:
                 await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
                 await session.delete(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
+
+            # Диагностический лог для поиска гонки записи (несколько параллельных /actions
+            # читают один и тот же стартовый баланс и перезаписывают друг друга — см. жалобы
+            # игроков на "пропадающие" монеты). Ничего не решает сам по себе, только даёт
+            # возможность УВИДЕТЬ два запроса с почти одинаковым временем и понять, что один
+            # из них перезаписал результат другого. Хранится по 200 последних записей на
+            # игрока (list-like push через уникальный ключ Firebase), не влияет на игровую
+            # логику и не может провалить запрос — обёрнуто в отдельный try.
+            try:
+                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                    "ts": now_ms,
+                    "coins_before": round(float(sv.get('coins', 0) or 0) * 100) / 100,
+                    "coins_after": coins,
+                    "n_actions": len(actions)
+                })
+            except Exception:
+                pass
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -2938,6 +2955,72 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"🕐 Последнее сохранение: {last_dt.strftime('%d.%m.%Y %H:%M')} МСК")
 
         await message.answer("\n".join(lines))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('actionlog'))
+async def actionlog_command(message: types.Message):
+    """
+    Показывает последние записи action_logs/{pid} — снимки coins_before/coins_after
+    на каждый вызов /actions. Нужно для поиска гонки записи (два параллельных запроса
+    от одного игрока читают один и тот же стартовый баланс и перезаписывают друг друга —
+    в логе это видно как два запроса с почти одинаковым ts, где coins_after одного не
+    совпадает с coins_before следующего).
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer("Использование:\n<code>/actionlog @username</code> или <code>/actionlog 123456789</code> (по ID)", parse_mode="HTML")
+        return
+    arg = args[1].lstrip('@')
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            if arg.isdigit():
+                uid = int(arg)
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                uid = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            uid = v.get('userId')
+                            break
+                if not uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
+
+            pid = f"tg_{uid}"
+            async with session.get(f"{base}/action_logs/{pid}.json{FB_AUTH}") as resp:
+                logs = await resp.json()
+
+            if not logs:
+                await message.answer(f"Логов по ID {uid} пока нет.")
+                return
+
+            items = sorted(logs.values(), key=lambda x: x.get('ts', 0))
+            lines = [f"📜 Лог /actions для ID {uid} (последние {min(len(items), 40)} из {len(items)}):\n"]
+            prev_after = None
+            for entry in items[-40:]:
+                ts = entry.get('ts', 0)
+                dt = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=3)))
+                before = entry.get('coins_before', 0)
+                after = entry.get('coins_after', 0)
+                n = entry.get('n_actions', '?')
+                # Помечаем подозрительные случаи: этот запрос начал считать НЕ от того
+                # баланса, на котором закончился предыдущий обработанный запрос — явный
+                # признак гонки (второй запрос не увидел результат первого).
+                mismatch = " ⚠️ РАСХОЖДЕНИЕ" if (prev_after is not None and abs(before - prev_after) > 0.01) else ""
+                lines.append(f"{dt.strftime('%H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
+                prev_after = after
+
+            await message.answer("\n".join(lines))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
