@@ -1364,13 +1364,18 @@ async def process_actions(request):
             # Ежедневный бонус — та же дыра, что была с транспортом: клиент начислял монеты
             # только локально, следующая синхронизация их откатывала. Теперь сервер сам
             # проверяет реальное время последнего получения и день серии, не веря клиенту.
+            # Граница суток — календарный день по МСК (00:00 МСК), а не "24 часа с момента
+            # получения": иначе окно съезжает в зависимости от времени суток предыдущего клейма
+            # (зеркалит mskDay()/getDailyStatus() в index.html — должно совпадать один в один).
             now_for_daily = int(time.time() * 1000)
-            hours_since = (now_for_daily - daily_last_claim) / 3600000 if daily_last_claim else 999
-            miss_threshold = 72 if is_prem else 48
-            if daily_last_claim and hours_since < 24:
-                rejected += 1
+            msk_day_now = (now_for_daily + 3 * 3600000) // 86400000
+            msk_day_last = (daily_last_claim + 3 * 3600000) // 86400000 if daily_last_claim else None
+            gap_days = (msk_day_now - msk_day_last) if daily_last_claim else None
+            miss_grace_days = 3 if is_prem else 1
+            if daily_last_claim and gap_days < 1:
+                rejected += 1  # тот же календарный день МСК уже забирали
                 continue
-            effective_day = 0 if (not daily_last_claim or hours_since >= miss_threshold) else daily_day
+            effective_day = 0 if (not daily_last_claim or gap_days > miss_grace_days) else daily_day
             effective_day = max(0, min(effective_day, len(DAILY_REWARDS) - 1))
             reward = round(DAILY_REWARDS[effective_day] * mult * 100) / 100
             coins += reward

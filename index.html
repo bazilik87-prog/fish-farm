@@ -4133,7 +4133,7 @@ function showInstructions() {
     +'⚠️ '+t('Прокачка отдельная для каждой локации! Перешёл в Реку — там всё с нуля, а уровни в Пруду сохранятся. Цена апгрейдов растёт вместе с локацией: Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50','Upgrades are separate per location! Move to the River — everything starts from zero there, while your Pond levels stay saved. Upgrade prices scale with location: Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50')+'<br><br>'
     +'<b style="color:#fff">'+t('💤 Оффлайн-доход','💤 Offline income')+'</b><br>'+t('Пока тебя нет в игре, автодобыча (Сеть/Лодка/Сонар) продолжает капать монеты — но <b>только по прокачке той локации, где ты был в момент выхода</b>. Вернулся на Пруд — доход посчитается по Пруду, даже если у тебя разлочена и прокачана Река. Доход с разных локаций не складывается — считается только текущая.','While you\'re away, auto-income (Net/Boat/Sonar) keeps generating coins — but <b>only based on the upgrades of the location you were in when you left</b>. Back in the Pond — income is calculated for the Pond, even if you\'ve unlocked and upgraded the River. Income from different locations doesn\'t stack — only the current one counts.')+'<br><br>'
     +'<b style="color:#fff">'+t('🗺 Локации','🗺 Locations')+'</b><br>'+t('Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50','Unlock new locations with coins: Pond×1 → River×2 → Tropics×5 → Deep×15 → Space×50')+'<br><br>'
-    +'<b style="color:#fff">'+t('🎁 Ежедневный бонус','🎁 Daily bonus')+'</b><br>'+t('Заходи каждый день: 10→25→50→100→200→400→1000 монет. Пропустил — серия сбрасывается!','Log in every day: 10→25→50→100→200→400→1000 coins. Miss a day — streak resets!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🎁 Ежедневный бонус','🎁 Daily bonus')+'</b><br>'+t('Заходи каждый день: 10→25→50→100→200→400→1000 монет, умноженные на множитель твоей лучшей разлоченной локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Не забрал до 00:00 МСК следующего дня (72ч/3 дня для Premium) — серия сбрасывается!','Log in every day: 10→25→50→100→200→400→1000 coins, multiplied by your best unlocked location (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). Miss claiming by 00:00 MSK the next day (72h/3 days for Premium) — streak resets!')+'<br><br>'
     +'<b style="color:#fff">'+t('📋 Ежедневные квесты','📋 Daily quests')+'</b><br>'+t('Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.','5 new quests every day. Complete all 5 — get 🪙500 coins. Refresh at midnight.')+'<br><br>'
     +'<b style="color:#fff">'+t('👥 Реферальная программа','👥 Referral program')+'</b><br>'+t('Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.','Invite friends with your link in ⚙️ Settings → Invite a friend.')+'<br><br>'
     +'🎁 <b style="color:#FFD700">'+t('Бонус при регистрации','Signup bonus')+'</b> — '+t('ты и друг получите по 🪙100 монет','you and your friend each get 🪙100 coins')+'<br>'
@@ -4751,14 +4751,21 @@ function unlockLoc(id) {
   renderLocBar(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
+// Календарный день по МСК (UTC+3) для метки времени в мс — граница суток строго в 00:00 МСК,
+// а не "24 часа с момента получения". Так время следующего бонуса не "плывёт" в зависимости
+// от того, в какое именно время суток игрок забрал предыдущий бонус.
+function mskDay(ts) { return Math.floor((ts + 3*3600000) / 86400000); }
+
 function getDailyStatus() {
   var now=Date.now(), last=state.dailyLastClaim, day=state.dailyDay;
   if (!last) return {canClaim:true,day:0,missed:false};
-  var h=(now-last)/3600000;
-  var missThreshold=isPremiumActive()?72:48; // у премиум-подписчиков защита стрика — на сутки больше
-  if (h>=missThreshold) return {canClaim:true,day:0,missed:true};
-  if (h>=24) return {canClaim:true,day:day,missed:false};
-  return {canClaim:false,day:day,missed:false,nextIn:Math.ceil(24-h)};
+  var dayNow=mskDay(now), dayLast=mskDay(last);
+  var gap=dayNow-dayLast; // сколько календарных суток МСК прошло с последнего получения
+  var missGraceDays=isPremiumActive()?3:1; // 72ч/3 суток для Premium, 24ч/1 сутки для обычных
+  if (gap>missGraceDays) return {canClaim:true,day:0,missed:true};
+  if (gap>=1) return {canClaim:true,day:day,missed:false};
+  var nextMidnightMsk=(dayLast+1)*86400000-3*3600000; // ts в UTC-мс для следующих 00:00 МСК
+  return {canClaim:false,day:day,missed:false,nextIn:Math.ceil((nextMidnightMsk-now)/3600000)};
 }
 function claimDaily() {
   var st=getDailyStatus(); if (!st.canClaim) return;
