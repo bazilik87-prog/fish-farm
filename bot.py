@@ -800,44 +800,30 @@ def pick_lottery_prize(mult, jackpot):
 async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок', via='unknown'):
     """
     Применяет уже выбранный сервером приз лотереи к реальным данным игрока в Firebase.
-    Джекпот — отдельная ветка: сброс/рост и оповещение тоже только здесь, атомарно
-    с решением приза (не отдельным вызовом от клиента, как было раньше).
-    Заодно ведёт статистику круток (via: 'ad'/'star'/'premium') и выигранных призов —
-    видно через /playerinfo, помогает заметить аномально частые редкие выигрыши.
+    Используется только для платной прокрутки за Stars (successful_payment) — бесплатные
+    прокрутки (за рекламу/Premium) теперь атомарны прямо внутри lottery_spin, см. там же
+    подробный комментарий про гонку. Здесь та же защита: ETag-блокировка с retry на
+    saves/{pid}, а не отдельные незащищённые PATCH — иначе оплаченный Stars приз мог бы
+    так же тихо потеряться при гонке с обычным /actions, как терялись квест/доставка
+    у других игроков.
     """
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
     async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(f"{base}/saves/{pid}/lotteryStats.json{FB_AUTH}") as r:
-                stats = await r.json()
-            stats = stats if isinstance(stats, dict) else {}
-            spins_key = f"{via}Spins"
-            stats[spins_key] = (stats.get(spins_key) or 0) + 1
-            wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
-            wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
-            stats['wins'] = wins
-            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"lotteryStats": stats})
-        except Exception:
-            pass
-
-        if prize['kind'] == 'jackpot':
-            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
-            await broadcast_jackpot_win(username, prize['amount'])
-            return
-        if prize['kind'] in ('coins', 'fish', 'salt', 'knife', 'truck_ticket'):
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+        for attempt in range(6):
+            async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                etag = resp.headers.get("ETag")
                 sv = await resp.json()
             sv = sv or {}
-            patch = {}
+
+            merged = dict(sv)
             if prize['kind'] == 'coins':
-                coins = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
-                total_earned = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
-                patch['coins'] = coins
-                patch['totalEarned'] = total_earned
+                merged['coins'] = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
+                merged['totalEarned'] = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
             elif prize['kind'] == 'fish':
-                patch['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
-                patch['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
+                merged['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
+                merged['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
             elif prize['kind'] in ('salt', 'knife'):
                 loc = sv.get('loc') or 'pond'
                 field = 'saltByLoc' if prize['kind'] == 'salt' else 'knifeByLoc'
@@ -845,16 +831,44 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                 if not isinstance(by_loc, dict):
                     by_loc = {}
                 by_loc[loc] = (by_loc.get(loc) or 0) + prize['amount']
-                patch[field] = by_loc
+                merged[field] = by_loc
             elif prize['kind'] == 'truck_ticket':
-                patch['truckTickets'] = (sv.get('truckTickets') or 0) + 1
-            if patch:
-                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json=patch)
-        if grow_jackpot:
-            async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp:
-                j = await resp.json()
-            j = j if (j and 50 <= j <= 1000) else 50
-            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=round((j + 0.5) * 10) / 10)
+                merged['truckTickets'] = (sv.get('truckTickets') or 0) + 1
+            # 'jackpot' начисляется отдельно ниже (глобальный путь jackpot/amount)
+
+            stats = sv.get('lotteryStats')
+            stats = stats if isinstance(stats, dict) else {}
+            spins_key = f"{via}Spins"
+            stats[spins_key] = (stats.get(spins_key) or 0) + 1
+            wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
+            wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
+            stats['wins'] = wins
+            merged['lotteryStats'] = stats
+
+            headers = {"If-Match": etag} if etag else {}
+            try:
+                async with session.put(saves_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    break
+            except Exception:
+                break  # не смогли записать — лучше не начислить молча дважды, чем гадать
+
+        if prize['kind'] == 'jackpot':
+            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
+            await broadcast_jackpot_win(username, prize['amount'])
+        elif grow_jackpot:
+            jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
+            for j_attempt in range(6):
+                async with session.get(jackpot_url, headers={"X-Firebase-ETag": "true"}) as jresp:
+                    jetag = jresp.headers.get("ETag")
+                    j = await jresp.json()
+                j = j if (j and 50 <= j <= 1000) else 50
+                jheaders = {"If-Match": jetag} if jetag else {}
+                async with session.put(jackpot_url, json=round((j + 0.5) * 10) / 10, headers=jheaders) as jput:
+                    if jput.status == 412:
+                        continue
+                    break
 
 
 async def get_market_prices():
@@ -1022,6 +1036,19 @@ async def lottery_spin(request):
     Платная крутка за Stars обрабатывается отдельно, прямо в successful_payment.
     Сервер сам решает приз (pick_lottery_prize) — клиент только просит крутнуть
     и получает готовый результат, никакой рулетки на клиенте.
+
+    ВСЯ логика — проверка кулдауна, начисление приза и обновление метки времени —
+    теперь ОДНА атомарная запись с ETag-блокировкой (см. цикл ниже), а не три
+    отдельных похода в Firebase, как раньше. Было две реальные дыры:
+    1) Кулдаун проверялся без блокировки — два быстрых запроса подряд (двойной тап,
+       повтор сети) оба читали одну и ту же старую метку времени, оба проходили
+       проверку и оба получали приз — двойная прокрутка в обход "раз в час"/"раз в день".
+    2) Начисление монет-приза писалось тем же незащищённым способом, что и прочие
+       поля баланса — выигрыш мог тихо потеряться при гонке с обычным /actions,
+       ровно как терялись квест/доставка у других игроков.
+    Теперь при КАЖДОЙ попытке retry кулдаун проверяется заново на свежих данных —
+    если конкурентная прокрутка уже прошла между попытками, повтор это увидит и
+    честно отклонит дубль, а не тихо позволит оба.
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -1047,38 +1074,15 @@ async def lottery_spin(request):
     if via not in ('ad', 'premium'):
         return web.json_response({'error': 'invalid via'}, status=400, headers=CORS)
 
+    if via == 'premium' and not await is_premium(real_user_id):
+        return web.json_response({'error': 'not premium'}, status=403, headers=CORS)
+
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
-                sv = await resp.json()
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-    sv = sv or {}
     now_ms = int(time.time() * 1000)
-
-    if via == 'ad':
-        last = sv.get('lastAdLotterySpin') or 0
-        if now_ms - last < 3600000:
-            return web.json_response({'error': 'cooldown', 'retry_after_ms': 3600000 - (now_ms - last)}, status=429, headers=CORS)
-        grow_jackpot = False
-    else:  # premium
-        if not await is_premium(real_user_id):
-            return web.json_response({'error': 'not premium'}, status=403, headers=CORS)
-        today = time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))
-        if sv.get('premiumFreeSpinDate') == today:
-            return web.json_response({'error': 'already used today'}, status=429, headers=CORS)
-        grow_jackpot = True
-
-    ulocs = sv.get('ulocs') or ['pond']
-    mult = 1
-    for loc_id in ulocs:
-        m = LOCATION_MULT.get(loc_id, 1)
-        if m > mult:
-            mult = m
+    today = time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))
+    saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -1088,17 +1092,97 @@ async def lottery_spin(request):
         jackpot = 50
     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
 
-    prize = pick_lottery_prize(mult, jackpot)
-    await apply_lottery_prize(pid, prize, mult, grow_jackpot, username, via)
+    prize = None
+    grow_jackpot = (via == 'premium')
 
     try:
         async with aiohttp.ClientSession() as session:
-            if via == 'ad':
-                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"lastAdLotterySpin": now_ms})
+            for attempt in range(6):
+                async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    sv = await resp.json()
+                sv = sv or {}
+
+                if via == 'ad':
+                    last = sv.get('lastAdLotterySpin') or 0
+                    if now_ms - last < 3600000:
+                        return web.json_response({'error': 'cooldown', 'retry_after_ms': 3600000 - (now_ms - last)}, status=429, headers=CORS)
+                else:
+                    if sv.get('premiumFreeSpinDate') == today:
+                        return web.json_response({'error': 'already used today'}, status=429, headers=CORS)
+
+                ulocs = sv.get('ulocs') or ['pond']
+                mult = 1
+                for loc_id in ulocs:
+                    m = LOCATION_MULT.get(loc_id, 1)
+                    if m > mult:
+                        mult = m
+
+                if prize is None:
+                    prize = pick_lottery_prize(mult, jackpot)  # решаем приз один раз, не перевыбираем на retry
+
+                merged = dict(sv)
+                if prize['kind'] == 'coins':
+                    merged['coins'] = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
+                    merged['totalEarned'] = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
+                elif prize['kind'] == 'fish':
+                    merged['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
+                    merged['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
+                elif prize['kind'] in ('salt', 'knife'):
+                    loc = sv.get('loc') or 'pond'
+                    field = 'saltByLoc' if prize['kind'] == 'salt' else 'knifeByLoc'
+                    by_loc = sv.get(field) or {}
+                    if not isinstance(by_loc, dict):
+                        by_loc = {}
+                    by_loc[loc] = (by_loc.get(loc) or 0) + prize['amount']
+                    merged[field] = by_loc
+                elif prize['kind'] == 'truck_ticket':
+                    merged['truckTickets'] = (sv.get('truckTickets') or 0) + 1
+                # 'jackpot' начисляется отдельно ниже (глобальный путь jackpot/amount, не per-player)
+
+                stats = sv.get('lotteryStats')
+                stats = stats if isinstance(stats, dict) else {}
+                spins_key = f"{via}Spins"
+                stats[spins_key] = (stats.get(spins_key) or 0) + 1
+                wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
+                wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
+                stats['wins'] = wins
+                merged['lotteryStats'] = stats
+
+                if via == 'ad':
+                    merged['lastAdLotterySpin'] = now_ms
+                else:
+                    merged['premiumFreeSpinDate'] = today
+
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(saves_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue  # конкурентная прокрутка успела записать раньше — перечитываем и проверяем кулдаун заново
+                    if put_resp.status not in (200, 204):
+                        raise RuntimeError(f"lottery saves PUT failed: {put_resp.status} {await put_resp.text()}")
+                    break
             else:
-                await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={"premiumFreeSpinDate": time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))})
-    except Exception:
-        pass
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+
+            # Джекпот — отдельный глобальный путь, свой маленький retry на случай
+            # одновременного роста/сброса от нескольких игроков разом.
+            jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
+            if prize['kind'] == 'jackpot':
+                await session.put(jackpot_url, json=50)
+                await broadcast_jackpot_win(username, prize['amount'])
+            elif grow_jackpot:
+                for j_attempt in range(6):
+                    async with session.get(jackpot_url, headers={"X-Firebase-ETag": "true"}) as jresp:
+                        jetag = jresp.headers.get("ETag")
+                        j = await jresp.json()
+                    j = j if (j and 50 <= j <= 1000) else 50
+                    jheaders = {"If-Match": jetag} if jetag else {}
+                    async with session.put(jackpot_url, json=round((j + 0.5) * 10) / 10, headers=jheaders) as jput:
+                        if jput.status == 412:
+                            continue
+                        break
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
 
