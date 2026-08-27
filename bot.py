@@ -1816,7 +1816,11 @@ async def process_actions(request):
                     setag = sresp.headers.get("ETag")
                     fresh_sv = await sresp.json()
                 fresh_sv = fresh_sv or {}
-                coins = round((float(fresh_sv.get('coins', 0) or 0) + coins_delta) * 100) / 100
+                save_base_coins = float(fresh_sv.get('coins', 0) or 0)  # для точного диагностического
+                # лога ниже — раньше там ошибочно использовался sv (снимок из НАЧАЛА запроса,
+                # до всех retry), из-за чего /actionlog показывал ложные ⚠️ РАСХОЖДЕНИЕ при
+                # успешном retry, хотя деньги на самом деле корректно складывались.
+                coins = round((save_base_coins + coins_delta) * 100) / 100
                 caught = (float(fresh_sv.get('caught', 0) or 0)) + caught_delta
                 total_earned = round((float(fresh_sv.get('totalEarned', 0) or 0) + total_earned_delta) * 100) / 100
                 fresh_last_energy_update = fresh_sv.get('lastEnergyUpdate') or now_ms
@@ -1880,7 +1884,7 @@ async def process_actions(request):
             try:
                 await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
                     "ts": now_ms,
-                    "coins_before": round(float(sv.get('coins', 0) or 0) * 100) / 100,
+                    "coins_before": round(save_base_coins * 100) / 100,
                     "coins_after": coins,
                     "n_actions": len(actions)
                 })
