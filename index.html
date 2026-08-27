@@ -861,6 +861,28 @@ function logFirebaseSaveError(pid, err) {
   } catch(e) {}
 }
 
+// Рекурсивно убирает undefined/NaN из объекта/массива перед записью в Firebase —
+// Firebase Realtime Database отклоняет ЦЕЛИКОМ всю операцию записи, если хоть одно
+// поле на любой глубине вложенности содержит undefined или NaN. Массивы сохраняем
+// как массивы (просто фильтруем элементы, чтобы .filets/.drying и т.п. не превращались
+// в объекты с числовыми ключами при отправке).
+function stripUndefinedDeep(val) {
+  if (Array.isArray(val)) {
+    return val.map(stripUndefinedDeep).filter(function(v){ return v !== undefined; });
+  }
+  if (val && typeof val === 'object') {
+    var out = {};
+    for (var k in val) {
+      if (!Object.prototype.hasOwnProperty.call(val, k)) continue;
+      var cleaned = stripUndefinedDeep(val[k]);
+      if (cleaned !== undefined) out[k] = cleaned;
+    }
+    return out;
+  }
+  if (typeof val === 'number' && isNaN(val)) return undefined; // NaN тоже недопустим для Firebase
+  return val;
+}
+
 function save() {
   try {
     saveSaltKnifeToLoc(); // фиксируем склад текущей локации перед сохранением
@@ -894,6 +916,14 @@ function save() {
         if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
+      // Firebase отклоняет ЦЕЛИКОМ весь update(), если хоть где-то внутри есть undefined
+      // или NaN — а значит из-за одного сломанного поля (например, в редком состоянии
+      // разделки/упаковки на кухне) переставало сохраняться АБСОЛЮТНО ВСЁ остальное —
+      // транспорт, квесты, соль, что угодно. Не гоняемся за каждым конкретным местом,
+      // где это может возникнуть (их может быть много и они будут появляться снова) —
+      // чистим объект рекурсивно перед отправкой, чтобы одно плохое поле никогда больше
+      // не блокировало весь сейв целиком.
+      fbSaveData = stripUndefinedDeep(fbSaveData);
       window._pendingFbSave = fbSaveData;
       if (window._fbSaveTimer) clearTimeout(window._fbSaveTimer);
       window._fbSaveTimer = setTimeout(function(){
