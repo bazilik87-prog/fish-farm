@@ -642,6 +642,17 @@ function fmtCost(c) {
   if (c >= 1000) { var k = c/1000; return (k%1===0 ? k : k.toFixed(1))+'k'; }
   return String(c);
 }
+// Уникальный ID партии для кухонных очередей (засолка/сушка/разделка/упаковка) —
+// раньше эти шаги ссылались друг на друга по ПОЗИЦИОННОМУ ИНДЕКСУ в массиве
+// (startDryingFromSalt(idx), startPacking(idx) и т.д.), который "зашивался" в
+// onclick при рендере. Если между рендером и кликом массив успевал измениться
+// (например, игрок быстро жмёт несколько готовых партий подряд, или таймер
+// автоматически что-то убрал/добавил) — индекс съезжал, и клик мог сработать
+// не на той партии или тихо не сработать вообще, выглядя как "рыба пропала".
+// Теперь каждая партия получает свой bid при создании, и обработчики ищут её
+// по этому ID заново в момент клика, а не доверяют старому индексу.
+function genBid() { return Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6); }
+
 function fmtTime(s) {
   var m = Math.floor(s/60); var r = s%60;
   if (LANG === 'en') return m>0 ? (m+'m'+(r>0?' '+r+'s':'')) : s+'s';
@@ -1838,6 +1849,7 @@ function renderKitchen() {
       html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🧂 '+t('Засаливается:','Salting:')+'</div>';
       for (var si=0;si<salting.length;si++) {
         var ss=salting[si];
+        if (!ss.bid) ss.bid=genBid(); // партии, начатые до этого фикса — присваиваем id при первом рендере
         var sleft=Math.max(0,Math.ceil((ss.endsAt-now)/1000));
         var sdur=ss.endsAt-ss.startedAt;
         var spct=sdur>0?Math.min(100,Math.round((now-ss.startedAt)/sdur*100)):100;
@@ -1846,7 +1858,7 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+fishName(ss.name||'')+' <span class="badge">'+(ss.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(sdone
-            ? '<button class="btn btn-green" onclick="startDryingFromSalt('+si+')" style="font-size:11px;padding:4px 10px">'+t('Сушить 🌡','Dry 🌡')+'</button>'
+            ? '<button class="btn btn-green" onclick="startDryingFromSalt(\''+ss.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Сушить 🌡','Dry 🌡')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(sleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
@@ -1863,6 +1875,7 @@ function renderKitchen() {
       html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🔪 '+t('Разделывается:','Cutting:')+'</div>';
       for (var ci=0;ci<state.cutting.length;ci++) {
         var cs=state.cutting[ci];
+        if (!cs.bid) cs.bid=genBid();
         var cleft=Math.max(0,Math.ceil((cs.endsAt-now)/1000));
         var cdur=cs.endsAt-cs.startedAt;
         var cpct=cdur>0?Math.min(100,Math.round((now-cs.startedAt)/cdur*100)):100;
@@ -1871,7 +1884,7 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+fishName(cs.name||'')+' <span class="badge">'+(cs.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(cdone
-            ? '<button class="btn btn-green" onclick="startPacking('+ci+')" style="font-size:11px;padding:4px 10px">'+t('Упаковать 📦','Pack 📦')+'</button>'
+            ? '<button class="btn btn-green" onclick="startPacking(\''+cs.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Упаковать 📦','Pack 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(cleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
@@ -1888,6 +1901,7 @@ function renderKitchen() {
       var filetGrouped={};
       for (var fi=0;fi<state.filets.length;fi++) {
         var fn2=state.filets[fi];
+        if (!fn2.bid) fn2.bid=genBid();
         if (fn2.packingEndsAt) {
           // В процессе упаковки
           var pleft=Math.max(0,Math.ceil((fn2.packingEndsAt-now)/1000));
@@ -1897,7 +1911,7 @@ function renderKitchen() {
             +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
             +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fishName(fn2.name)+' '+t('филе','filet')+' <span class="badge">'+(fn2.packets||1)+t(' пак.',' pack.')+'</span></span>'
             +(pdone
-              ? '<button class="btn btn-green" onclick="collectFilet('+fi+')" style="font-size:11px;padding:4px 10px">'+t('Забрать 🍱','Collect 🍱')+'</button>'
+              ? '<button class="btn btn-green" onclick="collectFilet(\''+fn2.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Забрать 🍱','Collect 🍱')+'</button>'
               : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(pleft)+'</span>')
             +'</div>'
             +(pdone && fn2.dieAt ? '<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((fn2.dieAt-now)/3600000*10)/10)+t('ч — забери скорее!','h — grab it soon!')+'</div>' : '')
@@ -1931,6 +1945,7 @@ function renderKitchen() {
       html += '<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">🌡 '+t('Сушится:','Drying:')+'</div>';
       for (var d=0;d<state.drying.length;d++) {
         var slot=state.drying[d];
+        if (!slot.bid) slot.bid=genBid();
         var dleft=Math.max(0,Math.ceil((slot.endsAt-now)/1000));
         var ddur=slot.endsAt-slot.startedAt;
         var dpct=ddur>0?Math.min(100,Math.round((now-slot.startedAt)/ddur*100)):100;
@@ -1941,7 +1956,7 @@ function renderKitchen() {
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+fishName(slot.name||'')+' '+t('сушёная','dried')+' <span class="badge">'+(slot.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(ddone
-            ? '<button class="btn btn-green" onclick="collectDried('+d+')" style="font-size:11px;padding:4px 10px">'+t('Собрать 📦','Collect 📦')+'</button>'
+            ? '<button class="btn btn-green" onclick="collectDried(\''+slot.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Собрать 📦','Collect 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(dleft)+'</span>')
           +'</div>'
           +'<div style="background:#1a1a2e;border-radius:4px;height:6px;margin-bottom:4px">'
@@ -2059,7 +2074,7 @@ function startCutting(name) {
   }
   state.liveFish=rest;
   state.knife-=packs;
-  state.cutting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
+  state.cutting.push({bid:genBid(),name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+7200000}); // 2 часа
   addQuestProgress('filet', packs);
   filetPacks[name]=1;
   showNotif('🔪 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на разделку!',' sent for cutting!'));
@@ -2067,11 +2082,13 @@ function startCutting(name) {
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
-function startPacking(idx) {
+function startPacking(bid) {
+  var idx=-1; for (var i=0;i<state.cutting.length;i++) if(state.cutting[i].bid===bid){idx=i;break;}
+  if (idx<0) return; // партия уже обработана другим кликом или больше не существует
   var slot=state.cutting[idx];
   if (!slot||Date.now()<slot.endsAt) return;
   var packTime = (DRY_TIME[slot.name] || 3600) * 1000;
-  state.filets.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+packTime});
+  state.filets.push({bid:genBid(),name:slot.name,emoji:slot.emoji,packets:slot.packets,packingEndsAt:Date.now()+packTime});
   state.cutting.splice(idx,1);
   var packMin = Math.round(packTime/60000);
   var packLabel = packMin>=60 ? (Math.floor(packMin/60)+t('ч ','h ')+(packMin%60?packMin%60+t('м','m'):'')) : packMin+t('мин','m');
@@ -2079,11 +2096,13 @@ function startPacking(idx) {
   updateUI(); save();
 }
 
-function collectFilet(idx) {
+function collectFilet(bid) {
+  var idx=-1; for (var i=0;i<state.filets.length;i++) if(state.filets[i].bid===bid){idx=i;break;}
+  if (idx<0) return;
   var slot=state.filets[idx];
   if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
   var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
-  state.filets[idx]={name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
+  state.filets[idx]={bid:slot.bid,name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
   showNotif('🍱 '+t('Филе','Filet')+' '+fishName(slot.name)+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -2105,18 +2124,20 @@ function startSalting(name) {
   state.liveFish=rest;
   state.salt-=packs;
   // Добавляем слот засолки (30 мин)
-  state.salting.push({name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+1800000});
+  state.salting.push({bid:genBid(),name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+1800000});
   dryPacks[name]=1;
   showNotif('🧂 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на засолку!',' sent for salting!'));
   updateUI(); save();
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
-function startDryingFromSalt(idx) {
+function startDryingFromSalt(bid) {
+  var idx=-1; for (var i=0;i<state.salting.length;i++) if(state.salting[i].bid===bid){idx=i;break;}
+  if (idx<0) return; // партия уже обработана другим кликом или больше не существует
   var slot=state.salting[idx];
   if (!slot||Date.now()<slot.endsAt) return;
   var dtime=DRY_TIME[slot.name]||3600;
-  state.drying.push({name:slot.name,emoji:slot.emoji,packets:slot.packets,startedAt:Date.now(),endsAt:Date.now()+dtime*1000});
+  state.drying.push({bid:genBid(),name:slot.name,emoji:slot.emoji,packets:slot.packets,startedAt:Date.now(),endsAt:Date.now()+dtime*1000});
   state.salting.splice(idx,1);
   showNotif('🌡 '+fishName(slot.name)+t(' отправлена на сушку!',' sent for drying!'));
   updateUI(); save();
@@ -2157,14 +2178,16 @@ function startDrying(name) {
   }
   state.liveFish = rest;
   // Добавляем слот сушки с количеством пакетов
-  state.drying.push({name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
+  state.drying.push({bid:genBid(),name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
   dryPacks[name] = 1;
   showNotif((def?def.emoji:'🐟')+' '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на сушку!',' sent for drying!'));
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
-function collectDried(idx) {
+function collectDried(bid) {
+  var idx=-1; for (var i=0;i<state.drying.length;i++) if(state.drying[i].bid===bid){idx=i;break;}
+  if (idx<0) return;
   var slot = state.drying[idx];
   if (!slot || Date.now()<slot.endsAt) return;
   var packs = slot.packets||1;
