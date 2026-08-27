@@ -1828,7 +1828,15 @@ async def process_actions(request):
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
                 energy = max(0, min(max_energy, fresh_prev_energy + fresh_regen_sec / ENERGY_REGEN_SEC + energy_action_delta))
                 save_headers = {"If-Match": setag} if setag else {}
-                async with session.patch(saves_url, json={
+                # Firebase REST API поддерживает If-Match ТОЛЬКО с PUT, не с PATCH (PATCH с
+                # If-Match всегда возвращает 400 "not supported") — из-за этого предыдущая
+                # версия этого фикса вообще ничего не сохраняла (код не проверял статус
+                # ответа, принимал любой не-412 за успех). Поэтому PUT — а раз PUT заменяет
+                # ВЕСЬ узел целиком, а не сливает частично, как PATCH, сначала мёржим наши
+                # изменения поверх свежепрочитанного fresh_sv на стороне Python, чтобы не
+                # стереть остальные поля сейва (транспорт, кухню, рефералку и т.д.).
+                merged = dict(fresh_sv)
+                merged.update({
                     "coins": coins,
                     "caught": caught,
                     "totalEarned": total_earned,
@@ -1836,9 +1844,13 @@ async def process_actions(request):
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
                     **other_fields
-                }, headers=save_headers) as spatch:
-                    if spatch.status == 412:
+                })
+                async with session.put(saves_url, json=merged, headers=save_headers) as sput:
+                    if sput.status == 412:
                         continue  # кто-то записал раньше нас — перечитываем свежий баланс и повторяем
+                    if sput.status not in (200, 204):
+                        raise RuntimeError(f"saves PUT failed: {sput.status} {await sput.text()}")
+                    break
                     break
             if claim_pending_clear:
                 await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
