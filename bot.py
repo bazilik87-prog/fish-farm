@@ -1239,6 +1239,11 @@ async def process_actions(request):
     prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
     regen_sec = max(0, (now_ms - last_energy_update) / 1000)
     energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
+    energy_after_regen_at_start = energy  # для дельты ниже — чистый расход энергии за
+    # действия ЭТОГО запроса, отдельно от регенерации по времени (её пересчитываем заново
+    # на каждой попытке записи против СВЕЖЕГО lastEnergyUpdate — иначе гонка с
+    # /refill_energy_ad и покупкой energyFull за Stars, которые тоже пишут energy
+    # независимо: без этого разделения покупка/реклама могли перезаписываться обратно).
 
     # Непроданный улов — нельзя продать больше рыбы, чем реально было поймано и ещё не продано.
     unsold = float(sv.get('unsoldCaught', 0) or 0)
@@ -1776,17 +1781,61 @@ async def process_actions(request):
                 extra_fields['deliveryEscrow'] = 0
                 extra_fields['deliveryEscrow2'] = 0
 
-            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                "coins": coins,
-                "caught": caught,
-                "totalEarned": total_earned,
+            # ГЛАВНАЯ ЗАЩИТА ОТ ГОНКИ ЗАПИСИ БАЛАНСА. Раньше coins/caught/totalEarned
+            # писались одним PATCH абсолютными значениями, посчитанными от sv, прочитанного
+            # в НАЧАЛЕ этого запроса. Если два /actions-запроса от одного игрока идут почти
+            # одновременно (например, обе доставки истекли за время, пока игра была
+            # свёрнута, и клиент шлёт два отдельных запроса подряд в одном тике —
+            # см. checkDelivery() в index.html), оба читают ОДИН И ТОТ ЖЕ стартовый баланс
+            # и пишут результат независимо — тот, кто запишет ПОСЛЕДНИМ, стирает прибавку
+            # первого. Подтверждённый реальный случай: @MaksimPlahovvv, 27.08, два запроса
+            # с одинаковым ts, один посчитал +914, второй +34 от того же старта — выжили
+            # только +34.
+            # Фикс: считаем не абсолютные значения, а ДЕЛЬТЫ (прирост за этот запрос) и
+            # применяем их к СВЕЖЕМУ прочитанному балансу с ETag-блокировкой и retry —
+            # тем же способом, что уже проверен на эскроу доставки выше. energy — туда же:
+            # реальный случай, когда покупка energyFull за Stars или /refill_energy_ad
+            # (оба пишут energy НЕЗАВИСИМО отсюда) перезаписывались обратно обычным
+            # /actions, случившимся почти одновременно — расход энергии за тап/улов
+            # в ЭТОМ запросе (energy_action_delta) переносим на свежий реген при каждой
+            # попытке, а не на реген, посчитанный в начале запроса.
+            # upgLevels/unsold/extra_fields по-прежнему пишутся абсолютным значением —
+            # по ним подтверждённого случая пропажи нет, расширять при необходимости.
+            coins_delta = coins - float(sv.get('coins', 0) or 0)
+            caught_delta = caught - float(sv.get('caught', 0) or 0)
+            total_earned_delta = total_earned - float(sv.get('totalEarned', 0) or 0)
+            energy_action_delta = energy - energy_after_regen_at_start
+            other_fields = {
                 "upgLevels": upg_levels,
-                "energy": round(energy * 100) / 100,
-                "lastEnergyUpdate": now_ms,
                 "unsoldCaught": round(unsold * 100) / 100,
-                "lastSeen": now_ms,
                 **extra_fields
-            })
+            }
+            saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
+            for save_attempt in range(6):
+                async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
+                    setag = sresp.headers.get("ETag")
+                    fresh_sv = await sresp.json()
+                fresh_sv = fresh_sv or {}
+                coins = round((float(fresh_sv.get('coins', 0) or 0) + coins_delta) * 100) / 100
+                caught = (float(fresh_sv.get('caught', 0) or 0)) + caught_delta
+                total_earned = round((float(fresh_sv.get('totalEarned', 0) or 0) + total_earned_delta) * 100) / 100
+                fresh_last_energy_update = fresh_sv.get('lastEnergyUpdate') or now_ms
+                fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
+                fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
+                energy = max(0, min(max_energy, fresh_prev_energy + fresh_regen_sec / ENERGY_REGEN_SEC + energy_action_delta))
+                save_headers = {"If-Match": setag} if setag else {}
+                async with session.patch(saves_url, json={
+                    "coins": coins,
+                    "caught": caught,
+                    "totalEarned": total_earned,
+                    "energy": round(energy * 100) / 100,
+                    "lastEnergyUpdate": now_ms,
+                    "lastSeen": now_ms,
+                    **other_fields
+                }, headers=save_headers) as spatch:
+                    if spatch.status == 412:
+                        continue  # кто-то записал раньше нас — перечитываем свежий баланс и повторяем
+                    break
             if claim_pending_clear:
                 await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
                 await session.delete(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
