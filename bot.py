@@ -3348,14 +3348,7 @@ async def actionlog_command(message: types.Message):
                 if not to_show:
                     await message.answer(f"За {args[2]} записей по ID {uid} не найдено.")
                     return
-                truncated_note = ""
-                if len(to_show) > 200:
-                    # Телеграм режет длинные сообщения — за активный день может набраться
-                    # и 500+ записей. Показываем последние 200 (обычно интересующий
-                    # игрока момент ближе к вечеру/концу дня), явно предупреждаем.
-                    truncated_note = f" — показаны последние 200 из {len(to_show)}, остальное обрезано лимитом длины сообщения"
-                    to_show = to_show[-200:]
-                header = f"📜 Лог /actions для ID {uid} за {args[2]}{truncated_note}:\n"
+                header = f"📜 Лог /actions для ID {uid} за {args[2]} ({len(to_show)} записей):\n"
             else:
                 to_show = items[-40:]
                 header = f"📜 Лог /actions для ID {uid} (последние {min(len(items), 40)} из {len(items)}):\n"
@@ -3369,7 +3362,7 @@ async def actionlog_command(message: types.Message):
                     break
                 prev_after = e.get('coins_after')
 
-            lines = [header]
+            all_lines = []
             for entry in to_show:
                 ts = entry.get('ts', 0)
                 dt = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=3)))
@@ -3380,10 +3373,18 @@ async def actionlog_command(message: types.Message):
                 # баланса, на котором закончился предыдущий обработанный запрос — явный
                 # признак гонки (второй запрос не увидел результат первого).
                 mismatch = " ⚠️ РАСХОЖДЕНИЕ" if (prev_after is not None and abs(before - prev_after) > 0.01) else ""
-                lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
+                all_lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
                 prev_after = after
 
-            await message.answer("\n".join(lines))
+            # Telegram режет сообщения длиннее 4096 символов — за активный день может
+            # набраться и 500+ записей, что легко превышает лимит. Вместо обрезки (раньше
+            # теряли часть дня молча/с ошибкой) разбиваем на несколько сообщений подряд —
+            # видно ВСЁ, просто несколькими сообщениями.
+            CHUNK_SIZE = 50
+            chunks = [all_lines[i:i + CHUNK_SIZE] for i in range(0, len(all_lines), CHUNK_SIZE)]
+            for i, chunk in enumerate(chunks):
+                prefix = header if i == 0 else f"📜 (продолжение {i+1}/{len(chunks)})\n"
+                await message.answer(prefix + "\n".join(chunk))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
