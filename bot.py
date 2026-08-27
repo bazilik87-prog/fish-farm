@@ -1558,7 +1558,12 @@ async def process_actions(request):
                         rf = await resp.json()
             except Exception:
                 rf = None
-            rf_active = isinstance(rf, dict) and rf.get('active') and (rf.get('endsAt') or 0) > now_ms
+            rf_active = isinstance(rf, dict) and rf.get('active') and (rf.get('endsAt') or 0) + 5000 > now_ms
+            # +5000мс запаса: клиент шлёт catch мгновенно (без debounce), но сетевая
+            # задержка сама по себе может протолкнуть запрос за пределы endsAt, если
+            # игрок поймал рыбу буквально в последние секунды 10-минутного окна — без
+            # этого запаса честный улов у самой границы отклонялся бы, а игрок не видел
+            # никакой причины (клиент молча откатывал оптимистично показанные монеты).
             if not rf_active:
                 rejected += 1
                 continue
@@ -3271,22 +3276,43 @@ async def playerinfo_command(message: types.Message):
 @dp.message(Command('actionlog'))
 async def actionlog_command(message: types.Message):
     """
-    Показывает последние записи action_logs/{pid} — снимки coins_before/coins_after
-    на каждый вызов /actions. Нужно для поиска гонки записи (два параллельных запроса
-    от одного игрока читают один и тот же стартовый баланс и перезаписывают друг друга —
-    в логе это видно как два запроса с почти одинаковым ts, где coins_after одного не
+    Показывает записи action_logs/{pid} — снимки coins_before/coins_after на каждый
+    вызов /actions. Нужно для поиска гонки записи (два параллельных запроса от одного
+    игрока читают один и тот же стартовый баланс и перезаписывают друг друга — в логе
+    это видно как два запроса с почти одинаковым ts, где coins_after одного не
     совпадает с coins_before следующего).
+    Без даты — последние 40 записей. С датой (ДД.ММ, по МСК) — все записи за этот день.
+    Примеры: /actionlog @username
+             /actionlog @username 26.08
     """
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.strip().split()
     if len(args) < 2:
-        await message.answer("Использование:\n<code>/actionlog @username</code> или <code>/actionlog 123456789</code> (по ID)", parse_mode="HTML")
+        await message.answer(
+            "Использование:\n<code>/actionlog @username</code> или <code>/actionlog 123456789</code> (по ID)\n"
+            "С датой (МСК): <code>/actionlog @username 26.08</code>",
+            parse_mode="HTML"
+        )
         return
     arg = args[1].lstrip('@')
     import aiohttp
     from datetime import datetime, timezone, timedelta
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+
+    day_start_ms = day_end_ms = None
+    if len(args) >= 3:
+        try:
+            day, month = args[2].split('.')
+            year = datetime.now(timezone(timedelta(hours=3))).year
+            day_start = datetime(year, int(month), int(day), 0, 0, 0, tzinfo=timezone(timedelta(hours=3)))
+            day_end = day_start + timedelta(days=1)
+            day_start_ms = int(day_start.timestamp() * 1000)
+            day_end_ms = int(day_end.timestamp() * 1000)
+        except Exception:
+            await message.answer("❌ Дата должна быть в формате ДД.ММ, например 26.08")
+            return
+
     try:
         async with aiohttp.ClientSession() as session:
             if arg.isdigit():
@@ -3314,9 +3340,37 @@ async def actionlog_command(message: types.Message):
                 return
 
             items = sorted(logs.values(), key=lambda x: x.get('ts', 0))
-            lines = [f"📜 Лог /actions для ID {uid} (последние {min(len(items), 40)} из {len(items)}):\n"]
+
+            if day_start_ms is not None:
+                # Ищем расхождения по ПОЛНОЙ истории (чтобы поймать и стык с предыдущим
+                # днём), но показываем только записи за запрошенную дату.
+                to_show = [e for e in items if day_start_ms <= e.get('ts', 0) < day_end_ms]
+                if not to_show:
+                    await message.answer(f"За {args[2]} записей по ID {uid} не найдено.")
+                    return
+                truncated_note = ""
+                if len(to_show) > 200:
+                    # Телеграм режет длинные сообщения — за активный день может набраться
+                    # и 500+ записей. Показываем последние 200 (обычно интересующий
+                    # игрока момент ближе к вечеру/концу дня), явно предупреждаем.
+                    truncated_note = f" — показаны последние 200 из {len(to_show)}, остальное обрезано лимитом длины сообщения"
+                    to_show = to_show[-200:]
+                header = f"📜 Лог /actions для ID {uid} за {args[2]}{truncated_note}:\n"
+            else:
+                to_show = items[-40:]
+                header = f"📜 Лог /actions для ID {uid} (последние {min(len(items), 40)} из {len(items)}):\n"
+
+            # prev_after считаем от записи ПЕРЕД первой показанной — так стык суток
+            # тоже проверяется на расхождение, а не только записи внутри одного дня.
+            first_shown_ts = to_show[0].get('ts', 0)
             prev_after = None
-            for entry in items[-40:]:
+            for e in items:
+                if e.get('ts', 0) >= first_shown_ts:
+                    break
+                prev_after = e.get('coins_after')
+
+            lines = [header]
+            for entry in to_show:
                 ts = entry.get('ts', 0)
                 dt = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=3)))
                 before = entry.get('coins_before', 0)
@@ -3326,7 +3380,7 @@ async def actionlog_command(message: types.Message):
                 # баланса, на котором закончился предыдущий обработанный запрос — явный
                 # признак гонки (второй запрос не увидел результат первого).
                 mismatch = " ⚠️ РАСХОЖДЕНИЕ" if (prev_after is not None and abs(before - prev_after) > 0.01) else ""
-                lines.append(f"{dt.strftime('%H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
+                lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
                 prev_after = after
 
             await message.answer("\n".join(lines))

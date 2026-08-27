@@ -4288,6 +4288,12 @@ function tapOcean(e) {
     state.totalEarned = Math.round((state.totalEarned + rareEarned)*100)/100;
     state.caught++;
     queueAction({type:'rare_fish_catch', loc: state.currentLoc});
+    flushActions(); // не ждём общий debounce в 3с — редкая рыба живёт всего 10 минут
+    // общим таймером на всех игроков, и если поймать её в последние секунды окна,
+    // обычная задержка могла привести к тому, что запрос доходил до сервера уже
+    // после истечения таймера, и сервер справедливо отклонял начисление — а клиент
+    // молча откатывал уже показанные монеты на следующей синхронизации, без единого
+    // уведомления игроку. Мгновенный flush + запас на сервере (см. bot.py) закрывают это.
     checkAdMilestone();
     spendEnergyForCatch();
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
