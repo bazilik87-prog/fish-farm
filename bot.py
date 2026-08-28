@@ -1898,6 +1898,9 @@ async def process_actions(request):
     # НЕ пишутся здесь абсолютным значением — они проверяются и начисляются внутри
     # retry-цикла ниже, на свежих данных при каждой попытке (защита от двойного тапа).
 
+    response_daily_day = None
+    response_daily_last_claim = None
+
     try:
         async with aiohttp.ClientSession() as session:
             # Разрешаем эскроу ОТДЕЛЬНОЙ ETag-защищённой операцией до основной записи —
@@ -1979,6 +1982,13 @@ async def process_actions(request):
                         if not bonus_rejected_counted['daily']:
                             rejected += 1
                             bonus_rejected_counted['daily'] = True
+                        # Отклонено — это КАК РАЗ момент, когда локальная копия клиента могла
+                        # разойтись с реальной (см. жалобу: превью показало "День 3 · 50",
+                        # а сервер верно начислил "День 6 · 800" — клиент никогда не подтягивал
+                        # dailyDay/dailyLastClaim обратно от сервера). Возвращаем правду и здесь,
+                        # не только при успешном начислении.
+                        response_daily_day = fresh_daily_day
+                        response_daily_last_claim = fresh_daily_last_claim
                     else:
                         miss_grace_days = 3 if is_prem else 1
                         effective_day = 0 if (not fresh_daily_last_claim or gap_days > miss_grace_days) else fresh_daily_day
@@ -1988,6 +1998,8 @@ async def process_actions(request):
                         total_earned = round((total_earned + daily_reward) * 100) / 100
                         bonus_fields['dailyDay'] = effective_day + 1 if effective_day < 6 else 0
                         bonus_fields['dailyLastClaim'] = now_ms
+                        response_daily_day = bonus_fields['dailyDay']
+                        response_daily_last_claim = now_ms
 
                 if pending_quest_bonus:
                     fresh_quest_bonus_date = fresh_sv.get('questBonusDate') or ''
@@ -2112,6 +2124,8 @@ async def process_actions(request):
         'upgLevels': upg_levels,
         'energy': round(energy * 100) / 100,
         'unsoldCaught': round(unsold * 100) / 100,
+        'dailyDay': response_daily_day,
+        'dailyLastClaim': response_daily_last_claim,
         'rejected': rejected,
         'claimed': claim_result
     }, headers=CORS)

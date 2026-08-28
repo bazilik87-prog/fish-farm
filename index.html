@@ -4224,6 +4224,8 @@ function applyActionsResult(res) {
   state.totalEarned = res.totalEarned;
   if (res.upgLevels) state.upgLevels = res.upgLevels;
   if (typeof res.energy === 'number') state.energy = res.energy;
+  if (typeof res.dailyDay === 'number') state.dailyDay = res.dailyDay;
+  if (typeof res.dailyLastClaim === 'number') state.dailyLastClaim = res.dailyLastClaim;
   if (res.claimed && res.claimed.total > 0) {
     (res.claimed.details||[]).forEach(function(d){
       if (d.type==='ref') showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ')+d.from+': +🪙'+fmt(d.amount));
