@@ -309,20 +309,36 @@ async def get_coin_balance(user_id):
 
 
 async def deduct_coin_balance(user_id, amount):
-    """Атомарно списывает amount монет с баланса игрока в Firebase через transaction-подобную
-    проверку (читаем-проверяем-пишем). Возвращает True, если списание прошло успешно."""
+    """
+    Атомарно списывает amount монет с баланса игрока — ETag-блокировка с retry, а не
+    голое "прочитал-проверил-записал". Это путь банковского вывода в GRAM/Stars —
+    самое чувствительное место в игре: без блокировки параллельный /actions мог
+    переписать списание обратно (тот пишет ВЕСЬ saves/{pid} по своему более старому
+    снимку), отменяя вычет уже ПОСЛЕ того, как GRAM/Stars реально отправлены игроку —
+    по сути бесплатный вывод денег. Теперь пишем узкий путь saves/{pid}/coins.json
+    с If-Match и перепроверкой достаточности баланса на каждой попытке.
+    """
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    url = f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}") as resp:
-                current = await resp.json()
-            current = current or 0
-            if current < amount:
-                return False
-            new_balance = round((current - amount) * 100) / 100
-            await session.put(f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}", json=new_balance)
-        return True
+            for attempt in range(6):
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    current = await resp.json()
+                current = current or 0
+                if current < amount:
+                    return False
+                new_balance = round((current - amount) * 100) / 100
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(url, json=new_balance, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue  # баланс изменился между чтением и записью — перечитываем и проверяем заново
+                    if put_resp.status not in (200, 204):
+                        return False
+                    return True
+        return False  # исчерпали попытки — безопаснее отказать, чем списать вслепую
     except Exception:
         return False
 
@@ -647,18 +663,37 @@ async def claim_social_task(request):
             return web.json_response({'error': f'не удалось проверить вступление: {e}'}, status=400, headers=CORS)
 
     reward = float(task.get('reward', 0))
+    saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
-                sv = await resp.json()
-            sv = sv or {}
-            new_coins = round((float(sv.get('coins', 0) or 0) + reward) * 100) / 100
-            new_total = round((float(sv.get('totalEarned', 0) or 0) + reward) * 100) / 100
-            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                "coins": new_coins,
-                "totalEarned": new_total
-            })
-            await session.put(f"{base}/saves/{pid}/socialClaimed/{task_id}.json{FB_AUTH}", json=True)
+            for attempt in range(6):
+                async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    sv = await resp.json()
+                sv = sv or {}
+                # Перепроверяем "уже получено" на СВЕЖИХ данных на каждой попытке — та же
+                # защита, что и в lottery_spin: если конкурентный клик уже засчитал задание
+                # между попытками, повтор это увидит и честно откажет, а не даст дубль.
+                claimed = sv.get('socialClaimed') or {}
+                if isinstance(claimed, dict) and claimed.get(task_id):
+                    return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
+
+                merged = dict(sv)
+                merged['coins'] = round((float(sv.get('coins', 0) or 0) + reward) * 100) / 100
+                merged['totalEarned'] = round((float(sv.get('totalEarned', 0) or 0) + reward) * 100) / 100
+                new_claimed = dict(claimed) if isinstance(claimed, dict) else {}
+                new_claimed[task_id] = True
+                merged['socialClaimed'] = new_claimed
+
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(saves_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    if put_resp.status not in (200, 204):
+                        return web.json_response({'error': f'saves PUT failed: {put_resp.status}'}, status=500, headers=CORS)
+                    break
+            else:
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -970,10 +1005,15 @@ async def reset_progress(request):
 
 async def refill_energy_ad(request):
     """
-    +25 энергии за просмотр рекламы, не чаще раза в 10 минут — раньше это добавлялось
-    только локально у клиента, а сервер (авторитетный для энергии в /actions) об этом
-    не узнавал: через пару тапов после просмотра сервер видел старое значение и начинал
-    отклонять уловы. Теперь пишет реальную энергию сюда же, с серверной проверкой кулдауна.
+    +25 энергии за просмотр рекламы, не чаще раза в 10 минут. Раньше здесь были две дыры
+    того же класса, что уже нашли и починили в лотерее/дневном бонусе:
+    1) Кулдаун проверялся один раз по снимку sv из начала запроса — двойной тап мог дать
+       +25 дважды за 10 минут.
+    2) Запись энергии — абсолютным значением без ETag. Если в этот момент шёл обычный
+       /actions (который тоже пишет energy, теперь с ETag-retry), одна из двух записей
+       побеждала целиком, стирая начисление за рекламу или обычный расход энергии.
+    Теперь — тот же паттерн: ETag-retry, кулдаун и реген пересчитываются на СВЕЖИХ данных
+    при каждой попытке.
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -995,39 +1035,49 @@ async def refill_energy_ad(request):
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
-                sv = await resp.json()
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-    sv = sv or {}
+    saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
     now_ms = int(time.time() * 1000)
-
-    last = sv.get('lastAdEnergyRefill') or 0
-    if now_ms - last < 600000:
-        return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - last)}, status=429, headers=CORS)
-
     is_prem = await is_premium(real_user_id)
     max_energy = 150 if is_prem else 100
-    last_energy_update = sv.get('lastEnergyUpdate') or now_ms
-    prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
-    regen_sec = max(0, (now_ms - last_energy_update) / 1000)
-    current_energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
-    new_energy = min(max_energy, current_energy + 25)
 
+    final_energy = None
     try:
         async with aiohttp.ClientSession() as session:
-            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                "energy": round(new_energy * 100) / 100,
-                "lastEnergyUpdate": now_ms,
-                "lastAdEnergyRefill": now_ms
-            })
+            for attempt in range(6):
+                async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    sv = await resp.json()
+                sv = sv or {}
+
+                last = sv.get('lastAdEnergyRefill') or 0
+                if now_ms - last < 600000:
+                    return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - last)}, status=429, headers=CORS)
+
+                last_energy_update = sv.get('lastEnergyUpdate') or now_ms
+                prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
+                regen_sec = max(0, (now_ms - last_energy_update) / 1000)
+                current_energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
+                final_energy = round(min(max_energy, current_energy + 25) * 100) / 100
+
+                headers = {"If-Match": etag} if etag else {}
+                merged = dict(sv)
+                merged.update({
+                    "energy": final_energy,
+                    "lastEnergyUpdate": now_ms,
+                    "lastAdEnergyRefill": now_ms
+                })
+                async with session.put(saves_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue  # кто-то записал раньше нас (обычный /actions или другой тап) — перечитываем
+                    if put_resp.status not in (200, 204):
+                        raise RuntimeError(f"refill_energy_ad PUT failed: {put_resp.status} {await put_resp.text()}")
+                    break
+            else:
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
-    return web.json_response({'ok': True, 'energy': round(new_energy * 100) / 100}, headers=CORS)
+    return web.json_response({'ok': True, 'energy': final_energy}, headers=CORS)
 
 
 async def lottery_spin(request):
@@ -1354,7 +1404,6 @@ async def process_actions(request):
 
     prices_cache = None
     rejected = 0
-    claim_pending_clear = False
     claim_result = None
     salt_delta = 0
     knife_delta = 0
@@ -1367,20 +1416,21 @@ async def process_actions(request):
         durability = {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
     current_transport = sv.get('transport') or 'bike'
     transport_changed = False
-    daily_day = int(sv.get('dailyDay', 0) or 0)
-    daily_last_claim = sv.get('dailyLastClaim') or 0
-    daily_changed = False
-    comeback_claimed_at = sv.get('comebackClaimedAt') or 0
-    comeback_changed = False
-    quest_bonus_date = sv.get('questBonusDate') or ''
-    quest_bonus_changed = False
     ulocs_changed = False
     escrow_ops = []  # ('add', via_driver, amount) | ('collect', via_driver) — эскроу теперь
     # разрешается ОТДЕЛЬНО, через собственный retry-цикл с ETag ниже. Здесь только собираем
     # список операций в порядке появления в actions — сама сумма читается заново из
     # актуального Firebase-состояния в момент разрешения, а не из локальной переменной,
     # которая могла успеть устареть за долгое время ожидания таймера доставки.
-    net_promo_claimed = sv.get('netPromoClaimed')
+    # "Разовые" бонусы (дневной/квест/комбэк/промо) — только флаг "запрошен в этом батче"
+    # здесь, сама проверка права и начисление — в retry-цикле ниже на СВЕЖИХ данных (см.
+    # комментарий там же про защиту от двойного тапа, аналогично фиксу лотереи).
+    pending_daily_bonus = False
+    pending_quest_bonus = False
+    pending_comeback_bonus = False
+    pending_net_promo_bonus = False
+    pending_promo_ends_at = None
+    pending_promo_amount = 0
 
     for act in actions:
         if not isinstance(act, dict):
@@ -1491,12 +1541,30 @@ async def process_actions(request):
         elif a_type == 'claim_bonuses':
             # Реферальные бонусы и отложенные награды — теперь тоже начисляет только сервер,
             # а не клиент напрямую (это было единственным путём, где клиент писал coins в обход /actions).
+            # ETag-защита от двойного клейма: раньше сумма считалась один раз, а очистка
+            # (delete) происходила без проверки — два параллельных запроса могли оба
+            # прочитать одни и те же ref_bonuses/pending_rewards ДО того, как любой из них
+            # их очистил, и оба получить одну и ту же сумму дважды. Теперь читаем с ETag и
+            # удаляем с If-Match: кто не успел удалить первым (конфликт версии) — получает
+            # 0 с этого источника вместо повторного начисления.
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}") as r1:
-                        rb = await r1.json()
-                    async with session.get(f"{base}/pending_rewards/{pid}.json{FB_AUTH}") as r2:
-                        pr = await r2.json()
+                async def claim_and_clear(url):
+                    async with aiohttp.ClientSession() as s:
+                        for _ in range(6):
+                            async with s.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+                                etag = r.headers.get("ETag")
+                                data = await r.json()
+                            if not data:
+                                return None
+                            headers = {"If-Match": etag} if etag else {}
+                            async with s.delete(url, headers=headers) as dresp:
+                                if dresp.status == 412:
+                                    continue  # кто-то уже забрал это между нашим чтением и удалением
+                                return data
+                    return None
+
+                rb = await claim_and_clear(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
+                pr = await claim_and_clear(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
                 claimed_total = 0
                 claimed_details = []
                 if isinstance(rb, dict):
@@ -1513,8 +1581,9 @@ async def process_actions(request):
                 if claimed_total > 0:
                     coins += claimed_total
                     total_earned += claimed_total
-                    claim_pending_clear = True
                     claim_result = {'total': claimed_total, 'details': claimed_details}
+                # claim_pending_clear больше не нужен — очистка уже произошла выше, атомарно
+                # вместе с чтением, а не отдельным шагом в конце запроса.
             except Exception:
                 rejected += 1
 
@@ -1549,88 +1618,46 @@ async def process_actions(request):
             total_earned += amount
 
         elif a_type == 'daily_bonus':
-            # Ежедневный бонус — та же дыра, что была с транспортом: клиент начислял монеты
-            # только локально, следующая синхронизация их откатывала. Теперь сервер сам
-            # проверяет реальное время последнего получения и день серии, не веря клиенту.
-            # Граница суток — календарный день по МСК (00:00 МСК), а не "24 часа с момента
-            # получения": иначе окно съезжает в зависимости от времени суток предыдущего клейма
-            # (зеркалит mskDay()/getDailyStatus() в index.html — должно совпадать один в один).
-            now_for_daily = int(time.time() * 1000)
-            msk_day_now = (now_for_daily + 3 * 3600000) // 86400000
-            msk_day_last = (daily_last_claim + 3 * 3600000) // 86400000 if daily_last_claim else None
-            gap_days = (msk_day_now - msk_day_last) if daily_last_claim else None
-            miss_grace_days = 3 if is_prem else 1
-            if daily_last_claim and gap_days < 1:
-                rejected += 1  # тот же календарный день МСК уже забирали
-                continue
-            effective_day = 0 if (not daily_last_claim or gap_days > miss_grace_days) else daily_day
-            effective_day = max(0, min(effective_day, len(DAILY_REWARDS) - 1))
-            reward = round(DAILY_REWARDS[effective_day] * mult * 100) / 100
-            coins += reward
-            total_earned += reward
-            daily_day = effective_day + 1 if effective_day < 6 else 0
-            daily_last_claim = now_for_daily
-            daily_changed = True
+            # Ежедневный бонус — сама сумма и день серии считаются здесь (зависят от
+            # mult/премиума, не от гонки), но ПРОВЕРКА ПРАВА НА ПОЛУЧЕНИЕ и запись в
+            # coins/totalEarned переносятся в retry-цикл ниже (см. pending_daily_bonus) —
+            # иначе двойной тап по "Забрать" мог пройти дважды: два параллельных запроса
+            # оба читают один и тот же daily_last_claim из НАЧАЛА обработки, оба проходят
+            # проверку и оба получают бонус (ровно та дыра, что была в лотерее до фикса).
+            pending_daily_bonus = True
 
         elif a_type == 'quest_bonus':
             # Бонус "все квесты выполнены" — сервер не проверяет полный прогресс квестов
             # (это потребовало бы дублировать весь генератор квестов), но жёстко ограничивает
-            # ОДНИМ получением в день на реальном сервером времени — квесты и так обновляются
-            # раз в сутки, так что этого достаточно, чтобы не дать накрутить повторами.
-            today_str = time.strftime('%Y-%m-%d', time.gmtime())
-            if quest_bonus_date == today_str:
-                rejected += 1
-                continue
-            reward = round(QUEST_BONUS_BASE * mult * 100) / 100
-            coins += reward
-            total_earned += reward
-            quest_bonus_date = today_str
-            quest_bonus_changed = True
+            # ОДНИМ получением в день на реальном сервером времени. Проверка и начисление —
+            # в retry-цикле ниже, по той же причине, что и daily_bonus (защита от двойного тапа).
+            pending_quest_bonus = True
 
         elif a_type == 'comeback_bonus':
-            # Бонус за возвращение после долгого отсутствия — сервер сам считает реальное
-            # время отсутствия по lastSeen, не веря заявленному клиентом количеству дней.
-            last_seen_before = sv.get('lastSeen') or now_ms
-            days_away = max(0, (now_ms - last_seen_before) / 86400000)
-            if comeback_claimed_at and comeback_claimed_at >= last_seen_before:
-                rejected += 1  # уже забирали за этот же заход
-                continue
-            if days_away >= 14:
-                reward = 1000
-            elif days_away >= 7:
-                reward = 500
-            elif days_away >= 3:
-                reward = 200
-            else:
-                rejected += 1
-                continue
-            coins += reward
-            total_earned += reward
-            comeback_claimed_at = now_ms
-            comeback_changed = True
+            # Бонус за возвращение после долгого отсутствия — сумма зависит от реального
+            # времени отсутствия по lastSeen (не от заявленного клиентом), проверка права —
+            # в retry-цикле ниже (та же защита от двойного тапа, что и остальные бонусы).
+            pending_comeback_bonus = True
 
         elif a_type == 'net_promo_bonus':
-            # Разовый промо-бонус +500 монет за покупку Сети (запускается /startpromo) —
-            # сервер сам проверяет, что акция реально активна СЕЙЧАС, и что этот игрок
-            # ещё не получал бонус именно за ЭТУ конкретную акцию (по её endsAt — если
-            # запустить новую акцию позже, endsAt будет другим, и бонус можно получить снова).
+            # Разовый промо-бонус +500 монет за покупку Сети (запускается /startpromo).
+            # Конфиг акции (endsAt/сумма) читаем один раз здесь — это глобальный, редко
+            # меняющийся админский параметр, не подверженный той же гонке, что личная
+            # метка "уже получал". А вот саму проверку "уже получал именно за эту акцию"
+            # и начисление — в retry-цикл ниже, по той же причине, что и остальные бонусы.
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{base}/promo/net_bonus.json{FB_AUTH}") as resp:
+                async with aiohttp.ClientSession() as promo_session:
+                    async with promo_session.get(f"{base}/promo/net_bonus.json{FB_AUTH}") as resp:
                         promo = await resp.json()
             except Exception:
                 promo = None
             promo_ends_at = promo.get('endsAt') if isinstance(promo, dict) else None
             if not promo_ends_at or now_ms > promo_ends_at:
                 rejected += 1
-                continue
-            if sv.get('netPromoClaimed') == promo_ends_at:
-                rejected += 1
-                continue
-            bonus_amount = float(promo.get('bonus', 500)) if isinstance(promo, dict) else 500
-            coins += bonus_amount
-            total_earned += bonus_amount
-            net_promo_claimed = promo_ends_at
+            else:
+                pending_net_promo_bonus = True
+                pending_promo_ends_at = promo_ends_at
+                pending_promo_amount = float(promo.get('bonus', 500)) if isinstance(promo, dict) else 500
 
         elif a_type == 'rare_fish_catch':
             # Улов редкой рыбы (Осетрина) — сервер сверяет, что она РЕАЛЬНО была активна
@@ -1786,14 +1813,39 @@ async def process_actions(request):
                         async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
                             referrer_id = await r1.json()
                         if referrer_id:
-                            async with session.get(f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}") as r2:
-                                already = await r2.json()
-                            if not already:
-                                await session.put(f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}", json=True)
-                                async with session.get(f"{base}/saves/tg_{referrer_id}/coins.json{FB_AUTH}") as r3:
-                                    ref_coins = await r3.json()
-                                ref_coins = (ref_coins or 0) + 1000
-                                await session.patch(f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}", json={"coins": ref_coins})
+                            # ETag-защита на флаге "уже награждён" — тот же принцип, что и
+                            # everywhere else: два одновременных апгрейда до ур.2 (например,
+                            # повтор сети) не должны дать двойную награду рефереру.
+                            flag_url = f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}"
+                            already_rewarded = False
+                            for flag_attempt in range(6):
+                                async with session.get(flag_url, headers={"X-Firebase-ETag": "true"}) as r2:
+                                    fetag = r2.headers.get("ETag")
+                                    already = await r2.json()
+                                if already:
+                                    already_rewarded = True
+                                    break
+                                fheaders = {"If-Match": fetag} if fetag else {}
+                                async with session.put(flag_url, json=True, headers=fheaders) as fput:
+                                    if fput.status == 412:
+                                        continue
+                                    break
+                            if not already_rewarded:
+                                # Начисление рефереру — узкий путь coins.json с ETag+retry,
+                                # тем же способом, что и в deduct_coin_balance: если реферер
+                                # сам активно играет в этот момент, его собственный /actions
+                                # не должен затереть этот бонус более старой копией баланса.
+                                ref_coins_url = f"{base}/saves/tg_{referrer_id}/coins.json{FB_AUTH}"
+                                for coin_attempt in range(6):
+                                    async with session.get(ref_coins_url, headers={"X-Firebase-ETag": "true"}) as r3:
+                                        cetag = r3.headers.get("ETag")
+                                        ref_coins = await r3.json()
+                                    new_ref_coins = round(((ref_coins or 0) + 1000) * 100) / 100
+                                    cheaders = {"If-Match": cetag} if cetag else {}
+                                    async with session.put(ref_coins_url, json=new_ref_coins, headers=cheaders) as cput:
+                                        if cput.status == 412:
+                                            continue
+                                        break
                                 try:
                                     async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
                                         ref_lb = await r4.json()
@@ -1836,21 +1888,15 @@ async def process_actions(request):
         extra_fields['unlockedTransports'] = unlocked_transports
         extra_fields['durability'] = durability
         extra_fields['transport'] = current_transport
-    if daily_changed:
-        extra_fields['dailyDay'] = daily_day
-        extra_fields['dailyLastClaim'] = daily_last_claim
-    if comeback_changed:
-        extra_fields['comebackClaimedAt'] = comeback_claimed_at
-    if quest_bonus_changed:
-        extra_fields['questBonusDate'] = quest_bonus_date
     if ulocs_changed:
         extra_fields['ulocs'] = ulocs
     # deliveryEscrow/deliveryEscrow2 больше НЕ пишутся сюда — эскроу теперь живёт в
     # отдельном пути escrow/{pid} с ETag-блокировкой (см. resolve_escrow_ops). Старые
     # поля обнуляем НИЖЕ, только после подтверждённой миграции — а не здесь заранее,
     # чтобы не потерять деньги при сетевой ошибке во время переноса.
-    if net_promo_claimed and net_promo_claimed != sv.get('netPromoClaimed'):
-        extra_fields['netPromoClaimed'] = net_promo_claimed
+    # dailyDay/dailyLastClaim/comebackClaimedAt/questBonusDate/netPromoClaimed больше
+    # НЕ пишутся здесь абсолютным значением — они проверяются и начисляются внутри
+    # retry-цикла ниже, на свежих данных при каждой попытке (защита от двойного тапа).
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -1900,6 +1946,7 @@ async def process_actions(request):
                 **extra_fields
             }
             saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
+            bonus_rejected_counted = {'daily': False, 'quest': False, 'comeback': False, 'promo': False}
             for save_attempt in range(6):
                 async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
                     setag = sresp.headers.get("ETag")
@@ -1916,6 +1963,72 @@ async def process_actions(request):
                 fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
                 energy = max(0, min(max_energy, fresh_prev_energy + fresh_regen_sec / ENERGY_REGEN_SEC + energy_action_delta))
+
+                bonus_fields = {}
+                # "Разовые" бонусы — проверяем право на СВЕЖИХ данных каждую попытку, а не
+                # на снимке из начала запроса. Если конкурентный запрос уже успел забрать
+                # бонус между попытками, эта проверка честно это увидит и не даст второй раз
+                # (та же защита, что в lottery_spin, — см. комментарий там же).
+                if pending_daily_bonus:
+                    fresh_daily_last_claim = fresh_sv.get('dailyLastClaim') or 0
+                    fresh_daily_day = int(fresh_sv.get('dailyDay', 0) or 0)
+                    msk_day_now = (now_ms + 3 * 3600000) // 86400000
+                    msk_day_last = (fresh_daily_last_claim + 3 * 3600000) // 86400000 if fresh_daily_last_claim else None
+                    gap_days = (msk_day_now - msk_day_last) if fresh_daily_last_claim else None
+                    if fresh_daily_last_claim and gap_days < 1:
+                        if not bonus_rejected_counted['daily']:
+                            rejected += 1
+                            bonus_rejected_counted['daily'] = True
+                    else:
+                        miss_grace_days = 3 if is_prem else 1
+                        effective_day = 0 if (not fresh_daily_last_claim or gap_days > miss_grace_days) else fresh_daily_day
+                        effective_day = max(0, min(effective_day, len(DAILY_REWARDS) - 1))
+                        daily_reward = round(DAILY_REWARDS[effective_day] * mult * 100) / 100
+                        coins = round((coins + daily_reward) * 100) / 100
+                        total_earned = round((total_earned + daily_reward) * 100) / 100
+                        bonus_fields['dailyDay'] = effective_day + 1 if effective_day < 6 else 0
+                        bonus_fields['dailyLastClaim'] = now_ms
+
+                if pending_quest_bonus:
+                    fresh_quest_bonus_date = fresh_sv.get('questBonusDate') or ''
+                    today_str = time.strftime('%Y-%m-%d', time.gmtime())
+                    if fresh_quest_bonus_date == today_str:
+                        if not bonus_rejected_counted['quest']:
+                            rejected += 1
+                            bonus_rejected_counted['quest'] = True
+                    else:
+                        quest_reward = round(QUEST_BONUS_BASE * mult * 100) / 100
+                        coins = round((coins + quest_reward) * 100) / 100
+                        total_earned = round((total_earned + quest_reward) * 100) / 100
+                        bonus_fields['questBonusDate'] = today_str
+
+                if pending_comeback_bonus:
+                    fresh_comeback_claimed_at = fresh_sv.get('comebackClaimedAt') or 0
+                    fresh_last_seen_before = fresh_sv.get('lastSeen') or now_ms
+                    days_away = max(0, (now_ms - fresh_last_seen_before) / 86400000)
+                    if fresh_comeback_claimed_at and fresh_comeback_claimed_at >= fresh_last_seen_before:
+                        if not bonus_rejected_counted['comeback']:
+                            rejected += 1
+                            bonus_rejected_counted['comeback'] = True
+                    elif days_away >= 3:
+                        comeback_reward = 1000 if days_away >= 14 else (500 if days_away >= 7 else 200)
+                        coins = round((coins + comeback_reward) * 100) / 100
+                        total_earned = round((total_earned + comeback_reward) * 100) / 100
+                        bonus_fields['comebackClaimedAt'] = now_ms
+                    elif not bonus_rejected_counted['comeback']:
+                        rejected += 1
+                        bonus_rejected_counted['comeback'] = True
+
+                if pending_net_promo_bonus:
+                    if fresh_sv.get('netPromoClaimed') == pending_promo_ends_at:
+                        if not bonus_rejected_counted['promo']:
+                            rejected += 1
+                            bonus_rejected_counted['promo'] = True
+                    else:
+                        coins = round((coins + pending_promo_amount) * 100) / 100
+                        total_earned = round((total_earned + pending_promo_amount) * 100) / 100
+                        bonus_fields['netPromoClaimed'] = pending_promo_ends_at
+
                 save_headers = {"If-Match": setag} if setag else {}
                 # Firebase REST API поддерживает If-Match ТОЛЬКО с PUT, не с PATCH (PATCH с
                 # If-Match всегда возвращает 400 "not supported") — из-за этого предыдущая
@@ -1932,7 +2045,8 @@ async def process_actions(request):
                     "energy": round(energy * 100) / 100,
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
-                    **other_fields
+                    **other_fields,
+                    **bonus_fields
                 })
                 async with session.put(saves_url, json=merged, headers=save_headers) as sput:
                     if sput.status == 412:
@@ -1940,10 +2054,6 @@ async def process_actions(request):
                     if sput.status not in (200, 204):
                         raise RuntimeError(f"saves PUT failed: {sput.status} {await sput.text()}")
                     break
-                    break
-            if claim_pending_clear:
-                await session.delete(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
-                await session.delete(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
 
             # Таблица лидеров — теперь пишется СЕРВЕРОМ из уже провалидированных coins/
             # caught/totalEarned, а не клиентом напрямую в Firebase. Раньше клиент писал
@@ -2001,6 +2111,7 @@ async def process_actions(request):
         'totalEarned': total_earned,
         'upgLevels': upg_levels,
         'energy': round(energy * 100) / 100,
+        'unsoldCaught': round(unsold * 100) / 100,
         'rejected': rejected,
         'claimed': claim_result
     }, headers=CORS)

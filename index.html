@@ -4230,6 +4230,25 @@ function applyActionsResult(res) {
       else showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙')+fmt(d.amount));
     });
   }
+  if (res.rejected > 0) {
+    // Раньше отклонённые сервером действия (например, продажа рыбы, которой на складе
+    // уже нет по мнению сервера — расхождение с локальным инвентарём) проходили ПОЛНОСТЬЮ
+    // молча: клиент показывал "отправлено на доставку!" и запускал таймер, который в итоге
+    // истекал ни с чем — деньги никогда не приходили, а игрок не понимал почему. Теперь
+    // хотя бы предупреждаем, что что-то не прошло, вместо тишины.
+    showNotif(t('⚠️ Часть действий не удалось выполнить — возможно, инвентарь устарел. Обновите игру.','⚠️ Some actions could not be processed — your inventory may be out of sync. Try reloading the game.'));
+  }
+  // Само-сверка склада рыбы с сервером — раньше при любом расхождении (клиент думает,
+  // что рыбы больше, чем сервер) это приходилось разбирать вручную по каждому игроку
+  // отдельно. Теперь чинится само: если сервер знает МЕНЬШЕ, чем локальный массив —
+  // подрезаем локальный массив под реальное число, чтобы следующая продажа/доставка
+  // не отклонялась той же самой рыбой снова и снова.
+  if (typeof res.unsoldCaught === 'number') {
+    var authoritative = Math.round(res.unsoldCaught);
+    if (authoritative < state.liveFish.length) {
+      state.liveFish.splice(0, state.liveFish.length - authoritative);
+    }
+  }
   syncUpgradesToLoc(); calcStats(); updateUI();
   var raw = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
   raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
