@@ -2918,6 +2918,149 @@ async def starttournament_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('addtotalearned'))
+async def addtotalearned_command(message: types.Message):
+    """
+    Ручное разовое доначисление totalEarned (и синхронизация leaderboard) на заданную
+    сумму — для случаев, когда пропущенный доход посчитан вручную (например, по
+    скриншотам чата), а не автоматически по флагам в базе. coins НЕ трогает.
+    Использование: /addtotalearned 8791844749 2800
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 3 or not args[1].isdigit():
+        await message.answer("Использование:\n<code>/addtotalearned 8791844749 2800</code>", parse_mode="HTML")
+        return
+    target_id = args[1]
+    try:
+        amount = float(args[2])
+    except ValueError:
+        await message.answer("❌ Сумма должна быть числом.")
+        return
+    if amount <= 0 or amount > 1_000_000:
+        await message.answer("❌ Некорректная сумма.")
+        return
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            save_url = f"{base}/saves/tg_{target_id}.json{FB_AUTH}"
+            new_total_earned = None
+            for attempt in range(6):
+                async with session.get(save_url, headers={"X-Firebase-ETag": "true"}) as r:
+                    etag = r.headers.get("ETag")
+                    sv = await r.json()
+                sv = sv or {}
+                merged = dict(sv)
+                new_total_earned = round((float(sv.get('totalEarned', 0) or 0) + amount) * 100) / 100
+                merged['totalEarned'] = new_total_earned
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(save_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    if put_resp.status not in (200, 204):
+                        await message.answer(f"❌ saves PUT failed: {put_resp.status}")
+                        return
+                    break
+
+            try:
+                await session.patch(f"{base}/leaderboard/tg_{target_id}.json{FB_AUTH}", json={
+                    "totalEarned": round(new_total_earned)
+                })
+            except Exception:
+                pass
+
+        await message.answer(
+            f"✅ {target_id}: totalEarned +{amount:,.0f} → теперь {new_total_earned:,.0f}\n"
+            f"Лидерборд обновлён. coins не трогали."
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('fixmissedref'))
+async def fixmissedref_command(message: types.Message):
+    """
+    Одноразовая ручная компенсация для игроков, задетых багом: бонус +1000 за прокачку
+    удочки реферала до ур.2 раньше писался ТОЛЬКО в coins, не в totalEarned — из-за
+    этого доход был реальным (баланс рос), но невидимым для лидерборда/турниров.
+    Баг исправлен для новых начислений; эта команда добивает totalEarned+leaderboard
+    задним числом для уже накопленных, но не учтённых бонусов.
+    НЕ трогает coins (он уже корректен) — только totalEarned и leaderboard.
+    Использование: /fixmissedref 8791844749
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование:\n<code>/fixmissedref 8791844749</code>", parse_mode="HTML")
+        return
+    referrer_id = args[1]
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Список рефералов этого игрока
+            async with session.get(f"{base}/referrals/by/{referrer_id}.json{FB_AUTH}") as resp:
+                refs = await resp.json()
+            if not refs:
+                await message.answer(f"У {referrer_id} нет рефералов в базе.")
+                return
+
+            # Считаем, сколько из них реально принесли бонус за удочку ур.2
+            rewarded_count = 0
+            for ref_uid in refs.keys():
+                async with session.get(f"{base}/referrals/rod2_rewarded/{ref_uid}.json{FB_AUTH}") as resp:
+                    flag = await resp.json()
+                if flag:
+                    rewarded_count += 1
+
+            if rewarded_count == 0:
+                await message.answer(f"У {referrer_id} нет начислений за удочку ур.2 — доначислять нечего.")
+                return
+
+            missing_amount = rewarded_count * 1000
+
+            # Доначисляем totalEarned (ETag-защищённо, coins НЕ трогаем — он уже верный)
+            save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
+            new_total_earned = None
+            for attempt in range(6):
+                async with session.get(save_url, headers={"X-Firebase-ETag": "true"}) as r:
+                    etag = r.headers.get("ETag")
+                    sv = await r.json()
+                sv = sv or {}
+                merged = dict(sv)
+                new_total_earned = round((float(sv.get('totalEarned', 0) or 0) + missing_amount) * 100) / 100
+                merged['totalEarned'] = new_total_earned
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(save_url, json=merged, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    if put_resp.status not in (200, 204):
+                        await message.answer(f"❌ saves PUT failed: {put_resp.status}")
+                        return
+                    break
+
+            # Синхронизируем лидерборд тем же значением
+            try:
+                await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
+                    "totalEarned": round(new_total_earned)
+                })
+            except Exception:
+                pass
+
+        await message.answer(
+            f"✅ Готово для {referrer_id}:\n"
+            f"Найдено начислений за удочку ур.2: {rewarded_count} × 1000 = {missing_amount:,} монет\n"
+            f"totalEarned доначислен, лидерборд обновлён.\n"
+            f"coins не трогали — он уже был корректным."
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('stoptournament'))
 async def stoptournament_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
