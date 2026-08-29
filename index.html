@@ -7,7 +7,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-<script src='https://libtl.com/sdk.js' data-zone='11591936' data-sdk='show_11591936'></script>
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top, 0px);touch-action:manipulation}
@@ -181,6 +181,10 @@ document.addEventListener('touchstart', function(e) {
 }, {passive: true});
 
 var tg = window.Telegram && window.Telegram.WebApp;
+// Adsgram — реклама за вознаграждение (энергия/лотерея). blockId — из партнёрского
+// кабинета Adsgram (Reward-блок), platform FishFarm. Раньше здесь был Monetag
+// (show_11591936 через libtl.com) — полностью заменён.
+var AdController = window.Adsgram ? window.Adsgram.init({ blockId: "45092" }) : null;
 var userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
 var LANG = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code === 'ru') ? 'ru' : 'en';
 try {
@@ -3018,12 +3022,12 @@ function watchAdForEnergy() {
     showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
     return;
   }
-  if (typeof show_11591936 !== 'function') {
+  if (!AdController) {
     showNotif(t('❌ Реклама пока недоступна, попробуй позже','❌ Ad not available yet, try later'));
     return;
   }
   showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
-  show_11591936().then(function(){
+  AdController.show().then(function(){
     state.lastAdEnergyRefill = Date.now();
     if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
       state.energy = Math.min(max, state.energy + 25);
@@ -3063,12 +3067,12 @@ function watchAdForLottery() {
     showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
     return;
   }
-  if (typeof show_11591936 !== 'function') {
+  if (!AdController) {
     showNotif(t('❌ Реклама пока недоступна, попробуй позже','❌ Ad not available yet, try later'));
     return;
   }
   showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
-  show_11591936().then(function(){
+  AdController.show().then(function(){
     state.lastAdLotterySpin = Date.now();
     save();
     spinLotteryServer('ad');
@@ -3081,8 +3085,8 @@ function checkAdMilestone() {
   window._adCatchCounter = (window._adCatchCounter || 0) + 1;
   if (window._adCatchCounter >= 100) {
     window._adCatchCounter = 0;
-    if (typeof show_11591936 === 'function') {
-      show_11591936().catch(function(){}); // если реклама недоступна — просто тихо пропускаем, без уведомлений игроку
+    if (AdController) {
+      AdController.show().catch(function(){}); // если реклама недоступна — просто тихо пропускаем, без уведомлений игроку
     }
   }
 }
