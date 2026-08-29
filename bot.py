@@ -1872,21 +1872,42 @@ async def process_actions(request):
                                         continue
                                     break
                             if not already_rewarded:
-                                # Начисление рефереру — узкий путь coins.json с ETag+retry,
+                                # Начисление рефереру — узкий путь по coins+totalEarned с ETag+retry,
                                 # тем же способом, что и в deduct_coin_balance: если реферер
                                 # сам активно играет в этот момент, его собственный /actions
                                 # не должен затереть этот бонус более старой копией баланса.
-                                ref_coins_url = f"{base}/saves/tg_{referrer_id}/coins.json{FB_AUTH}"
+                                # ВАЖНО: пишем и coins, и totalEarned (не только coins, как было
+                                # раньше) — иначе этот доход не учитывается в лидерборде/турнирах
+                                # недели, которые считаются именно по totalEarned. Игроки, зарабатывающие
+                                # в основном рефералами, не попадали в рейтинг турнира несмотря на
+                                # реально растущий баланс.
+                                ref_save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
+                                new_ref_total_earned = None
                                 for coin_attempt in range(6):
-                                    async with session.get(ref_coins_url, headers={"X-Firebase-ETag": "true"}) as r3:
+                                    async with session.get(ref_save_url, headers={"X-Firebase-ETag": "true"}) as r3:
                                         cetag = r3.headers.get("ETag")
-                                        ref_coins = await r3.json()
-                                    new_ref_coins = round(((ref_coins or 0) + 1000) * 100) / 100
+                                        ref_sv = await r3.json()
+                                    ref_sv = ref_sv or {}
+                                    ref_merged = dict(ref_sv)
+                                    ref_merged['coins'] = round((float(ref_sv.get('coins', 0) or 0) + 1000) * 100) / 100
+                                    new_ref_total_earned = round((float(ref_sv.get('totalEarned', 0) or 0) + 1000) * 100) / 100
+                                    ref_merged['totalEarned'] = new_ref_total_earned
                                     cheaders = {"If-Match": cetag} if cetag else {}
-                                    async with session.put(ref_coins_url, json=new_ref_coins, headers=cheaders) as cput:
+                                    async with session.put(ref_save_url, json=ref_merged, headers=cheaders) as cput:
                                         if cput.status == 412:
                                             continue
                                         break
+                                # Обновляем лидерборд рефереру тем же totalEarned — иначе бонус
+                                # попадёт в saves, но не отразится в рейтинге до следующего личного
+                                # /actions-запроса реферера (который может случиться нескоро, если
+                                # он сам не ловит и не продаёт рыбу).
+                                if new_ref_total_earned is not None:
+                                    try:
+                                        await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
+                                            "totalEarned": round(new_ref_total_earned)
+                                        })
+                                    except Exception:
+                                        pass
                                 try:
                                     async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
                                         ref_lb = await r4.json()
@@ -2121,9 +2142,15 @@ async def process_actions(request):
             # initData (тоже подписано и проверено, не из тела запроса от игрока).
             # PATCH — частичное слияние, не трогает поля, которые пишет только клиент
             # (num, playerName — их присвоение самим себе не даёт денежного профита).
+            premium_until = 0
             try:
                 async with session.get(f"{base}/premium/{pid}.json{FB_AUTH}") as presp:
                     premium_until = await presp.json()
+                    if not isinstance(premium_until, (int, float)):
+                        premium_until = 0
+            except Exception:
+                premium_until = 0  # сбой чтения premium — не должен блокировать запись в лидерборд ниже
+            try:
                 await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={
                     "coins": round(coins),
                     "caught": caught,
@@ -2133,7 +2160,7 @@ async def process_actions(request):
                     "userId": real_user_id,
                     "username": tg_user.get('username') or '',
                     "firstName": tg_user.get('first_name') or '',
-                    "premiumUntil": premium_until if isinstance(premium_until, (int, float)) else 0
+                    "premiumUntil": premium_until
                 })
             except Exception:
                 pass  # лидерборд не должен ронять сам запрос игрока
