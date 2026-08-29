@@ -1812,12 +1812,14 @@ function renderMarket() {
         +'<button class="btn" onclick="changeSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
         +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curSaltOrder+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(saltCost)+'</span></div>'
         +'<button class="btn" onclick="changeSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+        +'<button class="btn" onclick="setMaxSaltOrder()" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
         +'</div>'
         +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 '+t('Ножи на обратный путь:','Knives for the way back:')+'</div>'
         +'<div style="display:flex;align-items:center;gap:8px">'
         +'<button class="btn" onclick="changeKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
         +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curKnifeOrder+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(knifeCost)+'</span></div>'
         +'<button class="btn" onclick="changeKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+        +'<button class="btn" onclick="setMaxKnifeOrder()" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
         +'</div>'
         +(curSaltOrder>0||curKnifeOrder>0?'<div style="font-size:11px;color:#90caf9;margin-top:5px">🧂'+state.salt+' '+t('соли','salt')+' · 🔪'+state.knife+' '+t('ножей на складе','knives in storage')+'</div>':'')
         +'</div>';
@@ -2756,12 +2758,14 @@ function renderDriver() {
       +'<button class="btn" onclick="changeDriverSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
       +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurSalt+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(dSaltCost)+'</span></div>'
       +'<button class="btn" onclick="changeDriverSaltOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+      +'<button class="btn" onclick="setMaxDriverSaltOrder()" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🔪 '+t('Ножи на обратный путь:','Knives for the way back:')+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<button class="btn" onclick="changeDriverKnifeOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
       +'<div style="flex:1;text-align:center"><span style="font-size:16px;font-weight:700;color:#FFD700">'+dCurKnife+'</span> <span style="font-size:11px;color:#90caf9">'+t('шт','pcs')+' · 🪙'+fmt(dKnifeCost)+'</span></div>'
       +'<button class="btn" onclick="changeDriverKnifeOrder(1)" style="padding:5px 12px;font-size:16px">+</button>'
+      +'<button class="btn" onclick="setMaxDriverKnifeOrder()" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
       +'</div></div>';
   }
 
@@ -4422,7 +4426,16 @@ function checkNetBonus() {
 
 function changeKnifeOrder(delta) {
   var tr=getTr();
-  state.knifeOrder=Math.max(0,Math.min(tr.capacity,(state.knifeOrder||0)+delta));
+  var maxKnife = Math.max(0, tr.capacity - (state.saltOrder||0)); // соль и нож делят одну вместимость на обратный путь
+  state.knifeOrder=Math.max(0,Math.min(maxKnife,(state.knifeOrder||0)+delta));
+  renderMarket();
+}
+function setMaxKnifeOrder() {
+  var tr=getTr();
+  var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+  var maxAffordable = Math.floor(state.coins / knifePrice);
+  var maxKnife = Math.max(0, tr.capacity - (state.saltOrder||0));
+  state.knifeOrder = Math.max(0, Math.min(maxKnife, maxAffordable));
   renderMarket();
 }
 function changeSaltOrder(delta) {
@@ -4434,8 +4447,16 @@ function changeSaltOrder(delta) {
   for (var j=0;j<state.driedFish.length;j++) { var dn=state.driedFish[j].name; driedGrouped[dn]=(driedGrouped[dn]||0)+1; }
   var selPool=state.selectedDried?driedGrouped:grouped;
   var selCnt=sel&&selPool[sel]?Math.min(selPool[sel],tr.capacity):0;
-  var maxSalt=tr.capacity;
+  var maxSalt=Math.max(0, tr.capacity - (state.knifeOrder||0)); // соль и нож делят одну вместимость на обратный путь
   state.saltOrder=Math.max(0,Math.min(maxSalt,(state.saltOrder||0)+delta));
+  renderMarket();
+}
+function setMaxSaltOrder() {
+  var tr=getTr();
+  var saltPrice = SALT_PRICE[state.currentLoc]||1;
+  var maxAffordable = Math.floor(state.coins / saltPrice);
+  var maxSalt = Math.max(0, tr.capacity - (state.knifeOrder||0));
+  state.saltOrder = Math.max(0, Math.min(maxSalt, maxAffordable));
   renderMarket();
 }
 function selectFish(name, dried, filet) {
@@ -4546,7 +4567,7 @@ function sendDelivery() {
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
-  if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder});
+  if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder, transport: tr.id});
   if (tr.id !== 'rentalTruck') {
     state.durability[tr.id]=Math.max(0,dur-10);
     queueAction({type:'transport_wear', loc: state.currentLoc, transport: tr.id});
@@ -4612,12 +4633,30 @@ function selectDriverFish(name, dried, filet) {
 }
 function changeDriverSaltOrder(delta) {
   var dtr=getTr(state.driverTransport);
-  state.driverSaltOrder=Math.max(0,Math.min(dtr.capacity,(state.driverSaltOrder||0)+delta));
+  var maxSalt = Math.max(0, dtr.capacity - (state.driverKnifeOrder||0)); // соль и нож делят одну вместимость
+  state.driverSaltOrder=Math.max(0,Math.min(maxSalt,(state.driverSaltOrder||0)+delta));
+  renderDriver();
+}
+function setMaxDriverSaltOrder() {
+  var dtr=getTr(state.driverTransport);
+  var saltPrice = SALT_PRICE[state.currentLoc]||1;
+  var maxAffordable = Math.floor(state.coins / saltPrice);
+  var maxSalt = Math.max(0, dtr.capacity - (state.driverKnifeOrder||0));
+  state.driverSaltOrder = Math.max(0, Math.min(maxSalt, maxAffordable));
   renderDriver();
 }
 function changeDriverKnifeOrder(delta) {
   var dtr=getTr(state.driverTransport);
-  state.driverKnifeOrder=Math.max(0,Math.min(dtr.capacity,(state.driverKnifeOrder||0)+delta));
+  var maxKnife = Math.max(0, dtr.capacity - (state.driverSaltOrder||0)); // соль и нож делят одну вместимость
+  state.driverKnifeOrder=Math.max(0,Math.min(maxKnife,(state.driverKnifeOrder||0)+delta));
+  renderDriver();
+}
+function setMaxDriverKnifeOrder() {
+  var dtr=getTr(state.driverTransport);
+  var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+  var maxAffordable = Math.floor(state.coins / knifePrice);
+  var maxKnife = Math.max(0, dtr.capacity - (state.driverSaltOrder||0));
+  state.driverKnifeOrder = Math.max(0, Math.min(maxKnife, maxAffordable));
   renderDriver();
 }
 function sendDriverDelivery() {
@@ -4693,7 +4732,7 @@ function sendDriverDelivery() {
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
-  if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder});
+  if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder, transport: tr2.id});
   earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
   var secs=delivTime(tr2);
   if (tr2.id !== 'rentalTruck') state.durability[tr2.id]=Math.max(0,dur2-10);

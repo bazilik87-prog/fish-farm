@@ -787,6 +787,7 @@ UPGRADE_COSTS = {
 }
 MAX_UPGRADE_LEVEL = 5
 TRANSPORT_COST = {'bike': 0, 'moped': 5000, 'car': 50000, 'truck': 300000}
+TRANSPORT_CAPACITY = {'bike': 5, 'moped': 15, 'car': 40, 'truck': 100, 'rentalTruck': 200}
 TRANSPORT_REPAIR_COST = {'bike': 50, 'moped': 500, 'car': 5000, 'truck': 30000}
 DAILY_REWARDS = [10, 25, 50, 100, 200, 400, 1000]
 LOCATION_UNLOCK_COST = {'pond': 0, 'river': 100000, 'tropics': 3000000, 'deep': 9000000, 'space': 33000000}
@@ -1738,7 +1739,25 @@ async def process_actions(request):
             except (TypeError, ValueError):
                 rejected += 1
                 continue
-            if salt_qty < 0 or knife_qty < 0 or salt_qty > 10000 or knife_qty > 10000:
+            if salt_qty < 0 or knife_qty < 0:
+                rejected += 1
+                continue
+            # Вместимость транспорта — соль и нож делят её пополам с исходящим грузом на
+            # обратный путь (см. клиент: changeSaltOrder/changeKnifeOrder теперь тоже
+            # проверяют это вместе). Раньше сервер вообще не знал о вместимости и разрешал
+            # заказать хоть 10000 каждого — деньги игрока, но обходит игровое ограничение.
+            # Транспорт не берём со слов клиента как есть — сверяем, что он реально
+            # принадлежит игроку (или это платная аренда грузовика с активным бустом).
+            claimed_transport = act.get('transport')
+            owned = set(sv.get('unlockedTransports') or []) | {'bike'}
+            if claimed_transport == 'rentalTruck':
+                truck_rental_active = (sv.get('boosts') or {}).get('truckRental', 0) > now_ms
+                capacity = TRANSPORT_CAPACITY['rentalTruck'] if truck_rental_active else TRANSPORT_CAPACITY['bike']
+            elif claimed_transport in owned and claimed_transport in TRANSPORT_CAPACITY:
+                capacity = TRANSPORT_CAPACITY[claimed_transport]
+            else:
+                capacity = TRANSPORT_CAPACITY['bike']  # неизвестный/непринадлежащий транспорт — минимальная вместимость
+            if salt_qty + knife_qty > capacity:
                 rejected += 1
                 continue
             cost = round((salt_qty * 1 + knife_qty * 3) * mult * 100) / 100
