@@ -1401,6 +1401,12 @@ async def process_actions(request):
     upg_levels = sv.get('upgLevels') or {}
     if not isinstance(upg_levels, dict):
         upg_levels = {}
+    orig_upg_levels = {loc_k: dict(lv) for loc_k, lv in upg_levels.items() if isinstance(lv, dict)}  # копия ДО
+    # изменений этим запросом — нужна ниже, чтобы на retry сливать апгрейды через "бери
+    # максимум", а не перезаписывать целиком (см. подтверждённый случай потери уровня
+    # удочки у @Alexander5551 — деньги списались и остались, а сам уровень апгрейда
+    # откатился, потому что upgLevels писался абсолютным значением без учёта параллельных
+    # запросов, в отличие от coins/energy, которые уже были защищены).
     ulocs = sv.get('ulocs') or ['pond']
     is_prem = await is_premium(real_user_id)
     max_energy = 150 if is_prem else 100
@@ -2027,7 +2033,6 @@ async def process_actions(request):
             total_earned_delta = total_earned - float(sv.get('totalEarned', 0) or 0)
             energy_action_delta = energy - energy_after_regen_at_start
             other_fields = {
-                "upgLevels": upg_levels,
                 "unsoldCaught": round(unsold * 100) / 100,
                 **extra_fields
             }
@@ -2133,6 +2138,26 @@ async def process_actions(request):
                 # изменения поверх свежепрочитанного fresh_sv на стороне Python, чтобы не
                 # стереть остальные поля сейва (транспорт, кухню, рефералку и т.д.).
                 merged = dict(fresh_sv)
+                # upgLevels сливаем ПО МАКСИМУМУ уровня, а не перезаписываем целиком нашим
+                # снимком из начала запроса — иначе конкурентный запрос (например, другая
+                # покупка апгрейда в параллельной вкладке/повторе сети) мог откатить уже
+                # купленный уровень обратно, пока сам баланс монет уже был защищён и
+                # оставался списанным. Подтверждённый случай: @Alexander5551 — 60,000
+                # монет списались и остались списанными, а купленный 5й уровень удочки
+                # откатился обратно на 4й. Уровни апгрейдов только растут, поэтому "взять
+                # максимум" всегда безопасно и корректно объединяет два параллельных
+                # изменения, а не выбирает случайно то, что записалось последним.
+                merged_upg = {lk: dict(lv) for lk, lv in (fresh_sv.get('upgLevels') or {}).items() if isinstance(lv, dict)}
+                for loc_k, lv in upg_levels.items():
+                    if not isinstance(lv, dict):
+                        continue
+                    orig_lv = orig_upg_levels.get(loc_k, {})
+                    for upg_k, final_level in lv.items():
+                        if final_level != orig_lv.get(upg_k):
+                            if loc_k not in merged_upg:
+                                merged_upg[loc_k] = {}
+                            cur_fresh_level = merged_upg[loc_k].get(upg_k, 0)
+                            merged_upg[loc_k][upg_k] = max(cur_fresh_level, final_level)
                 merged.update({
                     "coins": coins,
                     "caught": caught,
@@ -2140,6 +2165,7 @@ async def process_actions(request):
                     "energy": round(energy * 100) / 100,
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
+                    "upgLevels": merged_upg,
                     **other_fields,
                     **bonus_fields
                 })
