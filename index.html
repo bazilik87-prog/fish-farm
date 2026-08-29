@@ -27,11 +27,12 @@ html{overflow-x:hidden;width:100%}
 .loc-btn.active{background:#1565c0;border-color:#1565c0;color:#fff}
 .loc-btn.locked{opacity:.4;cursor:not-allowed}
 #stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 10px;background:#16213e}
-.st{background:#0f3460;border-radius:10px;padding:8px 4px;text-align:center}
+.st{background:#0f3460;border-radius:10px;padding:5px 4px;text-align:center}
 .st b{display:block;font-size:15px;font-weight:700;color:#fff}
 .st span{font-size:10px;color:#90caf9}
-#tabs{display:flex;background:#16213e;border-bottom:1px solid #0f3460}
-.tab{flex:1;padding:10px 2px;text-align:center;font-size:18px;cursor:pointer;color:#90caf9;border-bottom:2px solid transparent;touch-action:manipulation}
+#tabs{display:grid;grid-template-columns:repeat(5,1fr);background:#16213e;border-bottom:1px solid #0f3460}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 2px 6px;text-align:center;font-size:22px;cursor:pointer;color:#90caf9;border-bottom:2px solid transparent;touch-action:manipulation}
+.tab .tab-label{font-size:9px;font-weight:600;line-height:1;letter-spacing:0.1px;white-space:nowrap}
 .tab.active{color:#FFD700;border-bottom-color:#FFD700}
 #content{padding:10px;padding-bottom:20px}
 .card{background:#0f3460;border-radius:12px;padding:12px;margin-bottom:8px}
@@ -138,7 +139,7 @@ html{overflow-x:hidden;width:100%}
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="refcontest-banner-btn">Мой счёт →</div>
 </div>
 <div id="loc-bar"></div>
-<div id="next-loc-progress"></div>
+<div id="next-loc-progress" style="background:#16213e;padding:4px 0 1px"></div>
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span id="lbl-coins">🪙 монет</span></div>
   <div class="st"><b id="s-live">0</b><span id="lbl-live">🐠 живых</span></div>
@@ -147,16 +148,16 @@ html{overflow-x:hidden;width:100%}
 </div>
 <div id="energy-bar" style="padding:6px 10px;background:#16213e"></div>
 <div id="tabs">
-  <div class="tab active" onclick="showTab('upgrades')">⬆️</div>
-  <div class="tab" onclick="showTab('aquarium')">🐠</div>
-  <div class="tab" onclick="showTab('kitchen')">🍳</div>
-  <div class="tab" onclick="showTab('market')">🏪</div>
-  <div class="tab" onclick="showTab('daily')">🎁</div>
-  <div class="tab" onclick="showTab('quests')">📋</div>
-  <div class="tab" onclick="showTab('boosts')">⚡</div>
-  <div class="tab" onclick="showTab('leaders')">🏆</div>
-  <div class="tab" onclick="showTab('locations')">🗺</div>
-  <div class="tab" onclick="showTab('settings')">⚙️</div>
+  <div class="tab active" onclick="showTab('upgrades')"><span>⬆️</span><span class="tab-label" id="tab-lbl-upgrades"></span></div>
+  <div class="tab" onclick="showTab('aquarium')"><span>🐠</span><span class="tab-label" id="tab-lbl-aquarium"></span></div>
+  <div class="tab" onclick="showTab('kitchen')"><span>🍳</span><span class="tab-label" id="tab-lbl-kitchen"></span></div>
+  <div class="tab" onclick="showTab('market')"><span>🏪</span><span class="tab-label" id="tab-lbl-market"></span></div>
+  <div class="tab" onclick="showTab('daily')"><span>🎁</span><span class="tab-label" id="tab-lbl-daily"></span></div>
+  <div class="tab" onclick="showTab('quests')"><span>📋</span><span class="tab-label" id="tab-lbl-quests"></span></div>
+  <div class="tab" onclick="showTab('boosts')"><span>⚡</span><span class="tab-label" id="tab-lbl-boosts"></span></div>
+  <div class="tab" onclick="showTab('leaders')"><span>🏆</span><span class="tab-label" id="tab-lbl-leaders"></span></div>
+  <div class="tab" onclick="showTab('locations')"><span>🗺</span><span class="tab-label" id="tab-lbl-locations"></span></div>
+  <div class="tab" onclick="showTab('settings')"><span>⚙️</span><span class="tab-label" id="tab-lbl-settings"></span></div>
 </div>
 <div id="content" style="overflow-x:hidden;word-break:break-word"></div>
 
@@ -217,7 +218,17 @@ function applyStaticTranslations() {
     'tournament-banner-btn': t('Топ →', 'Top →'),
     'refcontest-banner-title': t('Реферальный конкурс', 'Referral contest'),
     'refcontest-banner-btn': t('Мой счёт →', 'My score →'),
-    'weather-text': weatherName(currentWeather.id)
+    'weather-text': weatherName(currentWeather.id),
+    'tab-lbl-upgrades': t('Апгрейды', 'Upgrades'),
+    'tab-lbl-aquarium': t('Рыбы', 'Fish'),
+    'tab-lbl-kitchen': t('Кухня', 'Kitchen'),
+    'tab-lbl-market': t('Рынок', 'Market'),
+    'tab-lbl-daily': t('Бонус', 'Daily'),
+    'tab-lbl-quests': t('Квесты', 'Quests'),
+    'tab-lbl-boosts': t('Бустеры', 'Boosts'),
+    'tab-lbl-leaders': t('Лидеры', 'Leaders'),
+    'tab-lbl-locations': t('Локации', 'Locations'),
+    'tab-lbl-settings': t('Настройки', 'Settings')
   };
   for (var id in map) { var el=document.getElementById(id); if(el) el.textContent=map[id]; }
 }
