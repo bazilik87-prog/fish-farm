@@ -3907,19 +3907,20 @@ function renderLeaders() {
     var tournamentLive = !!(tourn && tourn.active && tourn.endsAt > Date.now());
     var baseline = (tourn && tourn.baseline) || {};
 
-    firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
-      var entries = [];
-      snap.forEach(function(child) { var v=child.val(); if (v && v.userId) entries.push({id:child.key, data:v}); });
-      entries.sort(function(a,b){ return (b.data&&b.data.caught||0) - (a.data&&a.data.caught||0); });
+    // Турнирный расчёт — ВСЕГДА по полному leaderboard, независимо от того, кто
+    // топ-50 по caught. Раньше турнирная таблица строилась из того же среза, что и
+    // обычный рейтинг ловцов (top-50 по caught), из-за чего игроки, зарабатывающие
+    // в основном рефералами (мало личных уловов) и потому не входящие в top-50 по
+    // caught, вообще не могли попасть в турнирную таблицу — даже с реальным
+    // приростом totalEarned выше, чем у половины участников. Сервер (/tournamentstats
+    // в bot.py) всегда читал leaderboard целиком, без этого фильтра — расхождение
+    // между тем, что видел админ в боте, и тем, что видели игроки в игре.
+    if (tournamentLive) {
+      firebaseDB.ref('leaderboard').once('value', function(fullSnap) {
+        var allEntries = [];
+        fullSnap.forEach(function(child) { var v=child.val(); if (v && v.userId) allEntries.push({id:child.key, data:v}); });
 
-      if (entries.length === 0) {
-        document.getElementById('leaders-list').innerHTML =
-          '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">'+t('Пока никого нет 🐟<br>Будь первым!','No one yet 🐟<br>Be the first!')+'</div>';
-        return;
-      }
-
-      if (tournamentLive) {
-        var tEntries = entries.map(function(e) {
+        var tEntries = allEntries.map(function(e) {
           return {id:e.id, data:e.data, delta:((e.data&&e.data.totalEarned)||0)-(baseline[e.id]||0)};
         }).filter(function(e){ return e.delta > 0; });
         tEntries.sort(function(a,b){ return b.delta - a.delta; });
@@ -3950,6 +3951,18 @@ function renderLeaders() {
         }
         tHtml += '</div>';
         document.getElementById('tournament-section').innerHTML = tHtml;
+      });
+    }
+
+    firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
+      var entries = [];
+      snap.forEach(function(child) { var v=child.val(); if (v && v.userId) entries.push({id:child.key, data:v}); });
+      entries.sort(function(a,b){ return (b.data&&b.data.caught||0) - (a.data&&a.data.caught||0); });
+
+      if (entries.length === 0) {
+        document.getElementById('leaders-list').innerHTML =
+          '<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">'+t('Пока никого нет 🐟<br>Будь первым!','No one yet 🐟<br>Be the first!')+'</div>';
+        return;
       }
 
       var html = '';
