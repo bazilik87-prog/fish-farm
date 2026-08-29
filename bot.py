@@ -1904,7 +1904,9 @@ async def process_actions(request):
                                 if new_ref_total_earned is not None:
                                     try:
                                         await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
-                                            "totalEarned": round(new_ref_total_earned)
+                                            "totalEarned": round(new_ref_total_earned),
+                                            "coins": round(float(ref_merged.get('coins', 0) or 0)),
+                                            "userId": int(referrer_id)
                                         })
                                     except Exception:
                                         pass
@@ -2918,6 +2920,41 @@ async def starttournament_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('fixlbuid'))
+async def fixlbuid_command(message: types.Message):
+    """
+    Точечный фикс: если запись leaderboard/{pid} существует, но в ней нет userId
+    (например, из-за старого частичного PATCH, который создал узел только с одним
+    полем) — /tournamentstats и другие места молча пропускают такого игрока.
+    Эта команда просто дописывает userId, не трогая totalEarned/coins.
+    Использование: /fixlbuid 8791844749
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование:\n<code>/fixlbuid 8791844749</code>", parse_mode="HTML")
+        return
+    target_id = args[1]
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            lb_url = f"{base}/leaderboard/tg_{target_id}.json{FB_AUTH}"
+            async with session.get(lb_url) as resp:
+                lb_entry = await resp.json()
+            if not lb_entry:
+                await message.answer(f"❌ Записи leaderboard/tg_{target_id} не существует вообще — тут нужен полноценный /actions от игрока, а не точечный фикс.")
+                return
+            if lb_entry.get('userId'):
+                await message.answer(f"У {target_id} userId уже на месте ({lb_entry.get('userId')}), ничего не делал.")
+                return
+            await session.patch(lb_url, json={"userId": int(target_id)})
+        await message.answer(f"✅ {target_id}: userId проставлен в leaderboard. totalEarned/coins не трогал.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('addtotalearned'))
 async def addtotalearned_command(message: types.Message):
     """
@@ -2967,7 +3004,9 @@ async def addtotalearned_command(message: types.Message):
 
             try:
                 await session.patch(f"{base}/leaderboard/tg_{target_id}.json{FB_AUTH}", json={
-                    "totalEarned": round(new_total_earned)
+                    "totalEarned": round(new_total_earned),
+                    "coins": round(float(merged.get('coins', 0) or 0)),
+                    "userId": int(target_id)
                 })
             except Exception:
                 pass
@@ -3046,7 +3085,9 @@ async def fixmissedref_command(message: types.Message):
             # Синхронизируем лидерборд тем же значением
             try:
                 await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
-                    "totalEarned": round(new_total_earned)
+                    "totalEarned": round(new_total_earned),
+                    "coins": round(float(merged.get('coins', 0) or 0)),
+                    "userId": int(referrer_id)
                 })
             except Exception:
                 pass
