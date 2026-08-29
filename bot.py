@@ -890,6 +890,22 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             except Exception:
                 break  # не смогли записать — лучше не начислить молча дважды, чем гадать
 
+        # Диагностический лог — та же цель, что в lottery_spin: чтобы честные призы за
+        # Stars не путались с подозрительными "скачками" при последующем аудите баланса.
+        try:
+            coins_before_log = round(float(sv.get('coins', 0) or 0) * 100) / 100
+            coins_after_log = round(float(merged.get('coins', sv.get('coins', 0)) or 0) * 100) / 100
+            await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                "ts": int(time_module.time() * 1000),
+                "coins_before": coins_before_log,
+                "coins_after": coins_after_log,
+                "n_actions": 1,
+                "src": f"lottery_{via}",
+                "prize": prize.get('kind')
+            })
+        except Exception:
+            pass
+
         if prize['kind'] == 'jackpot':
             await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
             await broadcast_jackpot_win(username, prize['amount'])
@@ -1214,6 +1230,26 @@ async def lottery_spin(request):
                     break
             else:
                 return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+
+            # Диагностический лог — та же цель, что и action_logs в process_actions:
+            # чтобы честные выигрыши лотереи не путались с подозрительными "скачками"
+            # при последующем аудите (раньше /lottery_spin вообще не попадал в этот лог,
+            # и любой реальный приз выглядел как необъяснимое расхождение — см. разбор
+            # @griinn80, где +600/+300/+1000 оказались честными призами лотереи).
+            # Обёрнуто в отдельный try — сбой записи лога не должен ломать сам розыгрыш.
+            try:
+                coins_before_log = round(float(sv.get('coins', 0) or 0) * 100) / 100
+                coins_after_log = round(float(merged.get('coins', sv.get('coins', 0)) or 0) * 100) / 100
+                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                    "ts": now_ms,
+                    "coins_before": coins_before_log,
+                    "coins_after": coins_after_log,
+                    "n_actions": 1,
+                    "src": f"lottery_{via}",
+                    "prize": prize.get('kind')
+                })
+            except Exception:
+                pass
 
             # Джекпот — отдельный глобальный путь, свой маленький retry на случай
             # одновременного роста/сброса от нескольких игроков разом.
@@ -1561,6 +1597,10 @@ async def process_actions(request):
                             async with s.delete(url, headers=headers) as dresp:
                                 if dresp.status == 412:
                                     continue  # кто-то уже забрал это между нашим чтением и удалением
+                                if dresp.status not in (200, 204):
+                                    return None  # DELETE не подтверждён — не начисляем вслепую,
+                                    # лучше недодать в этот раз, чем задвоить, если удаление
+                                    # на самом деле не прошло (например, кратковременный сбой Firebase)
                                 return data
                     return None
 
@@ -3579,11 +3619,14 @@ async def actionlog_command(message: types.Message):
                 before = entry.get('coins_before', 0)
                 after = entry.get('coins_after', 0)
                 n = entry.get('n_actions', '?')
+                src = entry.get('src')  # 'lottery_ad'/'lottery_premium'/'lottery_star' — помечаем отдельно,
+                # чтобы честные призы лотереи не путались с подозрительными скачками при аудите
+                src_label = f" [{src}:{entry.get('prize')}]" if src else ""
                 # Помечаем подозрительные случаи: этот запрос начал считать НЕ от того
                 # баланса, на котором закончился предыдущий обработанный запрос — явный
                 # признак гонки (второй запрос не увидел результат первого).
                 mismatch = " ⚠️ РАСХОЖДЕНИЕ" if (prev_after is not None and abs(before - prev_after) > 0.01) else ""
-                all_lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){mismatch}")
+                all_lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){src_label}{mismatch}")
                 prev_after = after
 
             # Telegram режет сообщения длиннее 4096 символов — за активный день может
