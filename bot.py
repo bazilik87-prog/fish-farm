@@ -815,12 +815,13 @@ def pick_lottery_prize(mult, jackpot):
     prizes = [
         {'kind': 'coins', 'amount': c1, 'label': f'🪙 {c1:,} монет', 'weight': 40},
         {'kind': 'coins', 'amount': c2, 'label': f'🪙 {c2:,} монет', 'weight': 25},
-        {'kind': 'fish', 'amount': f1, 'label': f'🐟 {f1:,} рыб на склад', 'weight': 15},
+        {'kind': 'fish', 'amount': f1, 'label': f'🐟 {f1:,} рыб на склад', 'weight': 45},
         {'kind': 'salt', 'amount': s1, 'label': f'🧂 {s1:,} соли на склад', 'weight': 10},
         {'kind': 'knife', 'amount': k1, 'label': f'🔪 {k1:,} ножей на склад', 'weight': 7},
         {'kind': 'truck_ticket', 'amount': 1, 'label': '🚛 Билет на аренду грузовика (12ч)', 'weight': 3},
+        {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 30},
         {'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
-         'weight': 1.0101 if jackpot >= 200 else 0.1},
+         'weight': 1.616162 if jackpot >= 200 else 0.16016},
     ]
     total = sum(p['weight'] for p in prizes)
     r = random.random() * total
