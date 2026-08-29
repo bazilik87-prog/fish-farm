@@ -2954,12 +2954,24 @@ function showLotteryResult(title, prize, color, isJackpot) {
 // Приз лотереи теперь ВСЕГДА решает сервер (pick_lottery_prize в bot.py) — рулетка
 // на клиенте больше не крутится. Эта функция только отображает и локально применяет
 // уже готовый результат (для мгновенного UI — реальные данные сервер уже записал сам).
+function localizedPrizeLabel(prize) {
+  // Сервер всегда присылает label на русском (это его внутренний, не переведённый текст) —
+  // раньше он показывался как есть даже в англоязычном интерфейсе. Строим подпись сами,
+  // на основе prize.kind/prize.amount, которые сервер тоже присылает.
+  if (prize.kind === 'coins') return '🪙 '+fmt(prize.amount)+t(' монет',' coins');
+  if (prize.kind === 'fish') return '🐟 '+fmt(prize.amount)+t(' рыб на склад',' fish to storage');
+  if (prize.kind === 'salt') return '🧂 '+fmt(prize.amount)+t(' соли на склад',' salt to storage');
+  if (prize.kind === 'knife') return '🔪 '+fmt(prize.amount)+t(' ножей на склад',' knives to storage');
+  if (prize.kind === 'truck_ticket') return '🚛 '+t('Билет на аренду грузовика (12ч)','Truck rental ticket (12h)');
+  if (prize.kind === 'boot') return '👢 '+t('Дырявый сапог... в следующий раз повезёт!','Leaky boot... better luck next time!');
+  return prize.label; // запасной вариант на случай нового/неизвестного типа приза
+}
 function displayServerLotteryPrize(prize) {
   if (!prize) return;
   addQuestProgress('boost', 1);
   if (prize.kind === 'jackpot') {
     window._jackpotCache = 50;
-    showLotteryResult('⭐ ДЖЕКПОТ!', prize.amount + ' Stars', '#FFD700', true);
+    showLotteryResult(t('⭐ ДЖЕКПОТ!','⭐ JACKPOT!'), prize.amount + ' Stars', '#FFD700', true);
     showNotif(t('⭐ ДЖЕКПОТ! Выигрыш ','⭐ JACKPOT! Won ')+prize.amount+t(' Stars — жди перевода от администратора!',' Stars — wait for admin transfer!'));
   } else {
     if (prize.kind === 'coins') {
@@ -2981,8 +2993,8 @@ function displayServerLotteryPrize(prize) {
       state.truckTickets = (state.truckTickets||0) + 1;
       showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
     }
-    showLotteryResult('🎰 Результат', prize.label, '#b794f6', false);
-    showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+prize.label);
+    showLotteryResult(t('🎰 Результат','🎰 Result'), localizedPrizeLabel(prize), '#b794f6', false);
+    showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+localizedPrizeLabel(prize));
   }
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
