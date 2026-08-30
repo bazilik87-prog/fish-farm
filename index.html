@@ -718,6 +718,13 @@ function maxUnlockedMult() {
   }
   return best;
 }
+function maxWithdrawCap() {
+  // Потолок растёт как mult^2 для честного Stars-за-GRAM на всех локациях, КРОМЕ
+  // Реки — там оставлен как на Пруду (50,000) по отдельной просьбе.
+  var m = maxUnlockedMult();
+  if (m === 2) return 50000;
+  return 50000 * m * m;
+}
 // Порядковый номер (1-5) самой продвинутой открытой локации — зеркалит get_location_order() на бэке,
 // используется только для ОТОБРАЖЕНИЯ цены лотереи; реальную цену всё равно считает сервер.
 var LOCATION_ORDER = {pond:1, river:2, tropics:3, deep:4, space:5};
@@ -3305,9 +3312,9 @@ function renderBank() {
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">💎</div><div style="font-size:13px;color:#90caf9;margin-top:4px">GRAM</div></div>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма обмена (монеты):','Exchange amount (coins):')+'</div>'
-      +'<div style="font-size:11px;color:#666;margin-bottom:6px">'+t('От 1,000 до 50,000 монет за один вывод','From 1,000 to 50,000 coins per withdrawal')+'</div>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:6px">'+t('От 1,000 до ','From 1,000 to ')+maxWithdrawCap().toLocaleString('ru-RU')+t(' монет за один вывод',' coins per withdrawal')+'</div>'
       +'<div style="display:flex;gap:8px;margin-bottom:12px">'
-        +'<input id="ex-amount" type="number" min="1000" max="'+Math.min(50000,coins)+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
+        +'<input id="ex-amount" type="number" min="1000" max="'+Math.min(maxWithdrawCap(),coins)+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
         +'<button class="btn" onclick="setBankMax()">'+t('Макс','Max')+'</button>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Твой TON кошелёк:','Your TON wallet:')+'</div>'
@@ -3374,20 +3381,23 @@ function updateBankPreview() {
   var input=document.getElementById('ex-amount');
   var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
   var rate=100000*maxUnlockedMult();
-  var gram=(val/rate).toFixed(5);
+  var gram=val/rate;
+  var starsPerGram=isPremiumActive()?6:10;
+  var fee=Math.max(1,Math.round(starsPerGram*gram));
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram+' GRAM</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram.toFixed(5)+' GRAM</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>';
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
-  if(input){input.value=Math.min(50000,Math.floor(state.coins));updateBankPreview();}
+  if(input){input.value=Math.min(maxWithdrawCap(),Math.floor(state.coins));updateBankPreview();}
 }
 function exchangeCoins() {
   var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
   var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
   var wallet=wi?wi.value.trim():'';
+  var maxWithdraw=maxWithdrawCap();
   if(amount<1000){showNotif(t('❌ Минимальная сумма вывода — 1,000 монет!','❌ Minimum withdrawal — 1,000 coins!'));return;}
-  if(amount>50000){showNotif(t('❌ Максимальная сумма за один вывод — 50,000 монет!','❌ Maximum per withdrawal — 50,000 coins!'));return;}
+  if(amount>maxWithdraw){showNotif(t('❌ Максимальная сумма за один вывод — ','❌ Maximum per withdrawal — ')+maxWithdraw.toLocaleString('ru-RU')+t(' монет!',' coins!'));return;}
   if(amount<1||state.coins<1){showNotif(t('Недостаточно монет!','Not enough coins!'));return;}
   if(!wallet||wallet.length<10){showNotif(t('Введи TON кошелёк!','Enter your TON wallet!'));return;}
   if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif(t('Кошелёк должен начинаться с UQ или EQ','Wallet must start with UQ or EQ'));return;}
@@ -4228,7 +4238,7 @@ function showInstructions() {
     +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо в разделе Бустеры — цена билета (⭐1–5) растёт вместе с самой дальней открытой локацией. Призы (монеты/рыба/соль/ножи тоже растут вместе с локацией, джекпот — нет): 🐟100 рыб (28%) · 🪙300 (25%) · 👢 дырявый сапог, пусто (19%) · 🪙500 (15%) · 🧂15 соли (6%) · 🔪15 ножей (4%) · 🚛 бесплатная аренда грузовика на 12ч (2%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel in the Boosters section — ticket price (⭐1–5) grows with your furthest unlocked location. Prizes (coins/fish/salt/knives also scale with your location, jackpot doesn\'t): 🐟100 fish (28%) · 🪙300 (25%) · 👢 leaky boot, nothing (19%) · 🪙500 (15%) · 🧂15 salt (6%) · 🔪15 knives (4%) · 🚛 free truck rental for 12h (2%) · ⭐ Stars jackpot (~1%).')+'<br>'
     +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br>'
     +t('📺 Раз в час можно крутить лотерею бесплатно за просмотр рекламы — шанс выиграть джекпот такой же, как при обычной крутке, только сам джекпот от этой крутки не растёт.','📺 Once per hour you can spin the lottery for free by watching an ad — the jackpot odds are the same as a paid spin, but that spin doesn\'t grow the jackpot.')+'<br><br>'
-    +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на GRAM. Курс зависит от твоей самой продвинутой открытой локации: Пруд — 100,000:1 · Река — 200,000:1 · Тропики — 500,000:1 · Глубины — 1,500,000:1 · Космос — 5,000,000:1 монет за 1 GRAM. Укажи сумму (от 1,000 до 50,000 монет за один вывод) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 5⭐ (Premium: 3⭐), умноженная на множитель твоей самой продвинутой локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Например, в Космосе: 250⭐ обычным игрокам, 150⭐ для Premium.','Exchange coins for GRAM. The rate depends on your furthest unlocked location: Pond — 100,000:1 · River — 200,000:1 · Tropics — 500,000:1 · Deep — 1,500,000:1 · Space — 5,000,000:1 coins per 1 GRAM. Enter an amount (1,000 to 50,000 coins per withdrawal) and your TON wallet — GRAM is sent manually by the admin within 24h. Fee — 5⭐ (Premium: 3⭐), multiplied by your furthest unlocked location\'s multiplier (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). E.g., in Space: 250⭐ for regular players, 150⭐ for Premium.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на GRAM. Курс и потолок вывода зависят от твоей самой продвинутой открытой локации: Пруд — 100,000:1, потолок 50,000 монет · Река — 200,000:1, потолок 50,000 · Тропики — 500,000:1, потолок 1,250,000 · Глубины — 1,500,000:1, потолок 11,250,000 · Космос — 5,000,000:1, потолок 125,000,000 монет за один вывод. Укажи сумму (от 1,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч. Комиссия — 10⭐ за 1 GRAM (Premium: 6⭐), считается от реальной суммы вывода.','Exchange coins for GRAM. The rate and withdrawal cap depend on your furthest unlocked location: Pond — 100,000:1, cap 50,000 coins · River — 200,000:1, cap 50,000 · Tropics — 500,000:1, cap 1,250,000 · Deep — 1,500,000:1, cap 11,250,000 · Space — 5,000,000:1, cap 125,000,000 coins per withdrawal. Enter an amount (1,000 coins minimum) and your TON wallet — GRAM is sent manually by the admin within 24h. Fee — 10⭐ per 1 GRAM (Premium: 6⭐), calculated from the actual withdrawal amount.')+'<br><br>'
     +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
     +'<b style="color:#fff">'+t('👋 Бонус за возвращение','👋 Comeback bonus')+'</b><br>'+t('Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.','If you haven\'t logged in for 3+ days — your next visit gives you a coin gift: 3-6 days away — 🪙200, 7-13 days — 🪙500, 14+ days — 🪙1000.')+'<br><br>'
