@@ -3588,6 +3588,7 @@ async def comm_command(message: types.Message):
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
+        "/actionlog @username [ДД.MM] — журнал действий игрока (по МСК-дате, опционально)\n"
         "/maintenance on|off — включить/выключить технические работы\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"

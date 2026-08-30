@@ -964,8 +964,15 @@ function save() {
     // весь .set() целиком будет отклонён, и перестанет сохраняться вообще всё остальное).
     if (firebaseDB) {
       var fbSaveData = {};
+      // lastSeen НЕ пишем отсюда — этим полем управляет только сервер (/actions), который
+      // читает его ОДИН раз в начале запроса для расчёта офлайн-дохода и комбэк-бонуса за
+      // реальное время отсутствия. Раньше клиент писал lastSeen сюда напрямую (и ещё
+      // отдельно через /sync) — это сбрасывало отсчёт отсутствия на "сейчас" уже через
+      // пару секунд после открытия игры, до того как игрок успевал забрать комбэк-бонус,
+      // и он честно отклонялся сервером ("прошло 0 дней"). Подтверждённый случай:
+      // ID 8824257585 — бонус +500 показан, но не начислен после 8 дней отсутствия.
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2' || fbKey==='lastSeen') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       // Firebase отклоняет ЦЕЛИКОМ весь update(), если хоть где-то внутри есть undefined
