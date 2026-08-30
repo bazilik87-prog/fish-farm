@@ -384,14 +384,11 @@ async def create_invoice(request):
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
-            # Комиссия теперь пропорциональна не только локации, но и самой сумме вывода —
-            # раньше это был плоский взнос за локацию (одни и те же 5⭐ что за 1,000, что
-            # за весь потолок в 50,000 монет на Пруду). 10⭐ за 1 GRAM (6⭐ для Premium) —
-            # тот же курс, что уже заложен в потолок вывода выше, так что цена в Stars за
-            # 1 GRAM остаётся одинаковой на любой локации И при любой сумме вывода.
-            stars_per_gram = 6 if await is_premium(user_id) else 10
-            rate = 100000 * loc_mult
-            fee = max(1, round(stars_per_gram * (coins / rate)))
+            # Комиссия фиксированная по локации (5⭐/10⭐/25⭐/75⭐/250⭐ на Пруду/Реке/
+            # Тропиках/Глубинах/Космосе, Premium — 3/6/15/45/150⭐), НЕ зависит от суммы
+            # вывода — один и тот же взнос что за 1,000 монет, что за весь потолок.
+            base_fee = 3 if await is_premium(user_id) else 5
+            fee = base_fee * loc_mult
             link = await bot.create_invoice_link(
                 title="GRAM Exchange",
                 description=f"{coins} coins to GRAM",
