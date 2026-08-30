@@ -1149,7 +1149,9 @@ async def lottery_spin(request):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
     now_ms = int(time.time() * 1000)
-    today = time.strftime('%Y-%m-%d', time.gmtime(now_ms / 1000))
+    today = time.strftime('%Y-%m-%d', time.gmtime((now_ms + 3 * 3600000) / 1000))  # МСК, не UTC —
+    # иначе "новый день" для бесплатной Premium-крутки наступал в 03:00 МСК вместо полуночи,
+    # тот же класс несостыковки, что чинили для ежедневного бонуса.
     saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
 
     try:
