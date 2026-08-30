@@ -109,6 +109,43 @@ BOOST_PRICES = {
     'truckRental': 5,
     'energyFull': 5,
 }
+# Бусты, растущие в цене вместе с локацией — начиная с Тропиков (order>=3).
+# repairAll: +2⭐ за локацию (Пруд/Река 2⭐, Тропики 4⭐, Глубины 6⭐, Космос 10⭐ — особое значение).
+# Остальные обычные бусты: +1⭐ за локацию (Пруд/Река 1⭐, Тропики 2⭐, Глубины 3⭐, Космос 5⭐ — особое значение).
+SCALING_BOOST_STEP = {
+    'doubleTap': 1, 'turboDry': 1, 'luckyRod': 1, 'turboSpeed': 1,
+    'turboPack': 1, 'instantDelivery': 1,
+    'repairAll': 2,
+}
+# В Космосе (order=5) цена не по формуле база+step*3, а заданное вручную значение —
+# обычные бусты ⭐5, ремонт ⭐10 (просьба Sasha).
+SPACE_PRICE_OVERRIDE = {
+    'doubleTap': 5, 'turboDry': 5, 'luckyRod': 5, 'turboSpeed': 5,
+    'turboPack': 5, 'instantDelivery': 5,
+    'repairAll': 10,
+}
+# Бусты с нелинейной прогрессией цены — фиксированная таблица по order (1..5):
+# Пруд/Река 5⭐, Тропики 10⭐, Глубины 15⭐, Космос 25⭐.
+CUSTOM_SCALED_BOOST_PRICES = {
+    'truckRental': {1: 5, 2: 5, 3: 10, 4: 15, 5: 25},
+    'energyFull':  {1: 5, 2: 5, 3: 10, 4: 15, 5: 25},
+}
+
+def scaled_boost_price(boost_id, base_price, location_order):
+    """Базовая цена не меняется на Пруду/Реке (order 1-2). С Тропиков (order>=3)
+    растёт на step⭐ за каждую локацию дальше Реки, а в Космосе (order=5) берётся
+    заданное вручную значение из SPACE_PRICE_OVERRIDE. Считаем на сервере по
+    location_order из get_location_order(), не доверяя клиенту."""
+    table = CUSTOM_SCALED_BOOST_PRICES.get(boost_id)
+    if table:
+        return table.get(location_order, base_price)
+    if location_order == 5 and boost_id in SPACE_PRICE_OVERRIDE:
+        return SPACE_PRICE_OVERRIDE[boost_id]
+    step = SCALING_BOOST_STEP.get(boost_id)
+    if not step:
+        return base_price
+    extra_steps = max(0, location_order - 2)
+    return base_price + step * extra_steps
 PREMIUM_PRICE = 250  # ⭐/месяц
 REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
 
@@ -406,7 +443,12 @@ async def create_invoice(request):
             if boost_id == 'lottery':
                 price = await get_location_order(user_id)
             else:
-                price = BOOST_PRICES.get(boost_id, 1)
+                base_price = BOOST_PRICES.get(boost_id, 1)
+                if boost_id in SCALING_BOOST_STEP or boost_id in CUSTOM_SCALED_BOOST_PRICES:
+                    location_order = await get_location_order(user_id)
+                    price = scaled_boost_price(boost_id, base_price, location_order)
+                else:
+                    price = base_price
             payload = f"bo:{boost_id}:{user_id}"
             link = await bot.create_invoice_link(
                 title=name,

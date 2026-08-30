@@ -736,6 +736,24 @@ function maxUnlockedOrder() {
   }
   return best;
 }
+// Цена растущих бустеров: не меняется на Пруду/Реке (order 1-2), с Тропиков (order>=3)
+// растёт на step⭐ за каждую локацию дальше Реки, а в Космосе — заданное вручную значение.
+// Реальная цена (для оплаты) всегда считается на сервере в /invoice — эта функция
+// только для отображения на кнопке.
+var SPACE_PRICE_OVERRIDE_NORMAL = 5; // Космос: обычные бусты
+var SPACE_PRICE_OVERRIDE_REPAIR = 10; // Космос: ремонт транспорта
+function scaledBoostPrice(basePrice, step) {
+  var order = maxUnlockedOrder();
+  if (order === 5) return step === 2 ? SPACE_PRICE_OVERRIDE_REPAIR : SPACE_PRICE_OVERRIDE_NORMAL;
+  var extraSteps = Math.max(0, order - 2);
+  return basePrice + step * extraSteps;
+}
+// Нелинейная прогрессия цены (аренда грузовика, заполнение энергии):
+// Пруд/Река 5⭐, Тропики 10⭐, Глубины 15⭐, Космос 25⭐.
+var CUSTOM_SCALED_BOOST_PRICES = {1:5, 2:5, 3:10, 4:15, 5:25};
+function customScaledBoostPrice() {
+  return CUSTOM_SCALED_BOOST_PRICES[maxUnlockedOrder()] || 5;
+}
 // Комиссия банка растёт вместе с самой продвинутой открытой локацией — как и курс обмена
 function bankFeeAmount() {
   // Фиксированная комиссия по локации — НЕ зависит от суммы вывода.
@@ -1683,7 +1701,7 @@ function renderMarket() {
     var rh = Math.floor(rentalSecs/3600), rm = Math.floor((rentalSecs%3600)/60);
     trBtns += '<button class="btn '+(rentalSelected?'btn-green':'')+'" onclick="selectTransport(\'rentalTruck\')">🚛 '+t('Аренда','Rental')+(rentalSelected?' ✓':'')+' · <span id="rental-timer">'+rh+t('ч ','h ')+rm+t('м','m')+'</span></button>';
   } else {
-    trBtns += '<button class="btn btn-gold" onclick="buyBoost(\'truckRental\')">🚛 '+t('Арендовать ⭐5','Rent ⭐5')+'</button>';
+    trBtns += '<button class="btn btn-gold" onclick="buyBoost(\'truckRental\')">🚛 '+t('Арендовать ⭐','Rent ⭐')+customScaledBoostPrice()+'</button>';
     var hasTicket = (state.truckTickets||0) > 0;
     trBtns += '<button class="btn '+(hasTicket?'btn-green':'')+'" onclick="useTruckTicket()" '+(hasTicket?'':'disabled')+'>🎫 '+t('Аренда за билет (','Rent by ticket (')+(state.truckTickets||0)+')</button>';
   }
@@ -2806,44 +2824,44 @@ function renderBoosts() {
   var b = state.boosts;
   var boostList = [
     {
-      id:'doubleTap', name:t('Авто-буст','Auto-boost'), emoji:'⚡',
+      id:'doubleTap', name:t('Авто-буст','Auto-boost'), emoji:'⚡', price:scaledBoostPrice(1,1),
       desc:t('+2 к автодобыче в минуту на 1 час','+2 auto-income per minute for 1 hour'),
       active: b.doubleTap > now,
       timeLeft: b.doubleTap > now ? Math.ceil((b.doubleTap-now)/60000) : 0
     },
     {
-      id:'turboDry', name:t('Мгновенная сушка','Instant drying'), emoji:'🌡',
+      id:'turboDry', name:t('Мгновенная сушка','Instant drying'), emoji:'🌡', price:scaledBoostPrice(1,1),
       desc:t('Вся текущая сушка завершается мгновенно','All current drying finishes instantly'),
       active: false,
       timeLeft: 0
     },
     {
-      id:'luckyRod', name:t('Удачная рыбалка','Lucky fishing'), emoji:'🎣',
+      id:'luckyRod', name:t('Удачная рыбалка','Lucky fishing'), emoji:'🎣', price:scaledBoostPrice(1,1),
       desc:t('+50% шанс улова на 30 минут','+50% catch chance for 30 minutes'),
       active: b.luckyRod > now,
       timeLeft: b.luckyRod > now ? Math.ceil((b.luckyRod-now)/60000) : 0
     },
     {
-      id:'turboSpeed', name:t('Турбо скорость','Turbo speed'), emoji:'🏎',
+      id:'turboSpeed', name:t('Турбо скорость','Turbo speed'), emoji:'🏎', price:scaledBoostPrice(1,1),
       desc:t('×2 скорость транспорта на 1 час','×2 transport speed for 1 hour'),
       active: b.turboSpeed > now,
       timeLeft: b.turboSpeed > now ? Math.ceil((b.turboSpeed-now)/60000) : 0
     },
     {
-      id:'turboPack', name:t('Мгновенная упаковка','Instant packing'), emoji:'📦',
+      id:'turboPack', name:t('Мгновенная упаковка','Instant packing'), emoji:'📦', price:scaledBoostPrice(1,1),
       desc:t('Вся текущая упаковка завершается мгновенно','All current packing finishes instantly'),
       active: false,
       timeLeft: 0
     },
     {
-      id:'instantDelivery', name:t('Мгновенная доставка','Instant delivery'), emoji:'🚀',
+      id:'instantDelivery', name:t('Мгновенная доставка','Instant delivery'), emoji:'🚀', price:scaledBoostPrice(1,1),
       desc:t('Все активные доставки (твоя + водителя) завершаются мгновенно','All active deliveries (yours + driver) finish instantly'),
       active: false,
       timeLeft: 0,
       disabled: !state.delivery && !state.delivery2
     },
     {
-      id:'repairAll', name:t('Ремонт всего транспорта','Repair all transport'), emoji:'🔧', price:2,
+      id:'repairAll', name:t('Ремонт всего транспорта','Repair all transport'), emoji:'🔧', price:scaledBoostPrice(2,2),
       desc:t('Полностью чинит все виды транспорта разом','Fully repairs all vehicles at once'),
       active: false,
       timeLeft: 0,
@@ -2869,7 +2887,7 @@ function renderBoosts() {
     +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+Math.floor(state.energy)+' / '+eMax+' · '+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</div>'
     +'</div></div>'
     +'<div style="display:flex;gap:8px">'
-    +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐5 '+t('Заполнить','Fill up')+'</button>'
+    +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐'+customScaledBoostPrice()+' '+t('Заполнить','Fill up')+'</button>'
     +'<button class="btn" onclick="watchAdForEnergy()" style="flex:1;'+(adCooldownLeft>0||state.energy>=eMax?'opacity:0.5':'background:#1565c0')+'" '+(adCooldownLeft>0||state.energy>=eMax?'disabled':'')+'>📺 '+(adCooldownLeft>0?fmtTime(Math.ceil(adCooldownLeft/1000)):t('+25 за рекламу','+25 via ad'))+'</button>'
     +'</div></div>';
 
@@ -4214,7 +4232,7 @@ function showInstructions() {
     +'🚗 '+t('Машина — 50000🪙 · 40 рыб · 25 мин','Car — 50000🪙 · 40 fish · 25 min')+'<br>'
     +'🚛 '+t('Грузовик — 300000🪙 · 100 рыб · 40 мин','Truck — 300000🪙 · 100 fish · 40 min')+'<br>'
     +t('Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧','Each delivery -10% durability. 0% = broken, needs manual repair 🔧')+'<br>'
-    +'🚛 '+t('Грузовик с прицепом (аренда, ⭐5 на рынке рядом со списком транспорта) — 200 рыб · 15 мин · не изнашивается, действует 12 часов','Truck with trailer (rental, ⭐5 at the market next to the transport list) — 200 fish · 15 min · doesn\'t wear out, lasts 12 hours')+'<br><br>'
+    +'🚛 '+t('Грузовик с прицепом (аренда на рынке рядом со списком транспорта, ⭐5→5→10→15→25 по локации) — 200 рыб · 15 мин · не изнашивается, действует 12 часов','Truck with trailer (rental at the market next to the transport list, ⭐5→5→10→15→25 by location) — 200 fish · 15 min · doesn\'t wear out, lasts 12 hours')+'<br><br>'
     +'<b style="color:#fff">'+t('⬆️ Улучшения','⬆️ Upgrades')+'</b><br>'
     +'🎣 '+t('Удочка — увеличивает монеты за улов и шанс улова','Rod — increases coins per catch and catch chance')+'<br>'
     +'🕸 '+t('Сеть — +0.1 к автодобычи в минуту за уровень (макс 5 ур.)','Net — +0.1 auto-income per minute per level (max lvl 5)')+'<br>'
@@ -4232,15 +4250,16 @@ function showInstructions() {
     +'💰 <b style="color:#FFD700">'+t('Постоянный бонус','Ongoing bonus')+'</b> — '+t('каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 50% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙250 прямо на баланс','every time your referral withdraws coins via the Bank, you automatically get 50% of their withdrawal amount! Example: a friend withdraws 500 coins → you get 🪙250 straight to your balance')+'<br><br>'
     +t('Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.','All referral bonuses arrive automatically when you enter the game and show up in the notification history as 👥 Referral bonus.')+'<br>'
     +t('В разделе «Мои друзья» можно видеть кто уже присоединился!','In the "My friends" section you can see who has already joined!')+'<br><br>'
-    +'<b style="color:#fff">'+t('⚡ Бустеры','⚡ Boosters')+'</b><br>'+t('Временные усиления за ⭐ Telegram Stars (цена указана у каждого):','Temporary boosts for ⭐ Telegram Stars (price shown for each):')+'<br>'
-    +'⚡ '+t('Авто-буст (⭐1) — +2 к автодобыче в минуту на 1 час (итого +120 монет)','Auto-boost (⭐1) — +2 auto-income per minute for 1 hour (total +120 coins)')+'<br>'
-    +'🌡 '+t('Мгновенная сушка (⭐1) — все текущие пакеты досушиваются мгновенно','Instant drying (⭐1) — all current packs finish drying instantly')+'<br>'
-    +'🎣 '+t('Удачная рыбалка (⭐1) — +50% шанс улова на 30 мин','Lucky fishing (⭐1) — +50% catch chance for 30 min')+'<br>'
-    +'🏎 '+t('Турбо скорость (⭐1) — ×2 скорость транспорта на 1 час','Turbo speed (⭐1) — ×2 transport speed for 1 hour')+'<br>'
-    +'📦 '+t('Мгновенная упаковка (⭐1) — вся текущая упаковка филе завершается мгновенно','Instant packing (⭐1) — all current filet packing finishes instantly')+'<br>'
-    +'🚀 '+t('Мгновенная доставка (⭐1) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1) — all active deliveries (yours + driver) finish instantly')+'<br>'
-    +'🔧 '+t('Ремонт всего транспорта (⭐2) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2) — repairs bike, moped, car and truck all at once to 100%')+'<br><br>'
-    +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5 мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5 instantly, or free by watching an ad (+25 energy, available once every 10 minutes).')+'<br><br>'
+    +'<b style="color:#fff">'+t('⚡ Бустеры','⚡ Boosters')+'</b><br>'+t('Временные усиления за ⭐ Telegram Stars. Цена растёт вместе с самой дальней открытой локацией начиная с Тропиков — на Пруду и Реке цена базовая:','Temporary boosts for ⭐ Telegram Stars. Price grows with your furthest unlocked location starting from Tropics — base price on Pond and River:')+'<br>'
+    +'⚡ '+t('Авто-буст (⭐1→1→2→3→5) — +2 к автодобыче в минуту на 1 час (итого +120 монет)','Auto-boost (⭐1→1→2→3→5) — +2 auto-income per minute for 1 hour (total +120 coins)')+'<br>'
+    +'🌡 '+t('Мгновенная сушка (⭐1→1→2→3→5) — все текущие пакеты досушиваются мгновенно','Instant drying (⭐1→1→2→3→5) — all current packs finish drying instantly')+'<br>'
+    +'🎣 '+t('Удачная рыбалка (⭐1→1→2→3→5) — +50% шанс улова на 30 мин','Lucky fishing (⭐1→1→2→3→5) — +50% catch chance for 30 min')+'<br>'
+    +'🏎 '+t('Турбо скорость (⭐1→1→2→3→5) — ×2 скорость транспорта на 1 час','Turbo speed (⭐1→1→2→3→5) — ×2 transport speed for 1 hour')+'<br>'
+    +'📦 '+t('Мгновенная упаковка (⭐1→1→2→3→5) — вся текущая упаковка филе завершается мгновенно','Instant packing (⭐1→1→2→3→5) — all current filet packing finishes instantly')+'<br>'
+    +'🚀 '+t('Мгновенная доставка (⭐1→1→2→3→5) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1→1→2→3→5) — all active deliveries (yours + driver) finish instantly')+'<br>'
+    +'🔧 '+t('Ремонт всего транспорта (⭐2→2→4→6→10) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2→2→4→6→10) — repairs bike, moped, car and truck all at once to 100%')+'<br>'
+    +t('(цены указаны для Пруда → Реки → Тропиков → Глубин → Космоса)','(prices shown for Pond → River → Tropics → Deep → Space)')+'<br><br>'
+    +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5→5→10→15→25 (растёт с локацией) мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5→5→10→15→25 (grows with location) instantly, or free by watching an ad (+25 energy, available once every 10 minutes).')+'<br><br>'
     +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо в разделе Бустеры — цена билета (⭐1–5) растёт вместе с самой дальней открытой локацией. Призы (монеты/рыба/соль/ножи тоже растут вместе с локацией, джекпот — нет): 🐟100 рыб (28%) · 🪙300 (25%) · 👢 дырявый сапог, пусто (19%) · 🪙500 (15%) · 🧂15 соли (6%) · 🔪15 ножей (4%) · 🚛 бесплатная аренда грузовика на 12ч (2%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel in the Boosters section — ticket price (⭐1–5) grows with your furthest unlocked location. Prizes (coins/fish/salt/knives also scale with your location, jackpot doesn\'t): 🐟100 fish (28%) · 🪙300 (25%) · 👢 leaky boot, nothing (19%) · 🪙500 (15%) · 🧂15 salt (6%) · 🔪15 knives (4%) · 🚛 free truck rental for 12h (2%) · ⭐ Stars jackpot (~1%).')+'<br>'
     +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br>'
     +t('📺 Раз в час можно крутить лотерею бесплатно за просмотр рекламы — шанс выиграть джекпот такой же, как при обычной крутке, только сам джекпот от этой крутки не растёт.','📺 Once per hour you can spin the lottery for free by watching an ad — the jackpot odds are the same as a paid spin, but that spin doesn\'t grow the jackpot.')+'<br><br>'
