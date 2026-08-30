@@ -738,8 +738,19 @@ function maxUnlockedOrder() {
 }
 // Комиссия банка растёт вместе с самой продвинутой открытой локацией — как и курс обмена
 function bankFeeAmount() {
-  var base = isPremiumActive() ? 3 : 5;
-  return base * maxUnlockedMult();
+  // Раньше считала только от локации (5×mult), без учёта суммы — из-за этого кнопка
+  // "Обменять за N звёзд" показывала неверную сумму, не совпадающую с честным
+  // предпросмотром в updateBankPreview(). Теперь берём ту же формулу: комиссия
+  // пропорциональна реальной введённой сумме, а не только локации.
+  // Если поле ввода ещё не существует в DOM (самый первый рендер экрана банка) —
+  // используем тот же дефолт, что и сам input (см. renderBank): min(1000, coins).
+  var input = document.getElementById('ex-amount');
+  var val = input ? Math.max(1, Math.min(Math.floor(state.coins), parseInt(input.value) || 0))
+                  : Math.max(1, Math.min(Math.floor(state.coins), 1000));
+  var rate = 100000 * maxUnlockedMult();
+  var gram = val / rate;
+  var starsPerGram = isPremiumActive() ? 6 : 10;
+  return Math.max(1, Math.round(starsPerGram * gram));
 }
 function starsWord(n) {
   if (LANG === 'en') return n === 1 ? 'star' : 'stars';
@@ -3324,8 +3335,8 @@ function renderBank() {
         +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/(100000*maxUnlockedMult())).toFixed(5)+' GRAM</div>'
         +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>'
       +'</div>'
-      +'<div style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
-      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ '+t('Обменять за','Exchange for')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</button>'
+      +'<div id="bank-fee-line" style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
+      +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ '+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</span></button>'
     +'</div>'
     +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 '+t('После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.','After payment, the admin will send GRAM to the specified wallet within 24 hours.')+'</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
@@ -3386,6 +3397,13 @@ function updateBankPreview() {
   var fee=Math.max(1,Math.round(starsPerGram*gram));
   var p=document.getElementById('bank-preview');
   if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram.toFixed(5)+' GRAM</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>';
+  // Раньше строка "Комиссия: N звёзд" и сама кнопка обновлялись только один раз при
+  // открытии экрана (на дефолтной сумме) и не менялись при вводе другой суммы — из-за
+  // этого показывали неверное число, не совпадающее с честным предпросмотром выше.
+  var feeLine=document.getElementById('bank-fee-line');
+  if(feeLine) feeLine.innerHTML='⭐ '+t('Комиссия:','Fee:')+' '+fee+' '+starsWord(fee)+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange');
+  var feeBtn=document.getElementById('bank-fee-btn-text');
+  if(feeBtn) feeBtn.textContent=fee+' '+starsWord(fee);
 }
 function setBankMax() {
   var input=document.getElementById('ex-amount');
