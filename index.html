@@ -3534,7 +3534,12 @@ function renderDaily() {
     +'<div style="font-size:12px;color:#90caf9">'+t('Заходи каждый день за растущей наградой!','Log in every day for a growing reward!')+'</div></div>';
   html+='<div class="day-grid">';
   for (var i=0;i<7;i++) {
-    var isDone=!st.canClaim&&i<state.dailyDay;
+    // Раньше здесь стояло "!st.canClaim && i<state.dailyDay" — галочки на прошлые дни
+    // пропадали, пока сегодняшний бонус ещё МОЖНО забрать (canClaim=true), хотя дни
+    // были честно пройдены раньше. !st.canClaim нужен был только для случая пропуска
+    // серии (state.dailyDay физически ещё не обнулился до самого тапа на "Забрать"),
+    // поэтому проверяем именно st.missed, а не общий canClaim.
+    var isDone=!st.missed&&i<state.dailyDay;
     var isCur=st.canClaim&&i===st.day;
     var dayReward=Math.round(DAILY[i]*lm*100)/100;
     html+='<div class="day-cell'+(isDone?' done':isCur?' current':'')+'">'
