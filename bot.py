@@ -3611,6 +3611,7 @@ async def comm_command(message: types.Message):
         "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"
         "/breakref_all @username — разорвать ВСЕ реферальные связи этого реферера разом\n"
         "/ban_referrals @username — забанить всех рефералов этого реферера разом (фермы ботов)\n"
+        "/ban_ids 111 222 333 — забанить конкретный список ID (если рефералы вперемешку — боты и настоящие)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
@@ -4309,6 +4310,66 @@ async def ban_command(message: types.Message):
                 await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
 
         await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('ban_ids'))
+async def ban_ids_command(message: types.Message):
+    """
+    Точечный бан по СПИСКУ конкретных ID — для случая, когда у игрока часть рефералов
+    боты, а часть настоящие (в отличие от /ban_referrals, который сносит ВСЕХ разом).
+    Для каждого ID: определяет ЕГО реферера (у разных ID из списка он может отличаться),
+    банит (лидерборд+прогресс+запрет входа), разрывает связь именно с ЕГО реферером —
+    остальные рефералы этого реферера не трогает.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split(None, 1)
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n<code>/ban_ids 111 222 333</code>\n(ID через пробел, запятую или с новой строки)\n\n"
+            "⚠️ Банит перечисленные аккаунты (лидерборд+прогресс+запрет входа) и разрывает "
+            "связь КАЖДОГО именно с ЕГО реферером — остальных рефералов не трогает.",
+            parse_mode="HTML"
+        )
+        return
+    raw = args[1].replace(',', ' ').replace('\n', ' ')
+    target_uids = [t for t in raw.split() if t.isdigit()]
+    target_uids = list(dict.fromkeys(target_uids))  # без дублей, порядок сохраняем
+    if not target_uids:
+        await message.answer("❌ Не нашёл ни одного числового ID во входных данных.")
+        return
+
+    import aiohttp, asyncio as _asyncio
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    await message.answer(f"⏳ Баню {len(target_uids)} аккаунтов пачками, это может занять пару минут...")
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async def ban_one(target_uid):
+                pid = f"tg_{target_uid}"
+                try:
+                    async with session.get(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}") as resp:
+                        referrer_id = await resp.json()
+                    await session.delete(f"{base}/leaderboard/{pid}.json{FB_AUTH}")
+                    await session.delete(f"{base}/saves/{pid}.json{FB_AUTH}")
+                    await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
+                    if referrer_id:
+                        await session.delete(f"{base}/referrals/by/{referrer_id}/{target_uid}.json{FB_AUTH}")
+                    await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
+                    return True
+                except Exception:
+                    return False
+
+            banned_count = 0
+            chunk_size = 30
+            for i in range(0, len(target_uids), chunk_size):
+                chunk = target_uids[i:i+chunk_size]
+                results = await _asyncio.gather(*[ban_one(u) for u in chunk])
+                banned_count += sum(1 for r in results if r)
+
+        await message.answer(f"✅ Забанено {banned_count} из {len(target_uids)} аккаунтов из списка.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
