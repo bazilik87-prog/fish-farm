@@ -635,7 +635,54 @@ var currentTab = 'upgrades';
 var tapped = false;
 var lastAuto = Date.now();
 var autoAccum = 0;
-var notifLog = JSON.parse(localStorage.getItem('ff_notiflog')||'[]');
+// ── История уведомлений ──────────────────────────────────
+// Раньше вся история хранилась ОДНИМ массивом в ОДНОМ ключе localStorage
+// ('ff_notiflog') — чтобы записать новое уведомление, приходилось читать весь
+// массив, дописывать и сохранять целиком обратно. При быстром повторном открытии
+// Mini App (частый сценарий при тестировании — предыдущий JS-контекст ещё не успел
+// закрыться, когда стартует новый) два экземпляра игры могли читать этот ключ
+// почти одновременно и оба записать позже — тот, кто сохранял последним, стирал
+// запись другого целиком. Подтверждённый случай: офлайн-доход показан баннером,
+// но не появился в истории. Промежуточный фикс ("перечитать перед записью") сужал
+// окно гонки, но не убирал её — при ДЕЙСТВИТЕЛЬНО одновременной записи из двух
+// контекстов проблема оставалась. Теперь у каждой записи — СВОЙ уникальный ключ
+// (ff_notif_<ts>_<rnd>), поэтому два экземпляра пишут в РАЗНЫЕ ключи и физически
+// не могут затереть друг друга; список для показа собирается сканированием всех
+// таких ключей.
+var NOTIF_KEY_PREFIX = 'ff_notif_';
+function migrateLegacyNotifLog() {
+  // Одноразовая миграция со старого формата — переносим существующие записи на
+  // отдельные ключи, чтобы не потерять историю у игроков, у которых она уже накопилась.
+  try {
+    var legacy = localStorage.getItem('ff_notiflog');
+    if (!legacy) return;
+    var arr = JSON.parse(legacy);
+    if (Array.isArray(arr)) {
+      for (var i=0;i<arr.length;i++) {
+        var entry = arr[i];
+        if (!entry) continue;
+        var ts = Date.now() - i; // arr[0] — самая новая запись, сохраняем порядок
+        try { localStorage.setItem(NOTIF_KEY_PREFIX+ts+'_'+i, JSON.stringify({msg:entry.msg, time:entry.time, dead:!!entry.dead, ts:ts})); } catch(e2){}
+      }
+    }
+    localStorage.removeItem('ff_notiflog');
+  } catch(e) {}
+}
+migrateLegacyNotifLog();
+function readNotifLog() {
+  var out = [];
+  try {
+    for (var i=0;i<localStorage.length;i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(NOTIF_KEY_PREFIX) === 0) {
+        try { var v = JSON.parse(localStorage.getItem(k)); if (v) { v._key = k; out.push(v); } } catch(e2) {}
+      }
+    }
+  } catch(e) {}
+  out.sort(function(a,b){ return (b.ts||0) - (a.ts||0); });
+  return out;
+}
+var notifLog = readNotifLog().slice(0, 50); // кэш последнего построенного списка — для счётчика в Settings
 var settingsSubpage = null;
 var leadersLoaded = false; // текущая подстраница настроек // история уведомлений
 var lastTapTime = 0;
@@ -1288,21 +1335,14 @@ function showNotif(msg, dead) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
     try {
-      // Перечитываем localStorage ПРЯМО ПЕРЕД записью, а не полагаемся на переменную
-      // notifLog в памяти — если игра открывалась второй раз параллельно (например,
-      // через уведомление Telegram, пока первая вкладка ещё жила в фоне), оба экземпляра
-      // загрузили СВОЮ копию notifLog при старте, и тот, кто пишет вторым, раньше слепо
-      // перезаписывал всю историю своей более старой копией — новая запись (например,
-      // про офлайн-доход) молча пропадала из списка, хотя деньги уже были честно начислены
-      // сервером отдельным путём и не зависели от этой гонки. Теперь каждая запись мёржится
-      // поверх АКТУАЛЬНОГО состояния localStorage, а не той версии, что была в памяти на
-      // момент запуска этого экземпляра игры.
-      var freshLog = JSON.parse(localStorage.getItem('ff_notiflog') || '[]');
-      if (!Array.isArray(freshLog)) freshLog = [];
-      freshLog.unshift({msg:msg, time:hm, dead:!!dead});
-      if (freshLog.length > 50) freshLog = freshLog.slice(0, 50); // макс 50 записей
-      notifLog = freshLog;
-      localStorage.setItem('ff_notiflog', JSON.stringify(notifLog));
+      var ts = Date.now();
+      var key = NOTIF_KEY_PREFIX + ts + '_' + Math.random().toString(36).slice(2,7);
+      localStorage.setItem(key, JSON.stringify({msg:msg, time:hm, dead:!!dead, ts:ts}));
+      // Подчищаем лишнее сверх 50 записей И обновляем кэш для счётчика — сканируем
+      // localStorage целиком (дёшево, там не будет тысяч ключей при лимите в 50).
+      var all = readNotifLog();
+      notifLog = all.slice(0, 50);
+      for (var ei=50; ei<all.length; ei++) { try { localStorage.removeItem(all[ei]._key); } catch(e3){} }
     } catch(e) {}
   }
   var el=document.createElement('div');
@@ -4080,12 +4120,17 @@ function renderLeaders() {
   });
 }
 function clearNotifLog() {
+  try {
+    var all = readNotifLog();
+    for (var i=0;i<all.length;i++) { try { localStorage.removeItem(all[i]._key); } catch(e){} }
+  } catch(e) {}
   notifLog=[];
-  try { localStorage.removeItem('ff_notiflog'); } catch(e) {}
   renderSettings();
 }
 function showNotifLog() {
   settingsSubpage = 'notiflog';
+  notifLog = readNotifLog().slice(0, 50); // источник истины — реальные ключи localStorage,
+  // а не кэш в памяти (который мог не увидеть запись, добавленную другим экземпляром игры).
   var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
     +'<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">📋</div>'
@@ -5002,6 +5047,10 @@ function resetGame() {
     localStorage.removeItem('ff4');
     localStorage.removeItem('ff3');
     localStorage.removeItem('ff_notiflog');
+    try {
+      var oldNotifs = readNotifLog();
+      for (var ni=0; ni<oldNotifs.length; ni++) { try { localStorage.removeItem(oldNotifs[ni]._key); } catch(e){} }
+    } catch(e) {}
     notifLog = [];
     var keepName = state.playerName || '';
     state={coins:0,caught:0,tapPower:0.1,autoPerMin:0,
