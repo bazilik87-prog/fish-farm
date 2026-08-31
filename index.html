@@ -1287,9 +1287,23 @@ function showNotif(msg, dead) {
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
-    notifLog.unshift({msg:msg, time:hm, dead:!!dead});
-    if (notifLog.length > 50) notifLog.pop();
-    try { localStorage.setItem('ff_notiflog', JSON.stringify(notifLog)); } catch(e) {} // макс 50 записей
+    try {
+      // Перечитываем localStorage ПРЯМО ПЕРЕД записью, а не полагаемся на переменную
+      // notifLog в памяти — если игра открывалась второй раз параллельно (например,
+      // через уведомление Telegram, пока первая вкладка ещё жила в фоне), оба экземпляра
+      // загрузили СВОЮ копию notifLog при старте, и тот, кто пишет вторым, раньше слепо
+      // перезаписывал всю историю своей более старой копией — новая запись (например,
+      // про офлайн-доход) молча пропадала из списка, хотя деньги уже были честно начислены
+      // сервером отдельным путём и не зависели от этой гонки. Теперь каждая запись мёржится
+      // поверх АКТУАЛЬНОГО состояния localStorage, а не той версии, что была в памяти на
+      // момент запуска этого экземпляра игры.
+      var freshLog = JSON.parse(localStorage.getItem('ff_notiflog') || '[]');
+      if (!Array.isArray(freshLog)) freshLog = [];
+      freshLog.unshift({msg:msg, time:hm, dead:!!dead});
+      if (freshLog.length > 50) freshLog = freshLog.slice(0, 50); // макс 50 записей
+      notifLog = freshLog;
+      localStorage.setItem('ff_notiflog', JSON.stringify(notifLog));
+    } catch(e) {}
   }
   var el=document.createElement('div');
   el.className='notif'+(dead?' dead':'');
