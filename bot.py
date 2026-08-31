@@ -2078,12 +2078,20 @@ async def process_actions(request):
             # попытке, а не на реген, посчитанный в начале запроса.
             # upgLevels/unsold/extra_fields по-прежнему пишутся абсолютным значением —
             # по ним подтверждённого случая пропажи нет, расширять при необходимости.
+            # unsoldCaught — ИСКЛЮЧЕНИЕ, выносим отдельно как дельту (см. ниже): это
+            # подтверждённый случай гонки — при частом тапе (catch) параллельно с отправкой
+            # доставки (sell) оба запроса читают один и тот же sv в начале, каждый сам по себе
+            # честно считает свой unsold, но кто записывает ПОСЛЕДНИМ — стирает прибавку
+            # первого точно так же, как раньше было с coins. Result: клиент показывает рыбу
+            # по видам (liveFish/driedFish), которой сервер не видит в unsoldCaught, и при
+            # следующей крупной продаже часть видов из партии сервер отклоняет как "нет в
+            # наличии", хотя рыба была честно поймана.
             coins_delta = coins - float(sv.get('coins', 0) or 0)
             caught_delta = caught - float(sv.get('caught', 0) or 0)
             total_earned_delta = total_earned - float(sv.get('totalEarned', 0) or 0)
+            unsold_delta = unsold - float(sv.get('unsoldCaught', 0) or 0)
             energy_action_delta = energy - energy_after_regen_at_start
             other_fields = {
-                "unsoldCaught": round(unsold * 100) / 100,
                 **extra_fields
             }
             saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
@@ -2100,6 +2108,7 @@ async def process_actions(request):
                 coins = round((save_base_coins + coins_delta) * 100) / 100
                 caught = (float(fresh_sv.get('caught', 0) or 0)) + caught_delta
                 total_earned = round((float(fresh_sv.get('totalEarned', 0) or 0) + total_earned_delta) * 100) / 100
+                unsold = max(0, round((float(fresh_sv.get('unsoldCaught', 0) or 0) + unsold_delta) * 100) / 100)
                 fresh_last_energy_update = fresh_sv.get('lastEnergyUpdate') or now_ms
                 fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
@@ -2212,6 +2221,7 @@ async def process_actions(request):
                     "coins": coins,
                     "caught": caught,
                     "totalEarned": total_earned,
+                    "unsoldCaught": unsold,
                     "energy": round(energy * 100) / 100,
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
@@ -2404,6 +2414,14 @@ async def sync_state(request):
     # Пишем ТОЛЬКО денежные поля через защищённый серверный путь.
     # Остальные (drying, salting, upgLevels и т.д.) продолжает писать клиент напрямую —
     # это следующий шаг переноса, не в рамках этого эндпоинта.
+    # lastSeen сюда НЕ пишем — этим полем управляет исключительно /actions (там значение
+    # читается ОДИН РАЗ в начале обработки и используется для расчёта авто-дохода и
+    # комбэк-бонуса за реальное время отсутствия, а обновляется на "сейчас" только в конце
+    # того же запроса). Если писать lastSeen ещё и здесь, /sync срабатывает уже через
+    # несколько секунд после открытия игры и обнуляет реальное время отсутствия ДО того,
+    # как игрок успеет забрать комбэк-бонус или сервер посчитает офлайн-доход — оба
+    # оказываются урезаны почти до нуля. Подтверждённый случай: ID 8824257585, 8 дней
+    # отсутствия, бонус +500 показан клиентом, но отклонён сервером как "не прошло 3 дня".
     try:
         async with aiohttp.ClientSession() as session:
             await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
@@ -2411,8 +2429,7 @@ async def sync_state(request):
                 "caught": final_caught,
                 "totalEarned": final_total_earned,
                 "energy": final_energy,
-                "lastEnergyUpdate": now_ms,
-                "lastSeen": now_ms
+                "lastEnergyUpdate": now_ms
             })
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
