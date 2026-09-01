@@ -156,7 +156,7 @@ html{overflow-x:hidden;width:100%}
   <div class="tab" onclick="showTab('quests')"><span>📋</span><span class="tab-label" id="tab-lbl-quests"></span></div>
   <div class="tab" onclick="showTab('boosts')"><span>⚡</span><span class="tab-label" id="tab-lbl-boosts"></span></div>
   <div class="tab" onclick="showTab('leaders')"><span>🏆</span><span class="tab-label" id="tab-lbl-leaders"></span></div>
-  <div class="tab" onclick="showTab('locations')"><span>🗺</span><span class="tab-label" id="tab-lbl-locations"></span></div>
+  <div class="tab" id="tab-clan-btn" onclick="showTab('clan')"><span>🛡️</span><span class="tab-label" id="tab-lbl-clan"></span></div>
   <div class="tab" onclick="showTab('settings')"><span>⚙️</span><span class="tab-label" id="tab-lbl-settings"></span></div>
 </div>
 <div id="content" style="overflow-x:hidden;word-break:break-word"></div>
@@ -227,8 +227,8 @@ function applyStaticTranslations() {
     'tab-lbl-quests': t('Квесты', 'Quests'),
     'tab-lbl-boosts': t('Бустеры', 'Boosts'),
     'tab-lbl-leaders': t('Лидеры', 'Leaders'),
-    'tab-lbl-locations': t('Локации', 'Locations'),
-    'tab-lbl-settings': t('Настройки', 'Settings')
+    'tab-lbl-settings': t('Настройки', 'Settings'),
+    'tab-lbl-clan': t('Клан', 'Clan')
   };
   for (var id in map) { var el=document.getElementById(id); if(el) el.textContent=map[id]; }
 }
@@ -1513,7 +1513,7 @@ function showTab(tab) {
   window._specialScreenOpen=false;
   if (tab==='leaders') leadersLoaded=false;
   var tabs=document.querySelectorAll('.tab');
-  var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','locations','settings'];
+  var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','clan','settings'];
   for (var i=0;i<tabs.length;i++) tabs[i].classList.toggle('active',names[i]===tab);
   renderContent();
 }
@@ -1529,6 +1529,7 @@ function renderContent() {
   else if (currentTab==='boosts') renderBoosts();
   else if (currentTab==='leaders') { if (!leadersLoaded) renderLeaders(); }
   else if (currentTab==='locations') renderLocations();
+  else if (currentTab==='clan') { renderClan(); checkClanTester(); }
   else {
     if (settingsSubpage==='instructions') showInstructions();
     else if (settingsSubpage==='notiflog') showNotifLog();
@@ -4018,6 +4019,95 @@ function uploadScore() {
   });
 }
 
+// ── Клан (вкладка видна всем; реально работает пока только у тестовых аккаунтов —
+// остальные видят тизер "в разработке", чтобы разогреть интерес до релиза) ──
+var clanTester = false;
+var clanChecked = false;
+var myClan = null;
+function checkClanTester() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    clanChecked = true;
+    if (!res || !res.ok) return;
+    clanTester = !!res.isTester;
+    myClan = res.clan || null;
+    if (currentTab === 'clan') renderClan();
+  }).catch(function(){ clanChecked = true; });
+}
+function renderClan() {
+  var html = '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">🛡️</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Клан','Clan')+'</div>'
+    +'</div>';
+
+  if (!clanChecked) {
+    html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  if (!clanTester) {
+    html += '<div class="card" style="text-align:center;padding:18px">'
+      +'<div style="font-size:32px;margin-bottom:8px">🚧</div>'
+      +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:8px">'+t('Клановая система в разработке','Clan system in development')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;line-height:1.6">'+t(
+        'Скоро сможешь создать свой клан, приглашать друзей и соревноваться в клановых турнирах. Следи за новостями! 🐟',
+        'Soon you\'ll be able to create your own clan, invite friends and compete in clan tournaments. Stay tuned! 🐟'
+      )+'</div>'
+      +'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  if (myClan) {
+    var created = myClan.createdAt ? new Date(myClan.createdAt).toLocaleDateString() : '';
+    html += '<div class="card">'
+      +'<div style="font-size:16px;font-weight:700;color:#fff">🛡️ '+myClan.name+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Участников:','Members:')+' '+(myClan.membersCount||1)+'</div>'
+      +(myClan.isOwner ? '<div style="font-size:12px;color:#FFD700;margin-top:4px">👑 '+t('Ты владелец клана','You own this clan')+'</div>' : '')
+      +(created ? '<div style="font-size:11px;color:#666;margin-top:6px">'+t('Создан:','Created:')+' '+created+'</div>' : '')
+      +'</div>'
+      +'<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Приглашения, роли и казна — следующим шагом','Invites, roles and treasury coming next')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  html += '<div class="card">'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('У тебя пока нет клана. Придумай название и создай свой:','You don\'t have a clan yet. Pick a name and create one:')+'</div>'
+    +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:10px">'
+    +'<button class="btn btn-gold btn-full" onclick="createClan()">➕ '+t('Создать клан','Create clan')+'</button>'
+    +'</div>';
+  document.getElementById('content').innerHTML = html;
+}
+function createClan() {
+  var input = document.getElementById('clan-name-input');
+  var name = input ? input.value.trim().replace(/\s+/g,' ') : '';
+  if (name.length < 2 || name.length > 20) {
+    showNotif(t('❌ Название — от 2 до 20 символов','❌ Name must be 2–20 characters'));
+    return;
+  }
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём...','⏳ Creating...'));
+  fetch(BOT_API_URL + '/clan_create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, name: name})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось создать','failed to create')));
+        return;
+      }
+      myClan = res.data.clan;
+      showNotif(t('✅ Клан создан!','✅ Clan created!'));
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
 function renderLeaders() {
   leadersLoaded = true;
   document.getElementById('content').innerHTML =
@@ -5324,6 +5414,7 @@ function startGame() {
       checkRefContest();
       setInterval(checkRefContest, 60000);
       setInterval(updateRefContestBanner, 30000);
+      checkClanTester();
     });
   }, 800);
 
