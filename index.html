@@ -4040,7 +4040,10 @@ function checkClanTester() {
     clanTester = !!res.isTester;
     myClan = res.clan || null;
     myClanInvites = res.invites || [];
-    if (currentTab === 'clan') renderClan();
+    // Не перерисовываем поверх активного поля ввода названия клана — иначе фоновый
+    // ответ статуса может прилететь прямо во время печати и оборвать ввод.
+    var typingName = document.activeElement && document.activeElement.id === 'clan-name-input';
+    if (currentTab === 'clan' && !typingName) renderClan();
   }).catch(function(){ clanChecked = true; });
 }
 
@@ -4056,6 +4059,10 @@ function clanLastSeenLabel(ts) {
 }
 
 function renderClan() {
+  // Как и другие «специальные» экраны (реф. конкурс и т.п.) — помечаем вкладку клана
+  // как special, иначе игровой тик каждые ~400-500мс перерисовывает весь #content
+  // и вырубает фокус/клавиатуру у поля ввода названия клана или у экрана рефералов.
+  window._specialScreenOpen = true;
   var html = '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🛡️</div>'
     +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Клан','Clan')+'</div>'
