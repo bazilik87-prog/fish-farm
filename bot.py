@@ -429,9 +429,10 @@ async def create_invoice(request):
     if not verified:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
     try:
-        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+        real_user_verified = json.loads(verified.get('user', '{}'))
     except Exception:
-        real_user_id = None
+        real_user_verified = {}
+    real_user_id = real_user_verified.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
@@ -552,7 +553,10 @@ async def create_invoice(request):
             # Платное расширение клана — капитан открывает 3-8 слот за Stars.
             # Цена по формуле 10 + 5*(n-2) для n=3..8, что упрощается до 5*n.
             user_id = real_user_id
-            if not is_clan_tester(user_id, data.get('username')):
+            # Ник берём из проверенной подписи initData, а не из тела запроса — так же,
+            # как во всех остальных клановых эндпоинтах (тело запроса клиенту доверять нельзя,
+            # к тому же фронт этот параметр вообще не присылал — из-за этого и был баг).
+            if not is_clan_tester(user_id, real_user_verified.get('username')):
                 return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
             import aiohttp as _aiohttp
             fb_base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
