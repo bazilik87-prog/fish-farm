@@ -4152,7 +4152,32 @@ function renderClanMain(html) {
   }
 
   html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Клановые турниры — следующим шагом','Clan tournaments coming next')+'</div>';
+
+  if (myClan.isCaptain) {
+    html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="disbandClan()">🗑 '+t('Распустить клан','Disband clan')+'</button>';
+  }
+
   document.getElementById('content').innerHTML = html;
+}
+
+function disbandClan() {
+  if (!confirm(t('Точно распустить клан? Это необратимо — все участники освободятся и смогут создать/вступить в другой клан.','Really disband the clan? This can\'t be undone — all members will be freed and able to create/join another clan.'))) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_disband', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось распустить','failed to disband')));
+        return;
+      }
+      myClan = null;
+      myClanInvites = [];
+      showNotif(t('Клан распущен','Clan disbanded'));
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
 function createClan() {

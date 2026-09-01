@@ -1421,6 +1421,80 @@ async def clan_kick(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+async def clan_disband(request):
+    """
+    Капитан распускает клан целиком — можно в любой момент, независимо от того, сколько
+    оплаченных слотов уже куплено (это расходы капитана, он вправе ими не пользоваться).
+    Все участники (включая самого капитана) автоматически освобождаются — их
+    saves/{pid}.clanId/clanName очищаются, клан удаляется.
+    ВАЖНО: когда появятся турниры — там будет отдельная защита: если у клана есть активный
+    турнир, где кто-то из участников внёс СВОЮ ставку звёздами, распустить клан или выгнать
+    такого участника будет нельзя, пока турнир не завершится/не будет возвращён. Здесь эта
+    проверка сознательно не реализована — сейчас турниров ещё нет, и текущий роспуск не должен
+    её эмулировать.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as resp2:
+                clan_data = await resp2.json()
+            if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
+                return web.json_response({'error': 'распустить клан может только капитан'}, status=403, headers=CORS)
+
+            members = clan_data.get('members') or {}
+            for member_pid in members.keys():
+                # Best effort по каждому участнику — одна неудачная запись (например,
+                # конфликт версии с параллельным /sync игрока) не должна блокировать
+                # ни остальных участников, ни сам роспуск клана.
+                try:
+                    async with session.get(f"{base}/saves/{member_pid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as mresp:
+                        metag = mresp.headers.get("ETag")
+                        msv = await mresp.json()
+                    msv = dict(msv or {})
+                    msv['clanId'] = None
+                    msv['clanName'] = None
+                    mheaders = {"If-Match": metag} if metag else {}
+                    await session.put(f"{base}/saves/{member_pid}.json{FB_AUTH}", json=msv, headers=mheaders)
+                except Exception:
+                    pass
+                try:
+                    await session.patch(f"{base}/leaderboard/{member_pid}.json{FB_AUTH}", json={'clanId': None})
+                except Exception:
+                    pass
+
+            await session.delete(f"{base}/clans/{clan_id}.json{FB_AUTH}")
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def partner_check(request):
     """
     Кросс-промо-задание: партнёр спрашивает, поймал ли игрок 20 рыб.
@@ -6030,6 +6104,8 @@ async def main():
     app.router.add_options('/clan_invite_respond', clan_invite_respond)
     app.router.add_post('/clan_kick', clan_kick)
     app.router.add_options('/clan_kick', clan_kick)
+    app.router.add_post('/clan_disband', clan_disband)
+    app.router.add_options('/clan_disband', clan_disband)
     app.router.add_get('/health', health)
     app.router.add_get('/api/check', partner_check)
 
