@@ -4024,6 +4024,10 @@ function uploadScore() {
 var clanTester = false;
 var clanChecked = false;
 var myClan = null;
+var myClanInvites = [];
+var clanView = 'main'; // 'main' | 'invite'
+var clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: false, invitedIds: {}};
+
 function checkClanTester() {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
   fetch(BOT_API_URL + '/clan_status', {
@@ -4035,9 +4039,22 @@ function checkClanTester() {
     if (!res || !res.ok) return;
     clanTester = !!res.isTester;
     myClan = res.clan || null;
+    myClanInvites = res.invites || [];
     if (currentTab === 'clan') renderClan();
   }).catch(function(){ clanChecked = true; });
 }
+
+function clanLastSeenLabel(ts) {
+  if (!ts) return t('давно','a while ago');
+  var now = new Date(), then = new Date(ts);
+  var startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  var startThen = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime();
+  var diffDays = Math.round((startToday - startThen) / 86400000);
+  if (diffDays <= 0) return t('сегодня','today');
+  if (diffDays === 1) return t('вчера','yesterday');
+  return diffDays + ' ' + t('дн. назад','days ago');
+}
+
 function renderClan() {
   var html = '<div class="card" style="text-align:center;padding:16px">'
     +'<div style="font-size:28px;margin-bottom:6px">🛡️</div>'
@@ -4063,26 +4080,74 @@ function renderClan() {
     return;
   }
 
-  if (myClan) {
-    var created = myClan.createdAt ? new Date(myClan.createdAt).toLocaleDateString() : '';
-    html += '<div class="card">'
-      +'<div style="font-size:16px;font-weight:700;color:#fff">🛡️ '+myClan.name+'</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Участников:','Members:')+' '+(myClan.membersCount||1)+'</div>'
-      +(myClan.isOwner ? '<div style="font-size:12px;color:#FFD700;margin-top:4px">👑 '+t('Ты владелец клана','You own this clan')+'</div>' : '')
-      +(created ? '<div style="font-size:11px;color:#666;margin-top:6px">'+t('Создан:','Created:')+' '+created+'</div>' : '')
-      +'</div>'
-      +'<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Приглашения, роли и казна — следующим шагом','Invites, roles and treasury coming next')+'</div>';
-    document.getElementById('content').innerHTML = html;
-    return;
-  }
+  if (clanView === 'invite') { renderClanReferrals(html); return; }
 
+  if (myClan) { renderClanMain(html); return; }
+
+  // Без клана: кнопка "Создать клан" сверху, ниже — очередь входящих приглашений (если есть)
   html += '<div class="card">'
     +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('У тебя пока нет клана. Придумай название и создай свой:','You don\'t have a clan yet. Pick a name and create one:')+'</div>'
     +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:10px">'
     +'<button class="btn btn-gold btn-full" onclick="createClan()">➕ '+t('Создать клан','Create clan')+'</button>'
     +'</div>';
+
+  if (myClanInvites.length) {
+    html += '<div style="font-size:12px;color:#90caf9;margin:10px 4px 6px">'+t('Приглашения в клан','Clan invitations')+'</div>';
+    for (var i=0; i<myClanInvites.length; i++) {
+      var inv = myClanInvites[i];
+      html += '<div class="card">'
+        +'<div style="font-size:13px;font-weight:700;color:#fff">🛡️ '+inv.clanName+'</div>'
+        +'<div style="font-size:11px;color:#90caf9;margin-top:2px">'+t('От капитана','From captain')+' '+(inv.fromUsername||'')+'</div>'
+        +'<div style="display:flex;gap:8px;margin-top:10px">'
+        +'<button class="btn btn-gold" style="flex:1" onclick="respondClanInvite(\''+inv.clanId+'\',\'accept\')">✅ '+t('Принять','Accept')+'</button>'
+        +'<button class="btn" style="flex:1;background:#5a1a1a" onclick="respondClanInvite(\''+inv.clanId+'\',\'decline\')">✖ '+t('Отклонить','Decline')+'</button>'
+        +'</div></div>';
+    }
+  }
+
   document.getElementById('content').innerHTML = html;
 }
+
+function renderClanMain(html) {
+  var created = myClan.createdAt ? new Date(myClan.createdAt).toLocaleDateString() : '';
+  html += '<div class="card">'
+    +'<div style="font-size:16px;font-weight:700;color:#fff">🛡️ '+myClan.name+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Участников:','Members:')+' '+(myClan.membersCount||1)+' / '+(myClan.maxMembers||2)+'</div>'
+    +(myClan.isCaptain ? '<div style="font-size:12px;color:#FFD700;margin-top:4px">👑 '+t('Ты капитан клана','You are the captain')+'</div>' : '')
+    +(created ? '<div style="font-size:11px;color:#666;margin-top:6px">'+t('Создан:','Created:')+' '+created+'</div>' : '')
+    +'</div>';
+
+  html += '<div class="card"><div style="font-size:12px;color:#90caf9;margin-bottom:8px">'+t('Участники','Members')+'</div>';
+  var members = myClan.members || [];
+  for (var i=0; i<members.length; i++) {
+    var m = members[i];
+    var isCap = m.role === 'captain';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a2a3a">'
+      +'<div style="font-size:13px;color:'+(isCap?'#FFD700':'#fff')+'">'+(isCap?'👑 ':'🐟 ')+(m.name||('ID:'+m.userId))+'</div>'
+      +(myClan.isCaptain && !isCap ? '<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>' : '')
+      +'</div>';
+  }
+  html += '</div>';
+
+  if (myClan.isCaptain) {
+    var mc = myClan.membersCount||1, mm = myClan.maxMembers||2;
+    if (mc < mm) {
+      html += '<button class="btn btn-gold btn-full" style="margin-bottom:10px" onclick="openClanReferrals()">➕ '+t('Пригласить','Invite')+'</button>';
+    } else if (mm < 8) {
+      var nextSlot = mm + 1, price = nextSlot * 5;
+      html += '<div class="card" style="text-align:center">'
+        +'<div style="font-size:12px;color:#90caf9;margin-bottom:8px">'+t('Все места заняты — открой ещё одно место в клане','All slots are full — open another spot in the clan')+'</div>'
+        +'<button class="btn btn-gold btn-full" onclick="buyClanSlot()">🔓 '+t('Открыть место','Open slot')+' — ⭐'+price+'</button>'
+        +'</div>';
+    } else {
+      html += '<div class="card" style="text-align:center;color:#90caf9;font-size:12px">'+t('Клан достиг максимального размера (8/8)','The clan has reached max size (8/8)')+'</div>';
+    }
+  }
+
+  html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Клановые турниры — следующим шагом','Clan tournaments coming next')+'</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
 function createClan() {
   var input = document.getElementById('clan-name-input');
   var name = input ? input.value.trim().replace(/\s+/g,' ') : '';
@@ -4103,8 +4168,162 @@ function createClan() {
         return;
       }
       myClan = res.data.clan;
+      myClanInvites = [];
       showNotif(t('✅ Клан создан!','✅ Clan created!'));
       renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function respondClanInvite(clanId, action) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(action === 'accept' ? t('⏳ Вступаем...','⏳ Joining...') : t('⏳ Отклоняем...','⏳ Declining...'));
+  fetch(BOT_API_URL + '/clan_invite_respond', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, clan_id: clanId, action: action})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось выполнить','failed')));
+        return;
+      }
+      if (action === 'accept') {
+        myClan = res.data.clan;
+        myClanInvites = [];
+        showNotif(t('✅ Ты вступил в клан!','✅ You joined the clan!'));
+      } else {
+        myClanInvites = myClanInvites.filter(function(iv){ return iv.clanId !== clanId; });
+        showNotif(t('Приглашение отклонено','Invitation declined'));
+      }
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function openClanReferrals() {
+  clanView = 'invite';
+  clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: true, invitedIds: {}};
+  renderClan();
+  fetchClanReferrals(0);
+}
+
+function fetchClanReferrals(offset) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  clanRefState.loading = true;
+  fetch(BOT_API_URL + '/clan_referrals', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, offset: offset})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    clanRefState.loading = false;
+    if (!res || !res.ok) { showNotif(t('❌ Не удалось загрузить список','❌ Failed to load the list')); return; }
+    clanRefState.offset = res.offset;
+    clanRefState.items = res.referrals || [];
+    clanRefState.hasMore = res.hasMore;
+    clanRefState.total = res.total;
+    if (clanView === 'invite') renderClan();
+  }).catch(function(){ clanRefState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function renderClanReferrals(html) {
+  html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
+
+  if (clanRefState.loading) {
+    html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  if (!clanRefState.total) {
+    html += '<div class="card" style="text-align:center;padding:18px">'
+      +'<div style="font-size:13px;color:#90caf9;margin-bottom:12px">'+t('У тебя пока нет рефералов — приглашай в клан можно только тех, кто зашёл в игру по твоей ссылке.','You don\'t have referrals yet — you can only invite people who joined the game through your link.')+'</div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<button class="btn btn-gold" style="flex:1" onclick="shareRefLink()">🔗 '+t('Пригласить','Invite')+'</button>'
+      +'<button class="btn" style="flex:1;background:#1565c0" onclick="copyRefLink()">📋 '+t('Скопировать ссылку','Copy link')+'</button>'
+      +'</div></div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  html += '<div style="font-size:12px;color:#90caf9;margin:0 4px 8px">'+t('Твои рефералы','Your referrals')+' ('+clanRefState.total+')</div>';
+  for (var i=0; i<clanRefState.items.length; i++) {
+    var r = clanRefState.items[i];
+    var invited = !!clanRefState.invitedIds[r.userId];
+    html += '<div class="card" style="padding:10px 12px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+r.displayName+'</div>'
+      +(invited
+        ? '<span style="font-size:11px;color:#6ddc6d">✔ '+t('Приглашён','Invited')+'</span>'
+        : '<button class="btn btn-gold" style="padding:5px 12px;font-size:11px" onclick="inviteClanReferral('+r.userId+')">➕ '+t('Пригласить','Invite')+'</button>')
+      +'</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-top:4px">'+clanLastSeenLabel(r.ts)+' · 🎣 '+fmt(r.caught||0)+'</div>'
+      +'</div>';
+  }
+
+  html += '<div style="display:flex;gap:8px;margin-top:6px">';
+  if (clanRefState.offset > 0) {
+    html += '<button class="btn" style="flex:1;background:#0f3460" onclick="fetchClanReferrals('+Math.max(0, clanRefState.offset-50)+')">← '+t('Назад','Prev')+'</button>';
+  }
+  if (clanRefState.hasMore) {
+    html += '<button class="btn" style="flex:1;background:#0f3460" onclick="fetchClanReferrals('+(clanRefState.offset+50)+')">'+t('Ещё','More')+' →</button>';
+  }
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function inviteClanReferral(userId) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_invite', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, target_user_id: userId})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось пригласить','failed to invite')));
+        return;
+      }
+      clanRefState.invitedIds[userId] = true;
+      showNotif(t('✅ Приглашение отправлено','✅ Invitation sent'));
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function buyClanSlot() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL + '/invoice', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action:'clan_buy_slot', init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif(t('❌ Ошибка: ','❌ Error: ')+(res.data&&res.data.error||t('неизвестная','unknown'))); return; }
+      var invLink = res.data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if (status === 'paid') {
+          showNotif(t('✅ Место открыто!','✅ Slot unlocked!'));
+          checkClanTester();
+        }
+      });
+    }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
+}
+
+function kickClanMember(userId) {
+  if (!confirm(t('Удалить этого игрока из клана?','Remove this player from the clan?'))) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_kick', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, target_user_id: userId})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось удалить','failed to remove')));
+        return;
+      }
+      showNotif(t('Игрок удалён из клана','Player removed from the clan'));
+      checkClanTester();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
