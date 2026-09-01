@@ -4094,7 +4094,8 @@ function renderClan() {
   // Без клана: кнопка "Создать клан" сверху, ниже — очередь входящих приглашений (если есть)
   html += '<div class="card">'
     +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('У тебя пока нет клана. Придумай название и создай свой:','You don\'t have a clan yet. Pick a name and create one:')+'</div>'
-    +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:10px">'
+    +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,\'\')" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:6px">'
+    +'<div style="font-size:11px;color:#666;margin-bottom:10px">'+t('Только латинские буквы и цифры, 2-20 символов','Latin letters and digits only, 2-20 characters')+'</div>'
     +'<button class="btn btn-gold btn-full" onclick="createClan()">➕ '+t('Создать клан','Create clan')+'</button>'
     +'</div>';
 
@@ -4182,9 +4183,9 @@ function disbandClan() {
 
 function createClan() {
   var input = document.getElementById('clan-name-input');
-  var name = input ? input.value.trim().replace(/\s+/g,' ') : '';
-  if (name.length < 2 || name.length > 20) {
-    showNotif(t('❌ Название — от 2 до 20 символов','❌ Name must be 2–20 characters'));
+  var name = input ? input.value.trim() : '';
+  if (!/^[A-Za-z0-9]{2,20}$/.test(name)) {
+    showNotif(t('❌ Название — только латинские буквы и цифры, 2-20 символов','❌ Name must be Latin letters and digits only, 2-20 characters'));
     return;
   }
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;

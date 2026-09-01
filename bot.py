@@ -996,7 +996,14 @@ async def clan_create(request):
         return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     name = str(data.get('name', '')).strip()
-    name = ' '.join(name.split())  # схлопываем повторные/табуляционные пробелы
+    # Только латинские буквы и цифры — без пробелов, кириллицы и спецсимволов.
+    # isascii()+isalnum() вместе дают ровно A-Z/a-z/0-9 (isalnum() один пропустил бы
+    # и юникодные буквы/цифры, поэтому нужны обе проверки).
+    if not name.isascii() or not name.isalnum():
+        return web.json_response(
+            {'error': 'название — только латинские буквы и цифры, без пробелов'},
+            status=400, headers=CORS
+        )
     if len(name) < CLAN_NAME_MIN or len(name) > CLAN_NAME_MAX:
         return web.json_response(
             {'error': f'название должно быть от {CLAN_NAME_MIN} до {CLAN_NAME_MAX} символов'},
