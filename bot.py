@@ -1046,8 +1046,14 @@ async def clan_create(request):
             if not clan_id:
                 return web.json_response({'error': 'internal: no clan id'}, status=500, headers=CORS)
 
-            patch_headers = {"If-Match": etag} if etag else {}
-            async with session.patch(saves_url, json={'clanId': clan_id, 'clanName': name}, headers=patch_headers) as presp2:
+            # Firebase REST API поддерживает If-Match ТОЛЬКО с PUT, не с PATCH (PATCH с
+            # If-Match всегда возвращает 400) — поэтому мёржим изменения поверх уже
+            # прочитанного sv на стороне Python и пишем целиком через PUT.
+            save_headers = {"If-Match": etag} if etag else {}
+            merged_sv = dict(sv)
+            merged_sv['clanId'] = clan_id
+            merged_sv['clanName'] = name
+            async with session.put(saves_url, json=merged_sv, headers=save_headers) as presp2:
                 if presp2.status == 412:
                     # Кто-то параллельно успел вступить/создать клан между чтением и записью —
                     # откатываем только что созданный клан, чтобы не плодить клан-сироту без игроков.
@@ -1055,7 +1061,7 @@ async def clan_create(request):
                     return web.json_response({'error': 'не удалось создать — попробуй ещё раз'}, status=409, headers=CORS)
                 if presp2.status not in (200, 204):
                     await session.delete(f"{base}/clans/{clan_id}.json{FB_AUTH}")
-                    return web.json_response({'error': f'saves PATCH failed: {presp2.status}'}, status=500, headers=CORS)
+                    return web.json_response({'error': f'saves PUT failed: {presp2.status}'}, status=500, headers=CORS)
 
             # Зеркалим clanId в публичный leaderboard — по нему строится список рефералов
             # для приглашения (там нельзя ходить в приватные saves/ на каждого реферала).
@@ -1308,10 +1314,16 @@ async def clan_invite_respond(request):
             if clan_data is None:
                 return web.json_response({'error': 'не удалось вступить — попробуй ещё раз'}, status=409, headers=CORS)
 
-            patch_headers = {"If-Match": etag} if etag else {}
-            async with session.patch(saves_url, json={'clanId': clan_id, 'clanName': clan_data.get('name', '')}, headers=patch_headers) as presp:
-                if presp.status == 412:
-                    # Откатываем добавление в участники клана — вступление не подтвердилось
+            # If-Match работает только с PUT, не с PATCH (PATCH+If-Match всегда 400) —
+            # мёржим поверх уже прочитанного sv и пишем целиком.
+            save_headers = {"If-Match": etag} if etag else {}
+            merged_sv = dict(sv)
+            merged_sv['clanId'] = clan_id
+            merged_sv['clanName'] = clan_data.get('name', '')
+            async with session.put(saves_url, json=merged_sv, headers=save_headers) as presp:
+                if presp.status not in (200, 204):
+                    # 412 (гонка) или любая другая ошибка — откатываем добавление в
+                    # участники клана, вступление не подтвердилось.
                     def _remove_member(members):
                         members.pop(pid, None)
                     await _mutate_clan_members(session, base, clan_id, _remove_member)
@@ -1385,9 +1397,16 @@ async def clan_kick(request):
 
             async with session.get(f"{base}/saves/{target_pid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as tresp:
                 tetag = tresp.headers.get("ETag")
-                _ = await tresp.json()
+                target_sv = await tresp.json()
+            target_sv = dict(target_sv or {})
+            target_sv['clanId'] = None
+            target_sv['clanName'] = None
+            # If-Match работает только с PUT, не с PATCH (PATCH+If-Match всегда 400) —
+            # мёржим поверх прочитанного target_sv и пишем целиком; при 412 (гонка —
+            # игрок сам успел что-то сохранить) не ретраим — не критично, next /sync
+            # игрока подтянет актуальное состояние клана через отдельные проверки.
             theaders = {"If-Match": tetag} if tetag else {}
-            await session.patch(f"{base}/saves/{target_pid}.json{FB_AUTH}", json={'clanId': None, 'clanName': None}, headers=theaders)
+            await session.put(f"{base}/saves/{target_pid}.json{FB_AUTH}", json=target_sv, headers=theaders)
             try:
                 await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': None})
             except Exception:
@@ -5785,8 +5804,12 @@ async def successful_payment(message: types.Message):
                             # Слот уже открыт (например, повторная доставка вебхука) — не открываем второй раз.
                             ok = (cur_max >= next_slot)
                             break
+                        # If-Match работает только с PUT, не с PATCH (PATCH+If-Match всегда 400) —
+                        # мёржим maxMembers в уже прочитанный clan_data и пишем целиком.
                         headers = {"If-Match": etag} if etag else {}
-                        async with session.patch(f"{base}/clans/{clan_id}.json{FB_AUTH}", json={"maxMembers": next_slot}, headers=headers) as put_resp:
+                        merged_clan = dict(clan_data)
+                        merged_clan['maxMembers'] = next_slot
+                        async with session.put(f"{base}/clans/{clan_id}.json{FB_AUTH}", json=merged_clan, headers=headers) as put_resp:
                             if put_resp.status == 412:
                                 continue
                             ok = put_resp.status in (200, 204)
