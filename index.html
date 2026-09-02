@@ -697,6 +697,13 @@ function fmt(c) {
   if (c >= 10000) return (c/1000).toFixed(1)+'k';
   return c.toFixed(1);
 }
+// Для прогресса квестов ("491.46999999999997/500") — обычная погрешность плавающей
+// точки JS от суммирования дробных монет за много уловов. Игроку не нужна дробная
+// часть здесь, поэтому просто округляем до целого перед показом.
+function fmtQuestNum(n) {
+  if (typeof n !== 'number' || isNaN(n)) return '0';
+  return String(Math.round(n));
+}
 // Для крупных "круглых" цен (транспорт, локации) — без лишнего ".0", просто 5k/50k/300k.
 function fmtCost(c) {
   if (typeof c !== 'number' || isNaN(c)) return '0';
@@ -2613,7 +2620,7 @@ function renderQuests() {
       +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px">'
       +'<div style="background:'+(done?'#6ddc6d':'#1565c0')+';height:6px;border-radius:4px;width:'+pct+'%"></div>'
       +'</div>'
-      +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+prog+'/'+goal+'</div>'
+      +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+fmtQuestNum(prog)+'/'+fmtQuestNum(goal)+'</div>'
       +'</div>'
       +'</div>';
   }
