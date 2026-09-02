@@ -1040,6 +1040,16 @@ async def clan_create(request):
 
             player_name = sv.get('playerName') or real_user.get('username') or real_user.get('first_name') or f"Игрок {real_user_id}"
             player_username = real_user.get('username', '')
+            if not player_username:
+                # initData не всегда содержит username (например, если игрок открыл
+                # мини-апп способом, где Telegram его не передаёт) — подстраховываемся
+                # тем же полем leaderboard/{pid}/username, которым уже пользуется
+                # /clan_referrals и которое туда пишет обычный игровой /sync.
+                try:
+                    async with session.get(f"{base}/leaderboard/{pid}/username.json{FB_AUTH}") as uresp:
+                        player_username = (await uresp.json()) or ''
+                except Exception:
+                    pass
             clan_payload = {
                 'name': name,
                 'captainId': real_user_id,
@@ -1320,6 +1330,14 @@ async def clan_invite_respond(request):
 
             player_name = sv.get('playerName') or real_user.get('username') or real_user.get('first_name') or f"Игрок {real_user_id}"
             player_username = real_user.get('username', '')
+            if not player_username:
+                # См. аналогичную подстраховку в clan_create — initData не всегда
+                # содержит username, подтягиваем его из leaderboard/{pid}/username.
+                try:
+                    async with session.get(f"{base}/leaderboard/{pid}/username.json{FB_AUTH}") as uresp:
+                        player_username = (await uresp.json()) or ''
+                except Exception:
+                    pass
 
             def _add_member(members):
                 members[pid] = {'userId': real_user_id, 'name': player_name, 'username': player_username, 'role': 'member', 'joinedAt': int(time_module.time() * 1000)}
