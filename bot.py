@@ -2611,6 +2611,17 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             except Exception:
                 break  # не смогли записать — лучше не начислить молча дважды, чем гадать
 
+        # Приз "рыба" меняет caught в saves, но leaderboard.caught (откуда берёт данные
+        # live-счёт клановых турниров) обновляет только /actions при обычной ловле — эта
+        # ветка писала мимо него, и улов из лотереи "не считался" в турнире, пока игрок не
+        # поймает ещё хоть одну рыбу вручную. Дублируем caught в leaderboard тем же best-effort
+        # PATCH, что и везде (clanId и т.п.) — не блокирует начисление приза при сбое.
+        if prize['kind'] == 'fish':
+            try:
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
+            except Exception:
+                pass
+
         # Диагностический лог — та же цель, что в lottery_spin: чтобы честные призы за
         # Stars не путались с подозрительными "скачками" при последующем аудите баланса.
         try:
@@ -2953,6 +2964,15 @@ async def lottery_spin(request):
                     break
             else:
                 return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+
+            # Тот же фикс, что и в apply_lottery_prize (платная крутка): приз "рыба" меняет
+            # caught в saves, но live-счёт клановых турниров читает leaderboard.caught, который
+            # без этого обновляется только на следующем /actions при обычной ловле.
+            if prize['kind'] == 'fish':
+                try:
+                    await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
+                except Exception:
+                    pass
 
             # Диагностический лог — та же цель, что и action_logs в process_actions:
             # чтобы честные выигрыши лотереи не путались с подозрительными "скачками"
