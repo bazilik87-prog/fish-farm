@@ -4149,18 +4149,26 @@ function renderClanMain(html) {
 
   html += '<div class="card"><div style="font-size:12px;color:#90caf9;margin-bottom:8px">'+t('Участники','Members')+'</div>';
   var members = myClan.members || [];
+  var lockedPids = myClan.tournamentLockedPids || [];
   for (var i=0; i<members.length; i++) {
     var m = members[i];
     var isCap = m.role === 'captain';
+    var isLocked = lockedPids.indexOf(m.pid) !== -1;
     var handleLine = m.username
       ? '<div style="font-size:11px;color:#4fc3f7;cursor:pointer" onclick="openTgUser(\''+m.username+'\')">@'+m.username+'</div>'
       : '<div style="font-size:11px;color:#666">'+t('нет юзернейма Telegram','no Telegram username')+'</div>';
+    var actionHtml = '';
+    if (myClan.isCaptain && !isCap) {
+      actionHtml = isLocked
+        ? '<div style="font-size:10px;color:#ffb74d;text-align:right;max-width:110px">🔒 '+t('взнос в турнире','stake in tournament')+'</div>'
+        : '<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>';
+    }
     html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a2a3a">'
       +'<div>'
       +'<div style="font-size:13px;color:'+(isCap?'#FFD700':'#fff')+'">'+(isCap?'👑 ':'🐟 ')+(m.name||('ID:'+m.userId))+'</div>'
       +handleLine
       +'</div>'
-      +(myClan.isCaptain && !isCap ? '<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>' : '')
+      +actionHtml
       +'</div>';
   }
   html += '</div>';
@@ -4183,7 +4191,11 @@ function renderClanMain(html) {
   html += '<button class="btn btn-full" style="background:#6a4520;margin-bottom:6px" onclick="openClanTournaments()">🏆 '+t('Турниры','Tournaments')+'</button>';
 
   if (myClan.isCaptain) {
-    html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="disbandClan()">🗑 '+t('Распустить клан','Disband clan')+'</button>';
+    if (myClan.hasUnresolvedTournament) {
+      html += '<div class="card" style="text-align:center;color:#ffb74d;font-size:11px;margin-top:6px">🔒 '+t('Роспуск клана недоступен, пока идёт турнир — дождись его завершения','Disbanding is unavailable while a tournament is in progress — wait for it to finish')+'</div>';
+    } else {
+      html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="disbandClan()">🗑 '+t('Распустить клан','Disband clan')+'</button>';
+    }
   }
 
   document.getElementById('content').innerHTML = html;

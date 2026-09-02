@@ -1096,6 +1096,37 @@ async def _clan_has_active_match(session, base, clan_id, exclude_id=None):
     return False
 
 
+async def _clan_unresolved_tournament_info(session, base, clan_id):
+    """
+    Защита ставок в клановых турнирах: капитан не может ни распустить клан, ни выгнать
+    конкретного участника, пока у клана есть незавершённый турнир (funding/open/matching/
+    running — то есть банк ещё не выплачен и не возвращён). Возвращает (has_unresolved,
+    paid_pids): has_unresolved — есть ли у клана вообще такой турнир (для disband — неважно,
+    чей именно взнос, важно что деньги клана в игре); paid_pids — множество pid участников
+    ИМЕННО ЭТОГО клана с оплаченным взносом хоть в одном таком турнире (для точечной защиты
+    при kick конкретного игрока). settled/expired не защищены — там банк уже посчитан либо
+    подлежит ручному возврату, роспуск/удаление больше ничего не портит.
+    """
+    if not clan_id:
+        return False, set()
+    async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
+        all_t = await resp.json()
+    all_t = all_t or {}
+    has_unresolved = False
+    paid_pids = set()
+    for tid, t in all_t.items():
+        if not isinstance(t, dict) or t.get('status') in ('settled', 'expired'):
+            continue
+        is_initiator = t.get('initiatorClanId') == clan_id
+        is_acceptor = t.get('acceptedByClanId') == clan_id
+        if not is_initiator and not is_acceptor:
+            continue
+        has_unresolved = True
+        participants = t.get('participantsA') if is_initiator else t.get('participantsB')
+        paid_pids.update((participants or {}).keys())
+    return has_unresolved, paid_pids
+
+
 async def _start_tournament_race(session, base, tournament_id):
     """
     Переводит турнир matching -> running, как только принимающая сторона полностью
@@ -1470,6 +1501,11 @@ async def clan_status(request):
                     clan_data = await resp2.json()
                 if isinstance(clan_data, dict):
                     clan = _clan_public(clan_id, clan_data, real_user_id)
+                    # Флаг для фронта — блокировать/подсвечивать кнопку «Распустить клан» и
+                    # «Удалить» у конкретных участников заранее, а не только по ошибке сервера.
+                    has_unresolved, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+                    clan['hasUnresolvedTournament'] = has_unresolved
+                    clan['tournamentLockedPids'] = list(paid_pids)
             else:
                 async with session.get(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}") as iresp:
                     raw_invites = await iresp.json()
@@ -1943,6 +1979,13 @@ async def clan_kick(request):
             if target_pid not in members:
                 return web.json_response({'error': 'этот игрок не состоит в клане'}, status=400, headers=CORS)
 
+            _, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+            if target_pid in paid_pids:
+                return web.json_response(
+                    {'error': 'у этого игрока есть оплаченный взнос в незавершённом турнире — дождись его завершения'},
+                    status=400, headers=CORS
+                )
+
             def _remove_member(m):
                 m.pop(target_pid, None)
 
@@ -1978,11 +2021,10 @@ async def clan_disband(request):
     оплаченных слотов уже куплено (это расходы капитана, он вправе ими не пользоваться).
     Все участники (включая самого капитана) автоматически освобождаются — их
     saves/{pid}.clanId/clanName очищаются, клан удаляется.
-    ВАЖНО: когда появятся турниры — там будет отдельная защита: если у клана есть активный
-    турнир, где кто-то из участников внёс СВОЮ ставку звёздами, распустить клан или выгнать
-    такого участника будет нельзя, пока турнир не завершится/не будет возвращён. Здесь эта
-    проверка сознательно не реализована — сейчас турниров ещё нет, и текущий роспуск не должен
-    её эмулировать.
+    Исключение — незавершённый турнир (funding/open/matching/running): пока в клан-турнирах
+    есть чьи-то оплаченные звёздами взносы, роспуск заблокирован (см. _clan_unresolved_
+    tournament_info) — иначе банк было бы некому вернуть. После settled/expired роспуск
+    снова свободен.
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -2017,6 +2059,13 @@ async def clan_disband(request):
                 clan_data = await resp2.json()
             if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
                 return web.json_response({'error': 'распустить клан может только капитан'}, status=403, headers=CORS)
+
+            has_unresolved, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
+            if has_unresolved:
+                return web.json_response(
+                    {'error': 'нельзя распустить клан — есть незавершённый турнир с оплаченными взносами, дождись его завершения'},
+                    status=400, headers=CORS
+                )
 
             members = clan_data.get('members') or {}
             for member_pid in members.keys():
