@@ -836,6 +836,7 @@ def _clan_members_list(members_dict):
             'pid': mpid,
             'userId': m.get('userId'),
             'name': m.get('name', ''),
+            'username': m.get('username', ''),
             'role': m.get('role', 'member'),
             'joinedAt': m.get('joinedAt', 0),
         })
@@ -1038,6 +1039,7 @@ async def clan_create(request):
                     return web.json_response({'error': 'клан с таким названием уже есть'}, status=400, headers=CORS)
 
             player_name = sv.get('playerName') or real_user.get('username') or real_user.get('first_name') or f"Игрок {real_user_id}"
+            player_username = real_user.get('username', '')
             clan_payload = {
                 'name': name,
                 'captainId': real_user_id,
@@ -1045,7 +1047,7 @@ async def clan_create(request):
                 'membersCount': 1,
                 'maxMembers': 2,
                 'members': {
-                    pid: {'userId': real_user_id, 'name': player_name, 'role': 'captain', 'joinedAt': now_ms}
+                    pid: {'userId': real_user_id, 'name': player_name, 'username': player_username, 'role': 'captain', 'joinedAt': now_ms}
                 },
                 'createdAt': now_ms,
             }
@@ -1093,7 +1095,7 @@ async def clan_create(request):
     return web.json_response({'ok': True, 'clan': {
         'id': clan_id, 'name': name, 'membersCount': 1, 'maxMembers': 2,
         'captainId': real_user_id, 'isCaptain': True, 'createdAt': now_ms,
-        'members': [{'pid': pid, 'userId': real_user_id, 'name': player_name, 'role': 'captain', 'joinedAt': now_ms}],
+        'members': [{'pid': pid, 'userId': real_user_id, 'name': player_name, 'username': player_username, 'role': 'captain', 'joinedAt': now_ms}],
     }}, headers=CORS)
 
 
@@ -1317,9 +1319,10 @@ async def clan_invite_respond(request):
                 return web.json_response({'error': 'в клане уже нет свободных мест'}, status=400, headers=CORS)
 
             player_name = sv.get('playerName') or real_user.get('username') or real_user.get('first_name') or f"Игрок {real_user_id}"
+            player_username = real_user.get('username', '')
 
             def _add_member(members):
-                members[pid] = {'userId': real_user_id, 'name': player_name, 'role': 'member', 'joinedAt': int(time_module.time() * 1000)}
+                members[pid] = {'userId': real_user_id, 'name': player_name, 'username': player_username, 'role': 'member', 'joinedAt': int(time_module.time() * 1000)}
 
             clan_data = await _mutate_clan_members(session, base, clan_id, _add_member)
             if clan_data is None:

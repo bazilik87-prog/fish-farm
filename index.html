@@ -4054,6 +4054,13 @@ function checkClanTester() {
   }).catch(function(){ clanChecked = true; });
 }
 
+function openTgUser(username) {
+  var url = 'https://t.me/' + username;
+  if (tg && tg.openTelegramLink) { tg.openTelegramLink(url); }
+  else if (tg && tg.openLink) { tg.openLink(url); }
+  else { window.open(url, '_blank'); }
+}
+
 function clanLastSeenLabel(ts) {
   if (!ts) return t('давно','a while ago');
   var now = new Date(), then = new Date(ts);
@@ -4137,8 +4144,14 @@ function renderClanMain(html) {
   for (var i=0; i<members.length; i++) {
     var m = members[i];
     var isCap = m.role === 'captain';
+    var handleLine = m.username
+      ? '<div style="font-size:11px;color:#4fc3f7;cursor:pointer" onclick="openTgUser(\''+m.username+'\')">@'+m.username+'</div>'
+      : '<div style="font-size:11px;color:#666">'+t('нет юзернейма Telegram','no Telegram username')+'</div>';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a2a3a">'
+      +'<div>'
       +'<div style="font-size:13px;color:'+(isCap?'#FFD700':'#fff')+'">'+(isCap?'👑 ':'🐟 ')+(m.name||('ID:'+m.userId))+'</div>'
+      +handleLine
+      +'</div>'
       +(myClan.isCaptain && !isCap ? '<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>' : '')
       +'</div>';
   }
