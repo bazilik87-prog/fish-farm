@@ -1518,6 +1518,7 @@ function checkNameInput() {
 function showTab(tab) {
   currentTab=tab;
   window._specialScreenOpen=false;
+  if (tab!=='clan' && typeof stopClanTourLiveTimer==='function') stopClanTourLiveTimer();
   if (tab==='leaders') leadersLoaded=false;
   var tabs=document.querySelectorAll('.tab');
   var names=['upgrades','aquarium','kitchen','market','daily','quests','boosts','leaders','clan','settings'];
@@ -4396,12 +4397,19 @@ function openClanTournaments() {
   fetchClanTournamentsMine();
   // Живой счёт: пока открыт экран турниров клана, подтягиваем свежие данные раз в 20с —
   // без этого счёт по улову во время гонки (running) не двигался бы без ручного захода
-  // на экран заново. Таймер сам себя останавливает, как только экран закрыт/сменился.
-  if (clanTourLiveTimer) clearInterval(clanTourLiveTimer);
+  // на экран заново. Таймер сам себя останавливает, как только экран закрыт/сменился —
+  // ОБЯЗАТЕЛЬНО проверяем ещё и currentTab==='clan', а не только clanView: clanView не
+  // сбрасывается при переключении на другую вкладку (апгрейды и т.п.), и без этой проверки
+  // таймер продолжал бы фоново дёргать fetch и перерисовывать #content поверх другой вкладки.
+  stopClanTourLiveTimer();
   clanTourLiveTimer = setInterval(function() {
-    if (clanView !== 'tournaments') { clearInterval(clanTourLiveTimer); clanTourLiveTimer = null; return; }
+    if (currentTab !== 'clan' || clanView !== 'tournaments') { stopClanTourLiveTimer(); return; }
     fetchClanTournamentsMine();
   }, 20000);
+}
+
+function stopClanTourLiveTimer() {
+  if (clanTourLiveTimer) { clearInterval(clanTourLiveTimer); clanTourLiveTimer = null; }
 }
 
 function fetchClanTournamentsMine() {
@@ -4417,9 +4425,11 @@ function fetchClanTournamentsMine() {
     clanTourState.isCaptain = !!res.isCaptain;
     clanTourState.tournaments = res.tournaments || [];
     // Не перерисовываем поверх поля ввода ставки — фоновый (в т.ч. периодический) ответ
-    // может прилететь прямо во время печати и оборвать ввод, как и в checkClanTester().
+    // может прилететь прямо во время печати и оборвать ввод, как и в checkClanTester(). И не
+    // перерисовываем, если игрок вообще ушёл с вкладки «Клан» — иначе фоновый тик подменяет
+    // содержимое другой открытой вкладки экраном турниров.
     var activeInputId = document.activeElement && document.activeElement.id;
-    if ((clanView === 'tournaments' || clanView === 'tournaments_archive') && activeInputId !== 'clan-tour-amount') renderClan();
+    if (currentTab === 'clan' && (clanView === 'tournaments' || clanView === 'tournaments_archive') && activeInputId !== 'clan-tour-amount') renderClan();
   }).catch(function(){ clanTourState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
