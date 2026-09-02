@@ -4032,8 +4032,9 @@ var clanTester = false;
 var clanChecked = false;
 var myClan = null;
 var myClanInvites = [];
-var clanView = 'main'; // 'main' | 'invite'
+var clanView = 'main'; // 'main' | 'invite' | 'tournaments'
 var clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: false, invitedIds: {}};
+var clanTourState = {loading: false, isCaptain: false, tournaments: []};
 
 function checkClanTester() {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
@@ -4049,8 +4050,9 @@ function checkClanTester() {
     myClanInvites = res.invites || [];
     // Не перерисовываем поверх активного поля ввода названия клана — иначе фоновый
     // ответ статуса может прилететь прямо во время печати и оборвать ввод.
-    var typingName = document.activeElement && document.activeElement.id === 'clan-name-input';
-    if (currentTab === 'clan' && !typingName) renderClan();
+    var activeInputId = document.activeElement && document.activeElement.id;
+    var isTyping = activeInputId === 'clan-name-input' || activeInputId === 'clan-tour-amount';
+    if (currentTab === 'clan' && !isTyping) renderClan();
   }).catch(function(){ clanChecked = true; });
 }
 
@@ -4102,6 +4104,7 @@ function renderClan() {
   }
 
   if (clanView === 'invite') { renderClanReferrals(html); return; }
+  if (clanView === 'tournaments') { renderClanTournaments(html); return; }
 
   if (myClan) { renderClanMain(html); return; }
 
@@ -4172,7 +4175,7 @@ function renderClanMain(html) {
     }
   }
 
-  html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Клановые турниры — следующим шагом','Clan tournaments coming next')+'</div>';
+  html += '<button class="btn btn-full" style="background:#6a4520;margin-bottom:6px" onclick="openClanTournaments()">🏆 '+t('Турниры','Tournaments')+'</button>';
 
   if (myClan.isCaptain) {
     html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="disbandClan()">🗑 '+t('Распустить клан','Disband clan')+'</button>';
@@ -4377,6 +4380,168 @@ function kickClanMember(userId) {
       }
       showNotif(t('Игрок удалён из клана','Player removed from the clan'));
       checkClanTester();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+// ── Клановые турниры — Этап 1: создание + сбор взносов своим кланом (без соперника) ──
+function openClanTournaments() {
+  clanView = 'tournaments';
+  clanTourState = {loading: true, isCaptain: false, tournaments: []};
+  renderClan();
+  fetchClanTournamentsMine();
+}
+
+function fetchClanTournamentsMine() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  clanTourState.loading = true;
+  fetch(BOT_API_URL + '/clan_tournaments_mine', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    clanTourState.loading = false;
+    if (!res || !res.ok) { showNotif(t('❌ Не удалось загрузить турниры','❌ Failed to load tournaments')); return; }
+    clanTourState.isCaptain = !!res.isCaptain;
+    clanTourState.tournaments = res.tournaments || [];
+    if (clanView === 'tournaments') renderClan();
+  }).catch(function(){ clanTourState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function clanTourTimeLeft(untilMs) {
+  var left = (untilMs||0) - Date.now();
+  if (left <= 0) return t('время истекло','time\'s up');
+  var h = Math.floor(left / 3600000);
+  var m = Math.floor((left % 3600000) / 60000);
+  if (h >= 24) return Math.floor(h/24) + t('д ','d ') + (h%24) + t('ч','h');
+  return h + t('ч ','h ') + m + t('м','m');
+}
+
+function renderClanTournaments(html) {
+  html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
+
+  if (clanTourState.isCaptain) {
+    html += '<div class="card">'
+      +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Создать турнир — минимальный взнос 50⭐ (это минимум, который можно вручную вернуть звёздами, если турнир не состоится)','Create a tournament — minimum stake 50⭐ (the smallest amount that can be manually refunded in Stars if the tournament falls through)')+'</div>'
+      +'<input id="clan-tour-amount" type="number" min="50" step="1" placeholder="'+t('Взнос, ⭐ (мин. 50)','Stake, ⭐ (min 50)')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:10px">'
+      +'<button class="btn btn-gold btn-full" onclick="createClanTournament()">🏆 '+t('Создать турнир','Create tournament')+'</button>'
+      +'</div>';
+  }
+
+  if (clanTourState.loading) {
+    html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  if (!clanTourState.tournaments.length) {
+    html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('У клана пока нет турниров','Your clan has no tournaments yet')+'</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  var statusLabel = {
+    funding: t('сбор взносов','collecting stakes'),
+    open: t('опубликован, ищет соперника','published, looking for an opponent'),
+  };
+
+  for (var i=0; i<clanTourState.tournaments.length; i++) {
+    var tr = clanTourState.tournaments[i];
+    var title = tr.number ? ('#'+tr.number) : t('черновик (не опубликован)','draft (not published)');
+    html += '<div class="card">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-size:14px;font-weight:700;color:#fff">🏆 '+title+'</div>'
+      +'<div style="font-size:11px;color:#90caf9">'+(statusLabel[tr.status]||tr.status)+'</div>'
+      +'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Ставка:','Stake:')+' ⭐'+tr.amountPerPerson+' '+t('с человека','per person')+'</div>';
+
+    if (tr.status === 'funding') {
+      html += '<div style="font-size:11px;color:#666;margin-top:2px">'+t('До конца сбора:','Funding ends in:')+' '+clanTourTimeLeft(tr.fundingDeadline)+'</div>';
+    } else if (tr.status === 'open') {
+      html += '<div style="font-size:11px;color:#666;margin-top:2px">'+t('Виден в общем списке ещё:','Visible in the public list for:')+' '+clanTourTimeLeft(tr.listExpiresAt)+'</div>';
+    }
+
+    html += '<div style="font-size:11px;color:#90caf9;margin-top:8px">'+t('Оплатили','Paid')+' ('+tr.participants.length+'):</div>';
+    for (var j=0; j<tr.participants.length; j++) {
+      var p = tr.participants[j];
+      html += '<div style="font-size:12px;color:#fff;padding:2px 0">🐟 '+(p.name||('ID:'+p.userId))+(p.username?' <span style="color:#4fc3f7">@'+p.username+'</span>':'')+'</div>';
+    }
+
+    if (tr.status === 'funding') {
+      if (!tr.iPaid) {
+        html += '<button class="btn btn-gold btn-full" style="margin-top:10px" onclick="payClanTournament(\''+tr.id+'\')">💰 '+t('Внести взнос','Chip in')+' — ⭐'+tr.amountPerPerson+'</button>';
+      }
+      if (clanTourState.isCaptain) {
+        html += '<button class="btn btn-full" style="margin-top:8px;background:#5a1a1a" onclick="fixClanTournament(\''+tr.id+'\')">🔒 '+t('Зафиксировать сейчас','Lock in now')+'</button>';
+      }
+    }
+
+    html += '</div>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function createClanTournament() {
+  var input = document.getElementById('clan-tour-amount');
+  var amount = input ? parseInt(input.value, 10) : 0;
+  if (!amount || amount < 50) {
+    showNotif(t('❌ Минимальный взнос — 50⭐','❌ Minimum stake is 50⭐'));
+    return;
+  }
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL + '/invoice', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action:'clan_tournament_create', amount: amount, init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif(t('❌ Ошибка: ','❌ Error: ')+(res.data&&res.data.error||t('неизвестная','unknown'))); return; }
+      var invLink = res.data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if (status === 'paid') {
+          showNotif(t('✅ Турнир создан!','✅ Tournament created!'));
+          fetchClanTournamentsMine();
+        }
+      });
+    }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
+}
+
+function payClanTournament(tournamentId) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL + '/invoice', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action:'clan_tournament_pay', tournament_id: tournamentId, init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif(t('❌ Ошибка: ','❌ Error: ')+(res.data&&res.data.error||t('неизвестная','unknown'))); return; }
+      var invLink = res.data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if (status === 'paid') {
+          showNotif(t('✅ Взнос внесён!','✅ Stake paid!'));
+          fetchClanTournamentsMine();
+        }
+      });
+    }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
+}
+
+function fixClanTournament(tournamentId) {
+  if (!confirm(t('Зафиксировать турнир сейчас? В команду войдут только те, кто уже оплатил.','Lock in the tournament now? Only those who already paid will be in the team.'))) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_tournament_fix', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, tournament_id: tournamentId})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось зафиксировать','failed to lock in')));
+        return;
+      }
+      showNotif(t('✅ Турнир опубликован!','✅ Tournament published!'));
+      fetchClanTournamentsMine();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
