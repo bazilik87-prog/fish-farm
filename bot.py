@@ -1506,6 +1506,7 @@ async def clan_status(request):
                     has_unresolved, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
                     clan['hasUnresolvedTournament'] = has_unresolved
                     clan['tournamentLockedPids'] = list(paid_pids)
+                    clan['iAmLocked'] = pid in paid_pids
             else:
                 async with session.get(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}") as iresp:
                     raw_invites = await iresp.json()
@@ -2007,6 +2008,89 @@ async def clan_kick(request):
             await session.put(f"{base}/saves/{target_pid}.json{FB_AUTH}", json=target_sv, headers=theaders)
             try:
                 await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': None})
+            except Exception:
+                pass
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({'ok': True}, headers=CORS)
+
+
+async def clan_leave(request):
+    """
+    Обычный участник (не капитан) сам покидает клан — та же механика очистки, что и в
+    clan_kick, только целью выступает сам вызывающий. Капитан выйти так не может — у клана
+    не может остаться без капитана, ему остаётся только /clan_disband. Та же защита ставки,
+    что и в clan_kick: если у игрока есть оплаченный взнос в незавершённом турнире, выйти
+    нельзя, пока турнир не завершится (см. _clan_unresolved_tournament_info).
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as resp2:
+                clan_data = await resp2.json()
+            if not isinstance(clan_data, dict):
+                return web.json_response({'error': 'клан не найден'}, status=400, headers=CORS)
+            if clan_data.get('captainId') == real_user_id:
+                return web.json_response(
+                    {'error': 'капитан не может покинуть свой клан — вместо этого распусти его'},
+                    status=400, headers=CORS
+                )
+
+            members = clan_data.get('members') or {}
+            if pid not in members:
+                return web.json_response({'error': 'ты не состоишь в этом клане'}, status=400, headers=CORS)
+
+            _, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+            if pid in paid_pids:
+                return web.json_response(
+                    {'error': 'нельзя покинуть клан — у тебя есть оплаченный взнос в незавершённом турнире, дождись его завершения'},
+                    status=400, headers=CORS
+                )
+
+            def _remove_member(m):
+                m.pop(pid, None)
+
+            new_clan_data = await _mutate_clan_members(session, base, clan_id, _remove_member)
+            if new_clan_data is None:
+                return web.json_response({'error': 'не удалось выйти — попробуй ещё раз'}, status=409, headers=CORS)
+
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as tresp:
+                tetag = tresp.headers.get("ETag")
+                target_sv = await tresp.json()
+            target_sv = dict(target_sv or {})
+            target_sv['clanId'] = None
+            target_sv['clanName'] = None
+            theaders = {"If-Match": tetag} if tetag else {}
+            await session.put(f"{base}/saves/{pid}.json{FB_AUTH}", json=target_sv, headers=theaders)
+            try:
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': None})
             except Exception:
                 pass
     except Exception as e:
@@ -7258,6 +7342,8 @@ async def main():
     app.router.add_options('/clan_invite_respond', clan_invite_respond)
     app.router.add_post('/clan_kick', clan_kick)
     app.router.add_options('/clan_kick', clan_kick)
+    app.router.add_post('/clan_leave', clan_leave)
+    app.router.add_options('/clan_leave', clan_leave)
     app.router.add_post('/clan_disband', clan_disband)
     app.router.add_options('/clan_disband', clan_disband)
     app.router.add_post('/clan_tournament_fix', clan_tournament_fix)

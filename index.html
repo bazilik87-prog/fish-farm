@@ -4196,9 +4196,35 @@ function renderClanMain(html) {
     } else {
       html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="disbandClan()">🗑 '+t('Распустить клан','Disband clan')+'</button>';
     }
+  } else {
+    if (myClan.iAmLocked) {
+      html += '<div class="card" style="text-align:center;color:#ffb74d;font-size:11px;margin-top:6px">🔒 '+t('Нельзя покинуть клан, пока не завершится турнир, в который ты внёс взнос','Can\'t leave the clan while a tournament you paid into is still in progress')+'</div>';
+    } else {
+      html += '<button class="btn btn-full" style="background:#5a1a1a;margin-top:6px" onclick="leaveClan()">🚪 '+t('Покинуть клан','Leave clan')+'</button>';
+    }
   }
 
   document.getElementById('content').innerHTML = html;
+}
+
+function leaveClan() {
+  if (!confirm(t('Точно покинуть клан? Ты сможешь вступить в другой или создать свой.','Really leave the clan? You\'ll be able to join another one or create your own.'))) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_leave', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось покинуть клан','failed to leave the clan')));
+        return;
+      }
+      myClan = null;
+      myClanInvites = [];
+      showNotif(t('Ты покинул клан','You left the clan'));
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
 function disbandClan() {
