@@ -628,7 +628,10 @@ async def create_invoice(request):
             return web.json_response({'link': link}, headers=CORS)
 
         elif action == 'clan_tournament_pay':
-            # Рядовой участник клана вносит такой же взнос в уже созданный (funding) турнир.
+            # Участник клана вносит взнос в уже созданный турнир — либо своей стороной-
+            # инициатором (funding), либо принимающей стороной, куда клан попал через accept
+            # (matching). Сторона определяется тем, к какой роли относится СВОЙ клан прямо
+            # сейчас — capitан её отдельно не выбирает.
             user_id = real_user_id
             if not is_clan_tester(user_id, real_user_verified.get('username')):
                 return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
@@ -647,19 +650,75 @@ async def create_invoice(request):
                     tdata = await tresp.json()
             if not isinstance(tdata, dict):
                 return web.json_response({'error': 'турнир не найден'}, status=404, headers=CORS)
-            if tdata.get('status') != 'funding':
-                return web.json_response({'error': 'сбор взносов уже закрыт'}, status=400, headers=CORS)
-            if tdata.get('initiatorClanId') != my_clan_id:
-                return web.json_response({'error': 'это турнир другого клана'}, status=403, headers=CORS)
-            if pid in (tdata.get('participantsA') or {}):
+            status = tdata.get('status')
+            if status == 'funding' and tdata.get('initiatorClanId') == my_clan_id:
+                side = 'A'
+                deadline = tdata.get('fundingDeadline', 0)
+                already_paid = pid in (tdata.get('participantsA') or {})
+            elif status == 'matching' and tdata.get('acceptedByClanId') == my_clan_id:
+                side = 'B'
+                deadline = tdata.get('matchingDeadline', 0)
+                already_paid = pid in (tdata.get('participantsB') or {})
+            else:
+                return web.json_response({'error': 'сбор взносов для этого турнира сейчас недоступен'}, status=400, headers=CORS)
+            if already_paid:
                 return web.json_response({'error': 'ты уже внёс взнос'}, status=400, headers=CORS)
-            if int(time_module.time() * 1000) >= tdata.get('fundingDeadline', 0):
+            if int(time_module.time() * 1000) >= deadline:
                 return web.json_response({'error': 'время сбора истекло'}, status=400, headers=CORS)
             amount = tdata.get('amountPerPerson', 0)
-            payload = f"ctp:{user_id}:{tournament_id}"
+            payload = f"ctp:{user_id}:{tournament_id}:{side}"
             link = await bot.create_invoice_link(
                 title="Взнос в турнир клана",
                 description=f"Твой взнос в банк турнира — {amount}⭐",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Tournament stake", amount=amount)],
+                provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
+        elif action == 'clan_tournament_accept':
+            # Капитан другого клана принимает открытый турнир — сам платит свою ставку
+            # первым же взносом (символично зеркалит то, как капитан-инициатор платит первым
+            # при создании). Запись фактически меняется только в successful_payment (ctа:),
+            # чтобы брошенный счёт не переводил турнир в matching без реальной оплаты.
+            user_id = real_user_id
+            if not is_clan_tester(user_id, real_user_verified.get('username')):
+                return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+            tournament_id = str(data.get('tournament_id', '')).strip()
+            if not tournament_id:
+                return web.json_response({'error': 'invalid tournament'}, status=400, headers=CORS)
+            import aiohttp as _aiohttp
+            fb_base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            pid = f"tg_{user_id}"
+            async with _aiohttp.ClientSession() as session:
+                async with session.get(f"{fb_base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                    my_clan_id = await resp.json()
+                if not my_clan_id:
+                    return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
+                async with session.get(f"{fb_base}/clans/{my_clan_id}.json{FB_AUTH}") as cresp:
+                    my_clan_data = await cresp.json()
+                if not isinstance(my_clan_data, dict) or my_clan_data.get('captainId') != user_id:
+                    return web.json_response({'error': 'принять турнир может только капитан'}, status=403, headers=CORS)
+                async with session.get(f"{fb_base}/clan_tournaments/{tournament_id}.json{FB_AUTH}") as tresp:
+                    tdata = await tresp.json()
+                if not isinstance(tdata, dict) or tdata.get('status') != 'open':
+                    return web.json_response({'error': 'этот турнир уже недоступен'}, status=400, headers=CORS)
+                if tdata.get('initiatorClanId') == my_clan_id:
+                    return web.json_response({'error': 'нельзя принять свой же турнир'}, status=400, headers=CORS)
+                if int(time_module.time() * 1000) >= tdata.get('listExpiresAt', 0):
+                    return web.json_response({'error': 'срок турнира истёк'}, status=400, headers=CORS)
+                if await _clan_has_active_match(session, fb_base, my_clan_id, exclude_id=tournament_id):
+                    return web.json_response({'error': 'у твоего клана уже есть активный турнир с соперником'}, status=400, headers=CORS)
+                if await _clan_has_active_match(session, fb_base, tdata.get('initiatorClanId'), exclude_id=tournament_id):
+                    return web.json_response({'error': 'клан-инициатор сейчас занят другим турниром'}, status=400, headers=CORS)
+            amount = tdata.get('amountPerPerson', 0)
+            payload = f"cta:{user_id}:{tournament_id}:{my_clan_id}"
+            if len(payload.encode('utf-8')) > 128:
+                return web.json_response({'error': 'internal: payload too long'}, status=500, headers=CORS)
+            link = await bot.create_invoice_link(
+                title="Принять турнир клана",
+                description=f"Твой взнос как принимающего капитана — {amount}⭐",
                 payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Tournament stake", amount=amount)],
@@ -1012,6 +1071,147 @@ async def _fixate_tournament(session, base, tournament_id):
             if put_resp.status in (200, 204):
                 return t
             return None
+    return None
+
+
+async def _clan_has_active_match(session, base, clan_id, exclude_id=None):
+    """
+    True, если у клана уже есть турнир в статусе matching/running — как инициатор, так и
+    принимающая сторона считаются. Реализует правило «у клана может идти только 1 активный
+    турнир с соперником одновременно», не мешая при этом иметь сколько угодно параллельных
+    turnиров в funding/open (свой сбор без соперника — не ограничен).
+    """
+    if not clan_id:
+        return False
+    async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
+        all_t = await resp.json()
+    all_t = all_t or {}
+    for tid, t in all_t.items():
+        if exclude_id and tid == exclude_id:
+            continue
+        if not isinstance(t, dict) or t.get('status') not in ('matching', 'running'):
+            continue
+        if t.get('initiatorClanId') == clan_id or t.get('acceptedByClanId') == clan_id:
+            return True
+    return False
+
+
+async def _start_tournament_race(session, base, tournament_id):
+    """
+    Переводит турнир matching -> running, как только принимающая сторона полностью
+    укомплектована (participantsB достиг requiredCount): берёт снэпшот caught каждого
+    участника обеих команд (catchBaseline) и запускает 48-часовой таймер гонки. Вызывается
+    синхронно сразу после последнего нужного взноса принимающей стороны; из фонового цикла
+    вызывается ещё раз как идемпотентная подстраховка на случай, если синхронный вызов по
+    какой-то причине не сработал (сам себя не запустит повторно — статус уже не matching).
+    """
+    url = f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            tdata = await resp.json()
+        if not isinstance(tdata, dict) or tdata.get('status') != 'matching':
+            return None
+        required = tdata.get('requiredCount', 0)
+        participants_a = tdata.get('participantsA') or {}
+        participants_b = tdata.get('participantsB') or {}
+        if not required or len(participants_b) < required:
+            return None
+        all_pids = list(participants_a.keys()) + list(participants_b.keys())
+
+        async def _fetch_caught(p):
+            async with session.get(f"{base}/leaderboard/{p}/caught.json{FB_AUTH}") as r:
+                v = await r.json()
+                return p, (v or 0)
+
+        results = await asyncio.gather(*[_fetch_caught(p) for p in all_pids])
+        baseline = {p: v for p, v in results}
+        now_ms = int(time_module.time() * 1000)
+        tdata['status'] = 'running'
+        tdata['matchStartedAt'] = now_ms
+        tdata['matchEndsAt'] = now_ms + 48 * 3600 * 1000
+        tdata['catchBaseline'] = baseline
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=tdata, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue
+            if put_resp.status not in (200, 204):
+                return None
+            # Уведомляем всех участников обеих команд — без t()/bilingual, тем же
+            # способом, что и остальные пуши третьим лицам без контекста initData
+            # (например, "у тебя появился реферер" в ветке rb:).
+            init_name = tdata.get('initiatorClanName', '')
+            acc_name = tdata.get('acceptedByClanName', '')
+            number = tdata.get('number')
+            for p in all_pids:
+                m = participants_a.get(p) or participants_b.get(p) or {}
+                uid = m.get('userId')
+                if not uid:
+                    continue
+                try:
+                    await bot.send_message(uid,
+                        f"🏁 Старт! Турнир #{number} между «{init_name}» и «{acc_name}» начался — 48 часов на улов рыбы. Следи за live-счётом во вкладке «Клан».")
+                except Exception:
+                    pass
+            return tdata
+    return None
+
+
+async def _expire_matching_window(session, base, tournament_id):
+    """
+    Переводит турнир matching -> open обратно, если принимающая сторона не успела
+    собрать полный состав за 2 часа (matchingDeadline истёк, а participantsB так и не
+    дотянул до requiredCount). Турнир возвращается в публичный список — listExpiresAt
+    НЕ сбрасывается (это первоначальные 7 дней публикации, а не окно на этот матч),
+    так что если исходное окно уже истекло тоже, турнир просто больше никому не
+    покажется в /clan_tournaments_open. Тех, кто уже успел заплатить как сторона B,
+    нужно вернуть вручную — их список уходит админу и в саппорт-группу. Идемпотентна:
+    статус уже не matching после первого успешного вызова, повторный вызов — no-op.
+    """
+    url = f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            tdata = await resp.json()
+        if not isinstance(tdata, dict) or tdata.get('status') != 'matching':
+            return None
+        required = tdata.get('requiredCount', 0)
+        participants_b = tdata.get('participantsB') or {}
+        if required and len(participants_b) >= required:
+            return None  # успел укомплектоваться — это уже не наш случай, займётся safety-net запуска
+        refund_list = [
+            (v.get('name', ''), v.get('username', ''), v.get('amount', 0))
+            for v in participants_b.values() if isinstance(v, dict)
+        ]
+        failed_clan_name = tdata.get('acceptedByClanName', '')
+        tdata['status'] = 'open'
+        tdata.pop('acceptedByClanId', None)
+        tdata.pop('acceptedByClanName', None)
+        tdata.pop('acceptingCaptainId', None)
+        tdata.pop('participantsB', None)
+        tdata.pop('matchingDeadline', None)
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=tdata, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue
+            if put_resp.status not in (200, 204):
+                return None
+            if refund_list:
+                lines = "\n".join(f"— {n or ('@' + u if u else 'без имени')} — {a}⭐" for n, u, a in refund_list)
+                text = (f"⏳ Окно сбора соперника (2ч) истекло для турнира #{tdata.get('number')} "
+                        f"(клан-претендент «{failed_clan_name}» не успел собрать состав). "
+                        f"Турнир возвращён в список. Нужен ручной возврат звёзд:\n{lines}")
+                if ADMIN_ID:
+                    try:
+                        await bot.send_message(ADMIN_ID, text)
+                    except Exception:
+                        pass
+                if SUPPORT_GROUP_ID:
+                    try:
+                        await bot.send_message(SUPPORT_GROUP_ID, text)
+                    except Exception:
+                        pass
+            return tdata
     return None
 
 
@@ -1718,8 +1918,8 @@ async def clan_tournament_fix(request):
 
 async def clan_tournaments_mine(request):
     """
-    Список турниров своего клана как инициатора (любой статус) — экран «Клан-Турниры».
-    Когда появится приём чужих турниров, сюда же добавится фильтр и по acceptedByClanId.
+    Список турниров своего клана — и как инициатора, и как принявшей стороны (любой статус) —
+    экран «Клан-Турниры».
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -1761,27 +1961,117 @@ async def clan_tournaments_mine(request):
     all_t = all_t or {}
     out = []
     for tid, t in all_t.items():
-        if not isinstance(t, dict) or t.get('initiatorClanId') != clan_id:
+        if not isinstance(t, dict):
             continue
-        participants = t.get('participantsA') or {}
+        is_initiator = t.get('initiatorClanId') == clan_id
+        is_acceptor = t.get('acceptedByClanId') == clan_id
+        if not is_initiator and not is_acceptor:
+            continue
+        role = 'initiator' if is_initiator else 'acceptor'
+        my_side = 'A' if is_initiator else 'B'
+        participants_a = t.get('participantsA') or {}
+        participants_b = t.get('participantsB') or {}
+        my_participants = participants_a if is_initiator else participants_b
         out.append({
             'id': tid,
             'number': t.get('number'),
             'status': t.get('status'),
+            'role': role,
+            'mySide': my_side,
             'amountPerPerson': t.get('amountPerPerson', 0),
-            'participants': [
+            'initiatorClanId': t.get('initiatorClanId'),
+            'initiatorClanName': t.get('initiatorClanName', ''),
+            'acceptedByClanId': t.get('acceptedByClanId'),
+            'acceptedByClanName': t.get('acceptedByClanName', ''),
+            'participantsA': [
                 {'pid': p, 'userId': v.get('userId'), 'name': v.get('name', ''), 'username': v.get('username', '')}
-                for p, v in participants.items() if isinstance(v, dict)
+                for p, v in participants_a.items() if isinstance(v, dict)
             ],
-            'iPaid': pid in participants,
+            'participantsB': [
+                {'pid': p, 'userId': v.get('userId'), 'name': v.get('name', ''), 'username': v.get('username', '')}
+                for p, v in participants_b.items() if isinstance(v, dict)
+            ],
+            'iPaid': pid in my_participants,
             'requiredCount': t.get('requiredCount'),
             'fundingDeadline': t.get('fundingDeadline'),
             'publishedAt': t.get('publishedAt'),
             'listExpiresAt': t.get('listExpiresAt'),
+            'matchingDeadline': t.get('matchingDeadline'),
+            'matchStartedAt': t.get('matchStartedAt'),
+            'matchEndsAt': t.get('matchEndsAt'),
+            'winnerClanId': t.get('winnerClanId'),
             'createdAt': t.get('createdAt', 0),
         })
     out.sort(key=lambda x: x['createdAt'], reverse=True)
     return web.json_response({'ok': True, 'isCaptain': is_captain, 'tournaments': out}, headers=CORS)
+
+
+async def clan_tournaments_open(request):
+    """
+    Публичный список турниров в статусе open — доступных для приёма другими кланами.
+    Возвращает isMine/isCaptain/myClanId, чтобы фронт мог решить, показывать ли кнопку «Принять».
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            is_captain = False
+            if clan_id:
+                async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as cresp:
+                    clan_data = await cresp.json()
+                is_captain = isinstance(clan_data, dict) and clan_data.get('captainId') == real_user_id
+            async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as tresp:
+                all_t = await tresp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    all_t = all_t or {}
+    now = int(time.time() * 1000)
+    out = []
+    for tid, t in all_t.items():
+        if not isinstance(t, dict) or t.get('status') != 'open':
+            continue
+        if t.get('listExpiresAt') and now >= t.get('listExpiresAt'):
+            continue
+        participants_a = t.get('participantsA') or {}
+        out.append({
+            'id': tid,
+            'number': t.get('number'),
+            'amountPerPerson': t.get('amountPerPerson', 0),
+            'requiredCount': t.get('requiredCount'),
+            'initiatorClanId': t.get('initiatorClanId'),
+            'initiatorClanName': t.get('initiatorClanName', ''),
+            'participantsCount': len(participants_a),
+            'publishedAt': t.get('publishedAt'),
+            'listExpiresAt': t.get('listExpiresAt'),
+            'isMine': t.get('initiatorClanId') == clan_id,
+            'createdAt': t.get('createdAt', 0),
+        })
+    out.sort(key=lambda x: x['createdAt'], reverse=True)
+    return web.json_response({'ok': True, 'isCaptain': is_captain, 'myClanId': clan_id, 'tournaments': out}, headers=CORS)
 
 
 async def partner_check(request):
@@ -6035,6 +6325,7 @@ async def successful_payment(message: types.Message):
                      'Слот клана' if payload.startswith('cs:') else
                      'Создание турнира клана' if payload.startswith('ctc:') else
                      'Взнос в турнир клана' if payload.startswith('ctp:') else
+                     'Принять турнир клана' if payload.startswith('cta:') else
                      'Биржа рефералов' if payload.startswith('rb:') else payload)
             await bot.send_message(
                 ADMIN_ID,
@@ -6285,37 +6576,56 @@ async def successful_payment(message: types.Message):
                     "❌ Something went wrong creating the tournament — message the admin, we'll sort it out."))
 
     elif payload.startswith('ctp:'):
-        # Рядовой участник клана оплатил свой взнос в уже существующий (funding) турнир.
+        # Участник клана оплатил свой взнос — либо стороной-инициатором (funding ->
+        # participantsA), либо принимающей стороной (matching -> participantsB). Сторона
+        # закодирована в payload на момент выставления счёта, но статус/принадлежность
+        # перепроверяются заново прямо перед записью — на случай, если окно уже закрылось
+        # или клан успел покинуть эту роль, пока счёт был открыт.
         parts = payload.split(':')
         payer_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
         tournament_id = parts[2] if len(parts) > 2 else None
+        side = parts[3] if len(parts) > 3 else 'A'
         if tournament_id:
             import aiohttp, time
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             pid = f"tg_{payer_id}"
             try:
                 ok = False
+                already = False
+                final_tdata = None
+                field = 'participantsA' if side == 'A' else 'participantsB'
+                expected_status = 'funding' if side == 'A' else 'matching'
                 async with aiohttp.ClientSession() as session:
                     for attempt in range(6):
                         async with session.get(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as resp:
                             etag = resp.headers.get("ETag")
                             tdata = await resp.json()
-                        if not isinstance(tdata, dict) or tdata.get('status') != 'funding':
+                        if not isinstance(tdata, dict) or tdata.get('status') != expected_status:
                             break
-                        if pid in (tdata.get('participantsA') or {}):
+                        if pid in (tdata.get(field) or {}):
                             ok = True  # уже засчитан (повторная доставка вебхука) — не задваиваем
+                            already = True
+                            final_tdata = tdata
                             break
                         amount_paid = tdata.get('amountPerPerson', 0)
-                        participants = dict(tdata.get('participantsA') or {})
+                        participants = dict(tdata.get(field) or {})
                         player_name = message.from_user.username or message.from_user.first_name or f"Игрок {payer_id}"
                         participants[pid] = {'userId': int(payer_id), 'name': player_name, 'username': message.from_user.username or '', 'paidAt': int(time.time() * 1000), 'amount': amount_paid}
-                        tdata['participantsA'] = participants
+                        tdata[field] = participants
                         headers = {"If-Match": etag} if etag else {}
                         async with session.put(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}", json=tdata, headers=headers) as put_resp:
                             if put_resp.status == 412:
                                 continue
                             ok = put_resp.status in (200, 204)
+                            final_tdata = tdata
                             break
+                    if ok and side == 'B' and not already and final_tdata is not None:
+                        required = final_tdata.get('requiredCount', 0)
+                        if required and len(final_tdata.get('participantsB') or {}) >= required:
+                            try:
+                                await _start_tournament_race(session, base, tournament_id)
+                            except Exception as e:
+                                print(f"Ошибка запуска гонки турнира {tournament_id}: {e}")
                 if ok:
                     await message.answer(t(message.from_user,
                         "✅ Взнос в турнир клана засчитан!",
@@ -6323,12 +6633,12 @@ async def successful_payment(message: types.Message):
                 else:
                     if ADMIN_ID:
                         try:
-                            await bot.send_message(ADMIN_ID, f"⚠️ Взнос в турнир не применился (payer:{payer_id}, tournament:{tournament_id}) — нужен ручной возврат.")
+                            await bot.send_message(ADMIN_ID, f"⚠️ Взнос в турнир не применился (payer:{payer_id}, tournament:{tournament_id}, side:{side}) — нужен ручной возврат.")
                         except Exception:
                             pass
                     await message.answer(t(message.from_user,
-                        "❌ Не удалось засчитать взнос (сбор мог уже закрыться). Напиши администратору — вернём звёзды.",
-                        "❌ Couldn't register your stake (funding may have just closed). Message the admin — we'll refund you."))
+                        "❌ Не удалось засчитать взнос (окно сбора могло уже закрыться). Напиши администратору — вернём звёзды.",
+                        "❌ Couldn't register your stake (the window may have just closed). Message the admin — we'll refund you."))
             except Exception as e:
                 if ADMIN_ID:
                     try:
@@ -6338,6 +6648,108 @@ async def successful_payment(message: types.Message):
                 await message.answer(t(message.from_user,
                     "❌ Что-то пошло не так со взносом — напиши администратору, разберёмся.",
                     "❌ Something went wrong with your stake — message the admin, we'll sort it out."))
+
+    elif payload.startswith('cta:'):
+        # Капитан принял чужой турнир и оплатил свой взнос как принимающая сторона —
+        # переводим турнир open -> matching, даём 2 часа на сбор такого же состава.
+        parts = payload.split(':')
+        captain_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
+        tournament_id = parts[2] if len(parts) > 2 else None
+        clan_id = parts[3] if len(parts) > 3 else None
+        if tournament_id and clan_id:
+            import aiohttp, time
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            pid = f"tg_{captain_id}"
+            try:
+                ok = False
+                error_reason = None
+                clan_data = None
+                final_tdata = None
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as cresp:
+                        clan_data = await cresp.json()
+                    if not isinstance(clan_data, dict) or clan_data.get('captainId') != int(captain_id):
+                        error_reason = 'clan changed'
+                    elif await _clan_has_active_match(session, base, clan_id, exclude_id=tournament_id):
+                        error_reason = 'own clan busy'
+                    else:
+                        for attempt in range(6):
+                            async with session.get(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as tresp:
+                                etag = tresp.headers.get("ETag")
+                                tdata = await tresp.json()
+                            if not isinstance(tdata, dict) or tdata.get('status') != 'open':
+                                error_reason = 'tournament no longer open'
+                                break
+                            if tdata.get('initiatorClanId') == clan_id:
+                                error_reason = 'own tournament'
+                                break
+                            if await _clan_has_active_match(session, base, tdata.get('initiatorClanId'), exclude_id=tournament_id):
+                                error_reason = 'initiator busy'
+                                break
+                            now_ms = int(time.time() * 1000)
+                            player_name = message.from_user.username or message.from_user.first_name or f"Игрок {captain_id}"
+                            tdata['status'] = 'matching'
+                            tdata['acceptedByClanId'] = clan_id
+                            tdata['acceptedByClanName'] = clan_data.get('name', '')
+                            tdata['acceptingCaptainId'] = int(captain_id)
+                            tdata['participantsB'] = {
+                                pid: {'userId': int(captain_id), 'name': player_name, 'username': message.from_user.username or '', 'paidAt': now_ms, 'amount': tdata.get('amountPerPerson', 0)}
+                            }
+                            tdata['matchingDeadline'] = now_ms + 2 * 3600 * 1000
+                            headers = {"If-Match": etag} if etag else {}
+                            async with session.put(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}", json=tdata, headers=headers) as put_resp:
+                                if put_resp.status == 412:
+                                    continue
+                                ok = put_resp.status in (200, 204)
+                                final_tdata = tdata
+                                break
+                    if ok and final_tdata is not None:
+                        # Уведомляем остальных участников своего клана — приглашаем тоже
+                        # внести взнос в оставшееся 2-часовое окно.
+                        for m_pid, m in (clan_data.get('members') or {}).items():
+                            m_uid = m.get('userId') if isinstance(m, dict) else None
+                            if not m_uid or m_uid == int(captain_id):
+                                continue
+                            try:
+                                await bot.send_message(m_uid,
+                                    f"⚔️ Ваш клан «{clan_data.get('name','')}» принял вызов на турнир (ставка {final_tdata.get('amountPerPerson', 0)}⭐)! Зайди во вкладку «Клан», чтобы внести взнос — на сбор всего 2 часа.")
+                            except Exception:
+                                pass
+                        # И клан-инициатора — что их турнир приняли.
+                        async with session.get(f"{base}/clans/{final_tdata.get('initiatorClanId')}.json{FB_AUTH}") as iresp:
+                            init_clan = await iresp.json()
+                        if isinstance(init_clan, dict):
+                            for m_pid, m in (init_clan.get('members') or {}).items():
+                                m_uid = m.get('userId') if isinstance(m, dict) else None
+                                if not m_uid:
+                                    continue
+                                try:
+                                    await bot.send_message(m_uid,
+                                        f"⚔️ Ваш турнир #{final_tdata.get('number')} принял клан «{clan_data.get('name','')}»! Идёт сбор их состава — 2 часа.")
+                                except Exception:
+                                    pass
+                if ok and final_tdata is not None:
+                    await message.answer(t(message.from_user,
+                        f"✅ Турнир принят! Взнос {final_tdata.get('amountPerPerson', 0)}⭐ засчитан. У вашего клана есть 2 часа, чтобы собрать такой же состав.",
+                        f"✅ Tournament accepted! Your {final_tdata.get('amountPerPerson', 0)}⭐ stake is in. Your clan has 2 hours to match the squad."))
+                else:
+                    if ADMIN_ID:
+                        try:
+                            await bot.send_message(ADMIN_ID, f"⚠️ Оплата принятия турнира не применилась ({error_reason}) — captain:{captain_id}, tournament:{tournament_id}, clan:{clan_id}. Нужен ручной возврат.")
+                        except Exception:
+                            pass
+                    await message.answer(t(message.from_user,
+                        "❌ Не удалось принять турнир (он мог уже стать недоступен). Напиши администратору — вернём звёзды.",
+                        "❌ Couldn't accept the tournament (it may no longer be available). Message the admin — we'll refund you."))
+            except Exception as e:
+                if ADMIN_ID:
+                    try:
+                        await bot.send_message(ADMIN_ID, f"⚠️ Ошибка при принятии турнира (captain:{captain_id}, tournament:{tournament_id}): {e}")
+                    except Exception:
+                        pass
+                await message.answer(t(message.from_user,
+                    "❌ Что-то пошло не так при принятии турнира — напиши администратору, разберёмся.",
+                    "❌ Something went wrong accepting the tournament — message the admin, we'll sort it out."))
 
     elif payload.startswith('sub:'):
         # Срабатывает и на первую оплату, и на каждое ежемесячное автопродление —
@@ -6495,10 +6907,12 @@ async def price_regeneration_loop():
 async def clan_tournament_loop():
     """
     Фоновая задача — раз в минуту проверяет турниры clan_tournaments на истёкшие окна.
-    Этап 1: реализован только переход funding -> open по истечении 6-часового окна сбора
-    (вручную капитан может зафиксировать раньше через /clan_tournament_fix). Переходы
-    matching -> open, open -> expired и running -> settled добавятся на следующих этапах —
-    сюда же, в этот же цикл, без отдельной инфраструктуры.
+    Этап 1: funding -> open по истечении 6-часового окна сбора (вручную капитан может
+    зафиксировать раньше через /clan_tournament_fix). Этап 2: matching -> running как
+    idempotent safety-net (на случай если синхронный запуск из successful_payment по
+    какой-то причине не сработал), и matching -> open откат, если принимающая сторона
+    не успела собрать состав за 2 часа. open -> expired и running -> settled добавятся
+    на следующих этапах — сюда же, в этот же цикл, без отдельной инфраструктуры.
     """
     while True:
         try:
@@ -6517,6 +6931,19 @@ async def clan_tournament_loop():
                             await _fixate_tournament(session, base, tid)
                         except Exception as e:
                             print(f"Ошибка автофиксации турнира {tid}: {e}")
+                    elif t.get('status') == 'matching':
+                        required = t.get('requiredCount', 0)
+                        participants_b = t.get('participantsB') or {}
+                        if required and len(participants_b) >= required:
+                            try:
+                                await _start_tournament_race(session, base, tid)
+                            except Exception as e:
+                                print(f"Ошибка safety-net запуска турнира {tid}: {e}")
+                        elif now_ms >= t.get('matchingDeadline', 0):
+                            try:
+                                await _expire_matching_window(session, base, tid)
+                            except Exception as e:
+                                print(f"Ошибка отката окна ожидания турнира {tid}: {e}")
         except Exception as e:
             print(f"Ошибка фоновой проверки турниров: {e}")
         await asyncio.sleep(60)
@@ -6564,6 +6991,8 @@ async def main():
     app.router.add_options('/clan_tournament_fix', clan_tournament_fix)
     app.router.add_post('/clan_tournaments_mine', clan_tournaments_mine)
     app.router.add_options('/clan_tournaments_mine', clan_tournaments_mine)
+    app.router.add_post('/clan_tournaments_open', clan_tournaments_open)
+    app.router.add_options('/clan_tournaments_open', clan_tournaments_open)
     app.router.add_get('/health', health)
     app.router.add_get('/api/check', partner_check)
 
