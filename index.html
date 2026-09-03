@@ -475,6 +475,14 @@ function weatherName(id) {
 var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 25, life: 0.33}; // цена 25🪙, живёт 10мин
 var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
 var RARE_FISH_DURATION = 10 * 60 * 1000;     // живёт 10 минут
+// Сдвиг расписания от круглых значений (00:00, 02:00 UTC и т.д. — 01:00, 03:00... МСК)
+// на 37 минут внутри каждого 2-часового блока. Без сдвига закономерность слишком легко
+// заметить случайно (люди чаще смотрят на часы в круглое время) — сам факт единого
+// расписания на всех это не убирает (см. обсуждение), но сбрасывает уже подмеченную
+// игроками привязку к ровным часам. ВАЖНО: то же самое число (RARE_FISH_OFFSET) должно
+// быть продублировано в rare_fish_status() в bot.py — если сдвиги разъедутся, клиент
+// будет показывать рыбу, а сервер — отклонять улов как "рыбы сейчас нет".
+var RARE_FISH_OFFSET = 37 * 60 * 1000;
 var rareFishActive = false;
 var rareFishEndsAt = 0;
 var rareFishNextAt = 0;
@@ -482,7 +490,8 @@ var _rareFishWasActive = false;
 
 function rareFishSchedule(now) {
   now = now || Date.now();
-  var cycleStart = Math.floor(now / RARE_FISH_INTERVAL) * RARE_FISH_INTERVAL;
+  var shifted = now - RARE_FISH_OFFSET;
+  var cycleStart = Math.floor(shifted / RARE_FISH_INTERVAL) * RARE_FISH_INTERVAL + RARE_FISH_OFFSET;
   var endsAt = cycleStart + RARE_FISH_DURATION;
   var nextAt = cycleStart + RARE_FISH_INTERVAL;
   return {active: now < endsAt, endsAt: endsAt, nextAt: nextAt};

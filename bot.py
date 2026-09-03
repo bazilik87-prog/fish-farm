@@ -2537,6 +2537,9 @@ QUEST_BONUS_BASE = 500
 RARE_FISH_PRICE = 25
 RARE_FISH_INTERVAL_MS = 2 * 60 * 60 * 1000  # раз в 2 часа
 RARE_FISH_DURATION_MS = 10 * 60 * 1000      # живёт 10 минут
+# Сдвиг от круглых значений (см. RARE_FISH_OFFSET в index.html — то же самое число,
+# держать в синхроне обязательно, иначе клиент покажет рыбу, а сервер отклонит улов).
+RARE_FISH_OFFSET_MS = 37 * 60 * 1000
 
 
 def rare_fish_status(now_ms=None):
@@ -2553,7 +2556,8 @@ def rare_fish_status(now_ms=None):
     """
     if now_ms is None:
         now_ms = int(time_module.time() * 1000)
-    cycle_start = (now_ms // RARE_FISH_INTERVAL_MS) * RARE_FISH_INTERVAL_MS
+    shifted = now_ms - RARE_FISH_OFFSET_MS
+    cycle_start = (shifted // RARE_FISH_INTERVAL_MS) * RARE_FISH_INTERVAL_MS + RARE_FISH_OFFSET_MS
     ends_at = cycle_start + RARE_FISH_DURATION_MS
     next_at = cycle_start + RARE_FISH_INTERVAL_MS
     return {'active': now_ms < ends_at, 'endsAt': ends_at, 'nextAt': next_at}
