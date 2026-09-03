@@ -2514,6 +2514,28 @@ LOCATION_UNLOCK_COST = {'pond': 0, 'river': 100000, 'tropics': 3000000, 'deep': 
 LOCATION_ORDER_LIST = ['pond', 'river', 'tropics', 'deep', 'space']
 QUEST_BONUS_BASE = 500
 RARE_FISH_PRICE = 25
+RARE_FISH_INTERVAL_MS = 2 * 60 * 60 * 1000  # раз в 2 часа
+RARE_FISH_DURATION_MS = 10 * 60 * 1000      # живёт 10 минут
+
+
+def rare_fish_status(now_ms=None):
+    """
+    Расписание редкой рыбы (Осетрина) — чистая детерминированная формула от текущего
+    времени, без какого-либо состояния в Firebase. Раньше расписание жило в общем узле
+    rare_fish, который ЛЮБОЙ клиент мог переписать (в том числе через консоль браузера) —
+    этим объяснялся баг "осетрина активна ~6 часов": сбитые часы одного устройства (или
+    просто гонка нескольких клиентов, независимо решающих "пора её заспавнить") сдвигали
+    общее окно на часы сразу для ВСЕХ игроков, а заодно это был готовый вектор, чтобы
+    держать 15%-шанс на монеты активным вечно. Теперь и сервер, и все клиенты вычисляют
+    ОДНО и то же окно независимо (см. rareFishSchedule() в index.html) — переписывать
+    и подделывать нечего.
+    """
+    if now_ms is None:
+        now_ms = int(time_module.time() * 1000)
+    cycle_start = (now_ms // RARE_FISH_INTERVAL_MS) * RARE_FISH_INTERVAL_MS
+    ends_at = cycle_start + RARE_FISH_DURATION_MS
+    next_at = cycle_start + RARE_FISH_INTERVAL_MS
+    return {'active': now_ms < ends_at, 'endsAt': ends_at, 'nextAt': next_at}
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
@@ -3451,20 +3473,19 @@ async def process_actions(request):
 
         elif a_type == 'rare_fish_catch':
             # Улов редкой рыбы (Осетрина) — сервер сверяет, что она РЕАЛЬНО была активна
-            # именно сейчас (по общему для всех игроков состоянию rare_fish в Firebase),
-            # а не верит заявлению клиента "я её поймал".
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{base}/rare_fish.json{FB_AUTH}") as resp:
-                        rf = await resp.json()
-            except Exception:
-                rf = None
-            rf_active = isinstance(rf, dict) and rf.get('active') and (rf.get('endsAt') or 0) + 5000 > now_ms
+            # именно сейчас, по той же детерминированной формуле от времени, что и клиент
+            # (rare_fish_status/rareFishSchedule), а не верит заявлению клиента "я её
+            # поймал". Раньше это сверялось с общим для всех игроков узлом rare_fish в
+            # Firebase, который любой клиент мог переписать — не только баг "осетрина
+            # активна ~6 часов", но и готовый вектор держать 15%-шанс на монеты активным
+            # вечно. Теперь подделывать нечего — формула, не состояние.
+            rf = rare_fish_status(now_ms)
+            rf_active = now_ms < rf['endsAt'] + 5000
             # +5000мс запаса: клиент шлёт catch мгновенно (без debounce), но сетевая
             # задержка сама по себе может протолкнуть запрос за пределы endsAt, если
             # игрок поймал рыбу буквально в последние секунды 10-минутного окна — без
             # этого запаса честный улов у самой границы отклонялся бы, а игрок не видел
-            # никакой причины (клиент молча откатывал оптимистично показанные монеты).
+            # никакой причины (клиент молча откатывал уже показанные монеты).
             if not rf_active:
                 rejected += 1
                 continue

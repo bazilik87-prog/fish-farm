@@ -464,83 +464,39 @@ function weatherName(id) {
 }
 
 // ── Редкая рыба ───────────────────────────────────────
+// Расписание — чистая детерминированная формула от Date.now(), БЕЗ какого-либо состояния
+// в Firebase. Раньше active/endsAt/nextAt хранились в общем для всех игроков узле
+// rare_fish, который любой клиент мог переписать (в том числе через консоль браузера) —
+// этим объяснялся баг "осетрина активна ~6 часов": сбитые часы одного устройства (или
+// просто гонка нескольких клиентов, независимо решающих "пора её заспавнить") сдвигали
+// общее окно на часы сразу для ВСЕХ игроков, а заодно это был готовый вектор держать
+// 15%-шанс на монеты активным вечно. Теперь сервер (rare_fish_status в bot.py) и все
+// клиенты вычисляют ОДНО и то же окно независимо — переписывать и подделывать нечего.
 var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 25, life: 0.33}; // цена 25🪙, живёт 10мин
 var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
 var RARE_FISH_DURATION = 10 * 60 * 1000;     // живёт 10 минут
 var rareFishActive = false;
 var rareFishEndsAt = 0;
 var rareFishNextAt = 0;
+var _rareFishWasActive = false;
 
-function loadRareFish() {
-  if (!firebaseDB) return;
-  firebaseDB.ref('rare_fish').once('value', function(snap) {
-    var d = snap.val();
-    var now = Date.now();
-    if (!d) {
-      // Первый раз — планируем первое появление через 2 часа
-      rareFishNextAt = now + RARE_FISH_INTERVAL;
-      firebaseDB.ref('rare_fish').set({nextAt: rareFishNextAt, active: false, endsAt: 0});
-      return;
-    }
-    rareFishNextAt = d.nextAt || 0;
-    rareFishEndsAt = d.endsAt || 0;
-    if (d.active && rareFishEndsAt > now) {
-      rareFishActive = true;
-      showNotif(t('🫍 Осетрина рядом! Успей поймать!','🫍 Sturgeon nearby! Catch it quick!'));
-      updateRareFishUI();
-    } else if (!d.active && now >= rareFishNextAt) {
-      // Время появиться!
-      spawnRareFish();
-    }
-  });
-}
-
-// Постоянный слушатель регистрируется ОДИН раз при старте (см. вызов ниже по файлу),
-// а не при каждом вызове loadRareFish() — иначе слушатели копятся и тормозят игру.
-function listenRareFish() {
-  if (!firebaseDB) return;
-  firebaseDB.ref('rare_fish').on('value', function(snap) {
-    var d = snap.val();
-    if (!d) return;
-    var now = Date.now();
-    var wasActive = rareFishActive;
-    rareFishActive = d.active && d.endsAt > now;
-    rareFishEndsAt = d.endsAt || 0;
-    rareFishNextAt = d.nextAt || 0;
-    if (!wasActive && rareFishActive) {
-      showNotif(t('🫍 Редкая рыба появилась! Осетрина рядом!','🫍 Rare fish appeared! Sturgeon nearby!'));
-    }
-    updateRareFishUI();
-  });
-}
-
-function spawnRareFish() {
-  if (!firebaseDB) return;
-  var now = Date.now();
-  var endsAt = now + RARE_FISH_DURATION;
-  var nextAt = now + RARE_FISH_INTERVAL;
-  rareFishActive = true;
-  rareFishEndsAt = endsAt;
-  rareFishNextAt = nextAt;
-  firebaseDB.ref('rare_fish').set({active: true, endsAt: endsAt, nextAt: nextAt});
+function rareFishSchedule(now) {
+  now = now || Date.now();
+  var cycleStart = Math.floor(now / RARE_FISH_INTERVAL) * RARE_FISH_INTERVAL;
+  var endsAt = cycleStart + RARE_FISH_DURATION;
+  var nextAt = cycleStart + RARE_FISH_INTERVAL;
+  return {active: now < endsAt, endsAt: endsAt, nextAt: nextAt};
 }
 
 function checkRareFish() {
-  var now = Date.now();
-  if (rareFishActive && now >= rareFishEndsAt) {
-    rareFishActive = false;
-    rareFishEndsAt = 0; // сбрасываем сразу — иначе updateRareFishUI() ниже увидит "просроченный"
-                         // rareFishEndsAt>0 и запустит гонку с ещё не подтверждённой записью в Firebase
-    // Если истекла — планируем следующую
-    if (firebaseDB) {
-      var nextAt = now + RARE_FISH_INTERVAL;
-      rareFishNextAt = nextAt;
-      firebaseDB.ref('rare_fish').set({active: false, endsAt: 0, nextAt: nextAt});
-    }
-    updateRareFishUI();
-  } else if (!rareFishActive && rareFishNextAt > 0 && now >= rareFishNextAt) {
-    spawnRareFish();
+  var s = rareFishSchedule();
+  rareFishActive = s.active;
+  rareFishEndsAt = s.endsAt;
+  rareFishNextAt = s.nextAt;
+  if (rareFishActive && !_rareFishWasActive) {
+    showNotif(t('🫍 Осетрина рядом! Успей поймать!','🫍 Sturgeon nearby! Catch it quick!'));
   }
+  _rareFishWasActive = rareFishActive;
 }
 
 function updateRareFishUI() {
@@ -551,10 +507,6 @@ function updateRareFishUI() {
     el.textContent = '🫍';
   } else {
     el.style.display = 'none';
-  }
-  if (Date.now() > rareFishEndsAt && rareFishEndsAt > 0) {
-    rareFishEndsAt = 0; // сбрасываем сразу, чтобы не вызывать loadRareFish() на каждом тике
-    loadRareFish();
   }
 }
 
@@ -5986,8 +5938,7 @@ save();
 initFirebase();
 setTimeout(loadWeather, 2000);
 setTimeout(listenWeather, 2000);
-setTimeout(loadRareFish, 3000);
-setTimeout(listenRareFish, 3000);
+checkRareFish(); // чистая формула от времени — не нужно ждать Firebase, считаем сразу
 
 // Загружаем из Firebase и сравниваем с localStorage по lastSeen
 function loadFromFirebase(callback) {
