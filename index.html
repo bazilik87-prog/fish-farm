@@ -528,24 +528,32 @@ function randomWeather() {
 }
 
 function loadWeather() {
-  if (!firebaseDB) return;
-  firebaseDB.ref('weather').once('value', function(snap) {
-    var w = snap.val();
-    var now = Date.now();
-    if (w && w.endsAt > now) {
-      currentWeather = getWeatherById(w.id);
-      weatherEndsAt = w.endsAt;
-    } else {
-      // Генерируем новую погоду
-      var nw = randomWeather();
-      var endsAt = now + WEATHER_DURATION;
-      currentWeather = nw;
-      weatherEndsAt = endsAt;
-      firebaseDB.ref('weather').set({id:nw.id, endsAt:endsAt});
-      showNotif(nw.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(nw.id));
-    }
-    updateWeatherUI();
-  });
+  // Раньше эта функция сама решала: если по её ЛОКАЛЬНЫМ часам endsAt уже прошёл,
+  // она сама же генерила новую случайную погоду и писала её в Firebase — то есть
+  // источником истины были часы того устройства, которое первым заметило истечение.
+  // Если часы спешили, погода могла смениться намного раньше положенных 30 минут без
+  // какой-либо оплаты. Сама механика не ломалась (выбор всё равно случайный, эксплойта
+  // не было), но теперь эту логику решает только сервер (/weather_check, серверное
+  // время) — этот запрос не требует BOT_API_URL как обязательное условие, только
+  // fallback на простое чтение, если по какой-то причине URL ещё не готов.
+  if (typeof BOT_API_URL === 'undefined') {
+    if (!firebaseDB) return;
+    firebaseDB.ref('weather').once('value', function(snap) {
+      var w = snap.val();
+      if (w) { currentWeather = getWeatherById(w.id); weatherEndsAt = w.endsAt; updateWeatherUI(); }
+    });
+    return;
+  }
+  fetch(BOT_API_URL + '/weather_check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res || !res.ok) return;
+      var changed = currentWeather.id !== res.id;
+      currentWeather = getWeatherById(res.id);
+      weatherEndsAt = res.endsAt;
+      if (changed) showNotif(currentWeather.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(currentWeather.id));
+      updateWeatherUI();
+    }).catch(function(){});
 }
 
 // Постоянный слушатель регистрируется ОДИН раз при старте (см. вызов ниже по файлу),
@@ -3336,13 +3344,15 @@ function activateBoost(id, growJackpot) {
   }
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  // Смена погоды
+  // Смена погоды — саму запись в Firebase теперь делает сервер (в successful_payment,
+  // серверным временем), а не клиент своим Date.now(). Здесь только мгновенный
+  // оптимистичный отклик для того, кто заплатил — реальное значение чуть позже
+  // подтвердит listenWeather() (тот же realtime-листенер, что видит и чужие смены).
   if (id && id.startsWith('weather_')) {
     var weatherId = id.replace('weather_', '');
     var wType = getWeatherById(weatherId);
     currentWeather = wType;
     weatherEndsAt = Date.now() + 30*60*1000;
-    if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
     showNotif(t('🌤 Погода изменена: ','🌤 Weather changed: ')+weatherName(wType.id)+'!', true);
     updateWeatherUI();
     if(currentTab==='boosts') renderBoosts();

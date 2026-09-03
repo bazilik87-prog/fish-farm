@@ -2561,6 +2561,26 @@ DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
 WEATHER_PRICE_MULT = {'sunny': 1.0, 'cloudy': 1.1, 'rain': 1.25, 'storm': 1.5, 'perfect': 0.9}
+# Точная копия весов из WEATHER_TYPES в index.html — единственное место, где теперь
+# решается смена погоды по истечении срока (раньше это делал ЛЮБОЙ клиент, у которого
+# истекло по ЕГО собственным часам — если часы устройства спешили, погода могла
+# смениться намного раньше положенных 30 минут без какой-либо оплаты; сама механика
+# от этого не ломалась (выбор всё равно случайный), но источник истины был ненадёжным).
+WEATHER_WEIGHTS = {'sunny': 25, 'cloudy': 30, 'rain': 25, 'storm': 10, 'perfect': 10}
+WEATHER_DURATION_MS = 30 * 60 * 1000
+
+def pick_random_weather():
+    import random
+    total = sum(WEATHER_WEIGHTS.values())
+    r = random.random() * total
+    acc = 0
+    for wid, w in WEATHER_WEIGHTS.items():
+        acc += w
+        if r <= acc:
+            return wid
+    return 'sunny'
+
+
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
@@ -2653,6 +2673,18 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                     break
             except Exception:
                 break  # не смогли записать — лучше не начислить молча дважды, чем гадать
+
+        # Пишем результат клиенту СРАЗУ, как только приз реально начислен в saves — ДО
+        # медленной админ-возни ниже (сброс джекпота, рассылка в личку и группу поддержки).
+        # Раньше это писалось в вызывающем коде уже ПОСЛЕ всей этой функции целиком —
+        # для обычных призов разница не была заметна, но для джекпота (пул + 2 сообщения
+        # в Telegram) суммарное время легко вылезало за 8-секундное окно клиентского
+        # опроса pollLotteryResult(), и игрок получал "результат придёт позже" фолбэк,
+        # хотя приз уже был честно зачислен — просто клиент не дождался подтверждения.
+        try:
+            await session.put(f"{base}/pending_boosts/{pid}/lottery_result.json{FB_AUTH}", json=prize)
+        except Exception:
+            pass
 
         # Приз "рыба" меняет caught в saves, но leaderboard.caught (откуда берёт данные
         # live-счёт клановых турниров) обновляет только /actions при обычной ловле — эта
@@ -2870,6 +2902,47 @@ async def refill_energy_ad(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'energy': final_energy}, headers=CORS)
+
+
+async def weather_check(request):
+    """
+    Единственное место, которое решает, что делать с истёкшей погодой — раньше это
+    делал ЛЮБОЙ клиент, у которого истекло по ЕГО собственным (потенциально неверным)
+    часам: сравнение шло с локальным Date.now(), а не с временем сервера. Если часы
+    устройства спешили, погода могла смениться намного раньше положенных 30 минут без
+    какой-либо оплаты — сам выбор всё равно оставался случайным (эксплойта не было),
+    но источник истины был ненадёжным. Теперь клиент просто спрашивает сюда, сервер
+    сравнивает endsAt с СВОИМ временем и либо отдаёт текущую погоду как есть, либо
+    генерирует новую (с ETag-защитой на случай двух одновременных запросов).
+    Не требует init_data — погода общая для всех, не привязана к конкретному игроку.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    weather_url = f"{base}/weather.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(6):
+                async with session.get(weather_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    w = await resp.json()
+                if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
+                    return web.json_response({'ok': True, 'id': w.get('id', 'sunny'), 'endsAt': w.get('endsAt')}, headers=CORS)
+                new_id = pick_random_weather()
+                new_ends_at = now_ms + WEATHER_DURATION_MS
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(weather_url, json={'id': new_id, 'endsAt': new_ends_at}, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue  # кто-то другой уже сгенерировал новую погоду параллельно — перечитываем и берём её
+                    if put_resp.status not in (200, 204):
+                        return web.json_response({'error': f'weather PUT failed: {put_resp.status}'}, status=500, headers=CORS)
+                return web.json_response({'ok': True, 'id': new_id, 'endsAt': new_ends_at}, headers=CORS)
+            else:
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
 
 async def lottery_spin(request):
@@ -6769,9 +6842,9 @@ async def successful_payment(message: types.Message):
                     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
                 username = message.from_user.username or message.from_user.first_name or 'Игрок'
                 prize = pick_lottery_prize(mult, jackpot)
+                # pending_boosts/lottery_result теперь пишется ВНУТРИ apply_lottery_prize,
+                # сразу после начисления в saves — не здесь и не после (см. комментарий там).
                 await apply_lottery_prize(pid, prize, mult, True, username, 'star')
-                async with aiohttp.ClientSession() as session:
-                    await session.put(f"{base}/pending_boosts/{pid}/lottery_result.json{FB_AUTH}", json=prize)
             except Exception:
                 pass
         elif boost_id == 'energyFull':
@@ -6790,6 +6863,21 @@ async def successful_payment(message: types.Message):
                     })
                     url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
                     await session.put(url, json=int(time.time() * 1000))
+            except Exception:
+                pass
+        elif boost_id.startswith('weather_'):
+            # Платная смена погоды — раньше плательщик сам писал weather.set() у себя
+            # в клиенте с СВОИМ Date.now(). Теперь пишет сервер, серверным временем —
+            # тот же принцип, что и у lastSeen/unsoldCaught: погода общая на всех,
+            # поэтому источником истины должен быть только сервер, а не чьи-то часы.
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                weather_id = boost_id.replace('weather_', '')
+                ends_at = int(time_module.time() * 1000) + WEATHER_DURATION_MS
+                async with aiohttp.ClientSession() as session:
+                    await session.put(f"{base}/weather.json{FB_AUTH}", json={'id': weather_id, 'endsAt': ends_at})
+                    url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
+                    await session.put(url, json=ends_at)
             except Exception:
                 pass
         else:
@@ -7384,6 +7472,8 @@ async def main():
     app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/lottery_spin', lottery_spin)
     app.router.add_options('/lottery_spin', lottery_spin)
+    app.router.add_post('/weather_check', weather_check)
+    app.router.add_options('/weather_check', weather_check)
     app.router.add_post('/refill_energy_ad', refill_energy_ad)
     app.router.add_options('/refill_energy_ad', refill_energy_ad)
     app.router.add_post('/sync', sync_state)
