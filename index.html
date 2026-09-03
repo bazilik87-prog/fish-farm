@@ -4437,7 +4437,7 @@ function renderClanTourTeam(label, list, color, showCatch) {
   for (var j=0; j<list.length; j++) {
     var p = list[j];
     html += '<div style="font-size:12px;color:#fff;padding:2px 0;display:flex;justify-content:space-between">'
-      +'<span>🐟 '+(p.name||('ID:'+p.userId))+(p.username?' <span style="color:#4fc3f7">@'+p.username+'</span>':'')+'</span>'
+      +'<span>🐟 '+(p.name||('ID:'+p.userId))+(p.username?' <span onclick="openTgUser(\''+p.username+'\')" style="color:#4fc3f7;text-decoration:underline;cursor:pointer">@'+p.username+'</span>':'')+'</span>'
       +(showCatch ? '<span style="color:#6ddc6d;font-weight:700">'+(p.caught||0)+' 🐠</span>' : '')
       +'</div>';
   }

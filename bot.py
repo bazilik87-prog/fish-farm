@@ -1011,6 +1011,27 @@ def _display_handle(real_user, sv=None):
     return f"ID:{(real_user or {}).get('id', '?')}"
 
 
+async def _tournament_player_name(session, base, pid, from_user):
+    """
+    Игровой ник участника турнира для поля 'name' в participantsA/participantsB.
+    Раньше сюда писали телеграм username/first_name (message.from_user) — из-за этого
+    в карточке турнира имя и @username всегда совпадали, хотя игрок мог задать себе
+    другое имя в игре. Теперь берём именно то имя, которое игрок сам указал в игре
+    (saves/{pid}.playerName, та же логика, что и в _display_handle/clan_create), и
+    только если его нет — падаем обратно на телеграм username/first_name/id.
+    """
+    player_name = None
+    try:
+        async with session.get(f"{base}/saves/{pid}/playerName.json{FB_AUTH}") as resp:
+            player_name = await resp.json()
+    except Exception:
+        player_name = None
+    if isinstance(player_name, str) and player_name.strip():
+        return player_name.strip()
+    fallback_id = pid.replace('tg_', '') if pid else (from_user.id if from_user else '?')
+    return (from_user.username if from_user else None) or (from_user.first_name if from_user else None) or f"Игрок {fallback_id}"
+
+
 async def _next_tournament_number(session, base):
     """
     Сквозная нумерация турниров через одиночный счётчик clan_tournament_seq — атомарно
@@ -6915,7 +6936,7 @@ async def successful_payment(message: types.Message):
                             "❌ Couldn't create the tournament — the clan changed. Message the admin, we'll refund you."))
                         return
                     now_ms = int(time.time() * 1000)
-                    player_name = message.from_user.username or message.from_user.first_name or f"Игрок {captain_id}"
+                    player_name = await _tournament_player_name(session, base, pid, message.from_user)
                     tournament_payload = {
                         'initiatorClanId': clan_id,
                         'initiatorClanName': clan_data.get('name', ''),
@@ -6996,7 +7017,7 @@ async def successful_payment(message: types.Message):
                             break
                         amount_paid = tdata.get('amountPerPerson', 0)
                         participants = dict(tdata.get(field) or {})
-                        player_name = message.from_user.username or message.from_user.first_name or f"Игрок {payer_id}"
+                        player_name = await _tournament_player_name(session, base, pid, message.from_user)
                         participants[pid] = {'userId': int(payer_id), 'name': player_name, 'username': message.from_user.username or '', 'paidAt': int(time.time() * 1000), 'amount': amount_paid}
                         tdata[field] = participants
                         headers = {"If-Match": etag} if etag else {}
@@ -7074,7 +7095,7 @@ async def successful_payment(message: types.Message):
                                 error_reason = 'initiator busy'
                                 break
                             now_ms = int(time.time() * 1000)
-                            player_name = message.from_user.username or message.from_user.first_name or f"Игрок {captain_id}"
+                            player_name = await _tournament_player_name(session, base, pid, message.from_user)
                             tdata['status'] = 'matching'
                             tdata['acceptedByClanId'] = clan_id
                             tdata['acceptedByClanName'] = clan_data.get('name', '')
