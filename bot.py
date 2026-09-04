@@ -191,7 +191,7 @@ def scaled_boost_price(boost_id, base_price, location_order):
         return base_price
     extra_steps = max(0, location_order - 2)
     return base_price + step * extra_steps
-PREMIUM_PRICE = 250  # ⭐/месяц
+PREMIUM_PRICE = 300  # ⭐/месяц
 REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
 
 SUPPORT_GROUP_ID = -5478312122
