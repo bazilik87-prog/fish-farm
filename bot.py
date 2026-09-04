@@ -1757,25 +1757,41 @@ async def clan_referrals(request):
             target_ids = [str(t) for t in referred.keys() if str(t) != str(real_user_id)]
 
             async def fetch_one(target_id):
-                async with session.get(f"{base}/leaderboard/tg_{target_id}.json{FB_AUTH}") as lresp:
-                    return target_id, await lresp.json()
+                t_pid = f"tg_{target_id}"
+                async with session.get(f"{base}/leaderboard/{t_pid}.json{FB_AUTH}") as lresp:
+                    lb = await lresp.json()
+                # Игровой ник (тот, что игрок сам задал в настройках) — отдельно от
+                # телеграм-юзернейма, тем же способом, что и участники турниров
+                # (_tournament_player_name) и список участников клана. Раньше сюда шёл
+                # только username/firstName, из-за чего имя и @ник совпадали один в один.
+                player_name = None
+                try:
+                    async with session.get(f"{base}/saves/{t_pid}/playerName.json{FB_AUTH}") as presp:
+                        player_name = await presp.json()
+                except Exception:
+                    player_name = None
+                return target_id, lb, player_name
 
             results = await asyncio.gather(*[fetch_one(t) for t in target_ids]) if target_ids else []
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     entries = []
-    for target_id, lb in results:
+    for target_id, lb, player_name in results:
         if not isinstance(lb, dict):
             continue
         if lb.get('clanId'):  # уже состоит в каком-то клане — не показываем в списке приглашения
             continue
         username = lb.get('username') or ''
+        name = None
+        if isinstance(player_name, str) and player_name.strip():
+            name = player_name.strip()
+        name = name or username or lb.get('firstName') or f"ID:{target_id}"
         entries.append({
             'pid': f"tg_{target_id}",
             'userId': int(target_id) if str(target_id).isdigit() else target_id,
             'username': username,
-            'displayName': f"@{username}" if username else (lb.get('firstName') or f"ID:{target_id}"),
+            'name': name,
             'caught': lb.get('caught', 0),
             'ts': lb.get('ts', 0),
         })

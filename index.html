@@ -4326,12 +4326,14 @@ function renderClanReferrals(html) {
     var invited = !!clanRefState.invitedIds[r.userId];
     html += '<div class="card" style="padding:10px 12px">'
       +'<div style="display:flex;justify-content:space-between;align-items:center">'
-      +'<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+r.displayName+'</div>'
+      +'<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+r.name+'</div>'
       +(invited
         ? '<span style="font-size:11px;color:#6ddc6d">✔ '+t('Приглашён','Invited')+'</span>'
         : '<button class="btn btn-gold" style="padding:5px 12px;font-size:11px" onclick="inviteClanReferral('+r.userId+')">➕ '+t('Пригласить','Invite')+'</button>')
       +'</div>'
-      +'<div style="font-size:11px;color:#90caf9;margin-top:4px">'+clanLastSeenLabel(r.ts)+' · 🎣 '+fmt(r.caught||0)+'</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-top:4px">'
+      +(r.username ? '<span onclick="openTgUser(\''+r.username+'\')" style="color:#4fc3f7;text-decoration:underline;cursor:pointer">@'+r.username+'</span> · ' : '')
+      +clanLastSeenLabel(r.ts)+' · 🎣 '+fmt(r.caught||0)+'</div>'
       +'</div>';
   }
 
