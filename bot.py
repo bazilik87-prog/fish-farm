@@ -1249,7 +1249,7 @@ async def _expire_matching_window(session, base, tournament_id):
             if put_resp.status not in (200, 204):
                 return None
             if refund_list:
-                lines = "\n".join(f"— {n or ('@' + u if u else 'без имени')} — {a}⭐" for n, u, a in refund_list)
+                lines = "\n".join(f"— {('@' + u) if u else (n or 'без имени')} — {a}⭐" for n, u, a in refund_list)
                 text = (f"⏳ Окно сбора соперника (2ч) истекло для турнира #{tdata.get('number')} "
                         f"(клан-претендент «{failed_clan_name}» не успел собрать состав). "
                         f"Турнир возвращён в список. Нужен ручной возврат звёзд:\n{lines}")
@@ -1291,10 +1291,15 @@ async def _tournament_live_catches(session, base, tdata):
 
 
 def _tour_payer_label(v):
-    """Ник для строк в списках «на ручную выплату/возврат» — имя, иначе @username, иначе ID."""
+    """Ник для строк в списках «на ручную выплату/возврат» — @username в приоритете
+    (по нему администратор ищет игрока в Telegram, чтобы отправить/вернуть звёзды),
+    иначе игровое имя, иначе ID."""
     if not isinstance(v, dict):
         return '?'
-    return v.get('name') or (('@' + v.get('username')) if v.get('username') else f"ID:{v.get('userId')}")
+    username = v.get('username')
+    if username:
+        return '@' + username
+    return v.get('name') or f"ID:{v.get('userId')}"
 
 
 async def _settle_tournament(session, base, tournament_id):
