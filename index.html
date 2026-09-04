@@ -475,14 +475,6 @@ function weatherName(id) {
 var RARE_FISH = {name:'Осетрина', emoji:'🫍', price: 25, life: 0.33}; // цена 25🪙, живёт 10мин
 var RARE_FISH_INTERVAL = 2 * 60 * 60 * 1000; // раз в 2 часа
 var RARE_FISH_DURATION = 10 * 60 * 1000;     // живёт 10 минут
-// Сдвиг расписания от круглых значений (00:00, 02:00 UTC и т.д. — 01:00, 03:00... МСК)
-// на 37 минут внутри каждого 2-часового блока. Без сдвига закономерность слишком легко
-// заметить случайно (люди чаще смотрят на часы в круглое время) — сам факт единого
-// расписания на всех это не убирает (см. обсуждение), но сбрасывает уже подмеченную
-// игроками привязку к ровным часам. ВАЖНО: то же самое число (RARE_FISH_OFFSET) должно
-// быть продублировано в rare_fish_status() в bot.py — если сдвиги разъедутся, клиент
-// будет показывать рыбу, а сервер — отклонять улов как "рыбы сейчас нет".
-var RARE_FISH_OFFSET = 37 * 60 * 1000;
 var rareFishActive = false;
 var rareFishEndsAt = 0;
 var rareFishNextAt = 0;
@@ -490,8 +482,7 @@ var _rareFishWasActive = false;
 
 function rareFishSchedule(now) {
   now = now || Date.now();
-  var shifted = now - RARE_FISH_OFFSET;
-  var cycleStart = Math.floor(shifted / RARE_FISH_INTERVAL) * RARE_FISH_INTERVAL + RARE_FISH_OFFSET;
+  var cycleStart = Math.floor(now / RARE_FISH_INTERVAL) * RARE_FISH_INTERVAL;
   var endsAt = cycleStart + RARE_FISH_DURATION;
   var nextAt = cycleStart + RARE_FISH_INTERVAL;
   return {active: now < endsAt, endsAt: endsAt, nextAt: nextAt};
@@ -537,32 +528,24 @@ function randomWeather() {
 }
 
 function loadWeather() {
-  // Раньше эта функция сама решала: если по её ЛОКАЛЬНЫМ часам endsAt уже прошёл,
-  // она сама же генерила новую случайную погоду и писала её в Firebase — то есть
-  // источником истины были часы того устройства, которое первым заметило истечение.
-  // Если часы спешили, погода могла смениться намного раньше положенных 30 минут без
-  // какой-либо оплаты. Сама механика не ломалась (выбор всё равно случайный, эксплойта
-  // не было), но теперь эту логику решает только сервер (/weather_check, серверное
-  // время) — этот запрос не требует BOT_API_URL как обязательное условие, только
-  // fallback на простое чтение, если по какой-то причине URL ещё не готов.
-  if (typeof BOT_API_URL === 'undefined') {
-    if (!firebaseDB) return;
-    firebaseDB.ref('weather').once('value', function(snap) {
-      var w = snap.val();
-      if (w) { currentWeather = getWeatherById(w.id); weatherEndsAt = w.endsAt; updateWeatherUI(); }
-    });
-    return;
-  }
-  fetch(BOT_API_URL + '/weather_check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      if (!res || !res.ok) return;
-      var changed = currentWeather.id !== res.id;
-      currentWeather = getWeatherById(res.id);
-      weatherEndsAt = res.endsAt;
-      if (changed) showNotif(currentWeather.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(currentWeather.id));
-      updateWeatherUI();
-    }).catch(function(){});
+  if (!firebaseDB) return;
+  firebaseDB.ref('weather').once('value', function(snap) {
+    var w = snap.val();
+    var now = Date.now();
+    if (w && w.endsAt > now) {
+      currentWeather = getWeatherById(w.id);
+      weatherEndsAt = w.endsAt;
+    } else {
+      // Генерируем новую погоду
+      var nw = randomWeather();
+      var endsAt = now + WEATHER_DURATION;
+      currentWeather = nw;
+      weatherEndsAt = endsAt;
+      firebaseDB.ref('weather').set({id:nw.id, endsAt:endsAt});
+      showNotif(nw.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(nw.id));
+    }
+    updateWeatherUI();
+  });
 }
 
 // Постоянный слушатель регистрируется ОДИН раз при старте (см. вызов ниже по файлу),
@@ -3053,12 +3036,6 @@ function displayServerLotteryPrize(prize) {
       state.coins = Math.round((state.coins + prize.amount) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + prize.amount) * 100) / 100;
     } else if (prize.kind === 'fish') {
-      // Помечаем момент внешнего начисления рыбы — см. защиту в applyActionsResult()
-      // ниже: без этой метки "зависший" ответ /actions, отправленный ДО выигрыша,
-      // может прийти ПОСЛЕ него и обрезать склад по устаревшему (меньшему) unsoldCaught,
-      // выданному сервером ещё до того, как тот узнал об этих +N рыбах. Подтверждённый
-      // случай: игрок выиграл 200 рыб в лотерею, склад тут же обнулился до 0.
-      window._lastFishGrantAt = Date.now();
       for (var fi=0; fi<prize.amount; fi++) {
         var rf=randFish();
         pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000});
@@ -3359,15 +3336,13 @@ function activateBoost(id, growJackpot) {
   }
   save(); updateUI();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  // Смена погоды — саму запись в Firebase теперь делает сервер (в successful_payment,
-  // серверным временем), а не клиент своим Date.now(). Здесь только мгновенный
-  // оптимистичный отклик для того, кто заплатил — реальное значение чуть позже
-  // подтвердит listenWeather() (тот же realtime-листенер, что видит и чужие смены).
+  // Смена погоды
   if (id && id.startsWith('weather_')) {
     var weatherId = id.replace('weather_', '');
     var wType = getWeatherById(weatherId);
     currentWeather = wType;
     weatherEndsAt = Date.now() + 30*60*1000;
+    if (firebaseDB) firebaseDB.ref('weather').set({id:weatherId, endsAt:weatherEndsAt});
     showNotif(t('🌤 Погода изменена: ','🌤 Weather changed: ')+weatherName(wType.id)+'!', true);
     updateWeatherUI();
     if(currentTab==='boosts') renderBoosts();
@@ -5111,6 +5086,7 @@ function showInstructions() {
     +t('Укажи сумму (от 1,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч.','Enter an amount (1,000 coins minimum) and your TON wallet — GRAM is sent manually by the admin within 24h.')+'<br><br>'
     +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🛡️ Клановые турниры','🛡️ Clan tournaments')+'</b><br>'+t('Создай клан (до 8 игроков) во вкладке 🛡️ Клан и пригласи друзей. Капитан объявляет турнир и вносит взнос ⭐ за себя — остальные в клане подключаются и платят такой же взнос. Турнир публикуется в общем списке, и любой другой клан может принять вызов, собрав такой же состав и внеся такую же ставку. Дальше 48 часов идёт гонка — считается общий улов рыбы обеих команд, у кого больше — тот победил. Победители забирают банк за вычетом комиссии (≈1.8× ставки на игрока). Пока в турнире есть неразрешённый взнос — распустить клан, выйти из него или исключить оплатившего участника нельзя.','Create a clan (up to 8 players) in the 🛡️ Clan tab and invite friends. The captain starts a tournament and pays a ⭐ stake for themselves — clanmates then join in and pay the same stake. The tournament is published to the public list, and any other clan can accept the challenge by matching the team size and stake. Then it\'s a 48-hour race — total fish caught by both teams is compared, higher wins. Winners split the pot minus a fee (≈1.8× the stake per player). While a tournament is unresolved you can\'t disband the clan, leave it, or kick a member who has already paid in.')+'<br><br>'
     +'<b style="color:#fff">'+t('👋 Бонус за возвращение','👋 Comeback bonus')+'</b><br>'+t('Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.','If you haven\'t logged in for 3+ days — your next visit gives you a coin gift: 3-6 days away — 🪙200, 7-13 days — 🪙500, 14+ days — 🪙1000.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Таблица лидеров','🏆 Leaderboard')+'</b><br>'+t('Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.','Top players by number of fish caught. Your name is set on first login — can be changed in settings.')+'</div></div>'
     +'<button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← '+t('Назад','Back')+'</button>';
@@ -5130,7 +5106,6 @@ var PENDING_ACTIONS_KEY = 'ff_pending_actions';
 window._pendingActions = (function(){
   try { return JSON.parse(localStorage.getItem(PENDING_ACTIONS_KEY) || '[]'); } catch(e) { return []; }
 })();
-window._lastFishGrantAt = 0; // см. защиту от устаревших ответов /actions в applyActionsResult()
 function savePendingActionsLocally() {
   try { localStorage.setItem(PENDING_ACTIONS_KEY, JSON.stringify(window._pendingActions)); } catch(e){}
 }
@@ -5143,7 +5118,7 @@ function queueAction(action) {
     window._actionsFlushTimer = setTimeout(flushActions, 3000);
   }
 }
-function applyActionsResult(res, sentAt) {
+function applyActionsResult(res) {
   state.coins = res.coins;
   state.caught = res.caught;
   state.totalEarned = res.totalEarned;
@@ -5170,13 +5145,7 @@ function applyActionsResult(res, sentAt) {
   // отдельно. Теперь чинится само: если сервер знает МЕНЬШЕ, чем локальный массив —
   // подрезаем локальный массив под реальное число, чтобы следующая продажа/доставка
   // не отклонялась той же самой рыбой снова и снова.
-  // ВАЖНО: этот ответ мог быть отправлен ДО того, как рыба была начислена извне (приз
-  // лотереи — см. window._lastFishGrantAt) — тогда его unsoldCaught устарел и НЕ
-  // отражает эту прибавку. Применять обрезку в таком случае нельзя: "зависший" ответ
-  // старого запроса, пришедший ПОСЛЕ выигрыша, иначе стирал бы честно выигранную рыбу.
-  // Подтверждённый случай: игрок выиграл 200 рыб в лотерею, склад тут же обнулился.
-  var responseIsStale = window._lastFishGrantAt && sentAt && sentAt < window._lastFishGrantAt;
-  if (typeof res.unsoldCaught === 'number' && !responseIsStale) {
+  if (typeof res.unsoldCaught === 'number') {
     var authoritative = Math.round(res.unsoldCaught);
     if (authoritative < state.liveFish.length) {
       state.liveFish.splice(0, state.liveFish.length - authoritative);
@@ -5193,7 +5162,6 @@ function flushActions() {
   var batch = window._pendingActions;
   window._pendingActions = [];
   savePendingActionsLocally();
-  var sentAt = Date.now();
   fetch(BOT_API_URL + '/actions', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -5202,7 +5170,7 @@ function flushActions() {
     if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); savePendingActionsLocally(); return; }
     // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
     // расхождение почти всегда просто округление, а не читерство.
-    applyActionsResult(res, sentAt);
+    applyActionsResult(res);
   }).catch(function(){
     // сеть недоступна — возвращаем действия в очередь (уже сохранены в localStorage), попробуем позже
     window._pendingActions = batch.concat(window._pendingActions);
