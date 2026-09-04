@@ -2984,8 +2984,8 @@ async def reset_progress(request):
 
 async def refill_energy_ad(request):
     """
-    +25 энергии за просмотр рекламы, не чаще раза в 10 минут. Раньше здесь были две дыры
-    того же класса, что уже нашли и починили в лотерее/дневном бонусе:
+    +25 энергии за просмотр рекламы (+50 для Premium), не чаще раза в 10 минут. Раньше
+    здесь были две дыры того же класса, что уже нашли и починили в лотерее/дневном бонусе:
     1) Кулдаун проверялся один раз по снимку sv из начала запроса — двойной тап мог дать
        +25 дважды за 10 минут.
     2) Запись энергии — абсолютным значением без ETag. Если в этот момент шёл обычный
@@ -3018,6 +3018,7 @@ async def refill_energy_ad(request):
     now_ms = int(time.time() * 1000)
     is_prem = await is_premium(real_user_id)
     max_energy = 150 if is_prem else 100
+    ad_bonus = 50 if is_prem else 25
 
     final_energy = None
     try:
@@ -3036,7 +3037,7 @@ async def refill_energy_ad(request):
                 prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
                 regen_sec = max(0, (now_ms - last_energy_update) / 1000)
                 current_energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
-                final_energy = round(min(max_energy, current_energy + 25) * 100) / 100
+                final_energy = round(min(max_energy, current_energy + ad_bonus) * 100) / 100
 
                 headers = {"If-Match": etag} if etag else {}
                 merged = dict(sv)

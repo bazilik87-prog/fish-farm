@@ -2935,7 +2935,7 @@ function renderBoosts() {
     +'</div></div>'
     +'<div style="display:flex;gap:8px">'
     +'<button class="btn btn-gold" onclick="buyBoost(\'energyFull\')" style="flex:1" '+(state.energy>=eMax?'disabled':'')+'>⭐'+customScaledBoostPrice()+' '+t('Заполнить','Fill up')+'</button>'
-    +'<button class="btn" onclick="watchAdForEnergy()" style="flex:1;'+(adCooldownLeft>0||state.energy>=eMax?'opacity:0.5':'background:#1565c0')+'" '+(adCooldownLeft>0||state.energy>=eMax?'disabled':'')+'>📺 '+(adCooldownLeft>0?fmtTime(Math.ceil(adCooldownLeft/1000)):t('+25 за рекламу','+25 via ad'))+'</button>'
+    +'<button class="btn" onclick="watchAdForEnergy()" style="flex:1;'+(adCooldownLeft>0||state.energy>=eMax?'opacity:0.5':'background:#1565c0')+'" '+(adCooldownLeft>0||state.energy>=eMax?'disabled':'')+'>📺 '+(adCooldownLeft>0?fmtTime(Math.ceil(adCooldownLeft/1000)):(isPremiumActive()?t('+50 за рекламу','+50 via ad'):t('+25 за рекламу','+25 via ad')))+'</button>'
     +'</div></div>';
 
   // Лотерея — загружаем текущий джекпот
@@ -3137,9 +3137,10 @@ function watchAdForEnergy() {
   showNotif(t('📺 Загружаем рекламу...','📺 Loading ad...'));
   AdController.show().then(function(){
     state.lastAdEnergyRefill = Date.now();
+    var adBonus = isPremiumActive() ? 50 : 25;
     if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
-      state.energy = Math.min(max, state.energy + 25);
-      showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
+      state.energy = Math.min(max, state.energy + adBonus);
+      showNotif(t('⚡ +','⚡ +') + adBonus + t(' энергии за просмотр!',' energy for watching!'));
       save(); updateUI();
       if (currentTab==='boosts') renderBoosts();
       return;
@@ -3155,7 +3156,7 @@ function watchAdForEnergy() {
           return;
         }
         state.energy = res.data.energy;
-        showNotif(t('⚡ +25 энергии за просмотр!','⚡ +25 energy for watching!'));
+        showNotif(t('⚡ +','⚡ +') + adBonus + t(' энергии за просмотр!',' energy for watching!'));
         updateUI();
         if (currentTab==='boosts') renderBoosts();
       }).catch(function(){
@@ -3191,7 +3192,8 @@ function watchAdForLottery() {
 }
 function checkAdMilestone() {
   window._adCatchCounter = (window._adCatchCounter || 0) + 1;
-  if (window._adCatchCounter >= 100) {
+  var milestone = isPremiumActive() ? 200 : 100; // Premium реже видит межстраничную рекламу
+  if (window._adCatchCounter >= milestone) {
     window._adCatchCounter = 0;
     if (AdController) {
       AdController.show().catch(function(){}); // если реклама недоступна — просто тихо пропускаем, без уведомлений игроку
@@ -5110,7 +5112,7 @@ function showInstructions() {
     +'🚀 '+t('Мгновенная доставка (⭐1→1→2→3→5) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1→1→2→3→5) — all active deliveries (yours + driver) finish instantly')+'<br>'
     +'🔧 '+t('Ремонт всего транспорта (⭐2→2→4→6→10) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2→2→4→6→10) — repairs bike, moped, car and truck all at once to 100%')+'<br>'
     +t('(цены указаны для Пруда → Реки → Тропиков → Глубин → Космоса)','(prices shown for Pond → River → Tropics → Deep → Space)')+'<br><br>'
-    +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5→5→10→15→25 (растёт с локацией) мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5→5→10→15→25 (grows with location) instantly, or free by watching an ad (+25 energy, available once every 10 minutes).')+'<br><br>'
+    +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5→5→10→15→25 (растёт с локацией) мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, +50 для Premium, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5→5→10→15→25 (grows with location) instantly, or free by watching an ad (+25 energy, +50 for Premium, available once every 10 minutes).')+'<br><br>'
     +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо в разделе Бустеры — цена билета (⭐1–5) растёт вместе с самой дальней открытой локацией. Призы (монеты/рыба/соль/ножи тоже растут вместе с локацией, джекпот — нет): 🐟100 рыб (28%) · 🪙300 (25%) · 👢 дырявый сапог, пусто (19%) · 🪙500 (15%) · 🧂15 соли (6%) · 🔪15 ножей (4%) · 🚛 бесплатная аренда грузовика на 12ч (2%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel in the Boosters section — ticket price (⭐1–5) grows with your furthest unlocked location. Prizes (coins/fish/salt/knives also scale with your location, jackpot doesn\'t): 🐟100 fish (28%) · 🪙300 (25%) · 👢 leaky boot, nothing (19%) · 🪙500 (15%) · 🧂15 salt (6%) · 🔪15 knives (4%) · 🚛 free truck rental for 12h (2%) · ⭐ Stars jackpot (~1%).')+'<br>'
     +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br>'
     +t('📺 Раз в час можно крутить лотерею бесплатно за просмотр рекламы — шанс выиграть джекпот такой же, как при обычной крутке, только сам джекпот от этой крутки не растёт.','📺 Once per hour you can spin the lottery for free by watching an ad — the jackpot odds are the same as a paid spin, but that spin doesn\'t grow the jackpot.')+'<br><br>'
@@ -5130,7 +5132,7 @@ function showInstructions() {
     +'</table>'
     +'<div style="font-size:10px;color:#666;margin-bottom:8px">'+t('Комиссия указана как обычная/Premium. Курс и потолок — монет','Fee shown as regular/Premium. Rate and cap are in coins')+'</div>'
     +t('Укажи сумму (от 1,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч.','Enter an amount (1,000 coins minimum) and your TON wallet — GRAM is sent manually by the admin within 24h.')+'<br><br>'
-    +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
+    +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐250/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), +50 энергии за рекламу вместо +25, реже межстраничная реклама при ловле (раз в 200 уловов вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐250/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), +50 energy per ad instead of +25, less frequent interstitial ads while fishing (every 200 catches instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
     +'<b style="color:#fff">'+t('🛡️ Клановые турниры','🛡️ Clan tournaments')+'</b><br>'+t('Создай клан (до 8 игроков) во вкладке 🛡️ Клан и пригласи друзей. Капитан объявляет турнир и вносит взнос ⭐ за себя — остальные в клане подключаются и платят такой же взнос. Турнир публикуется в общем списке, и любой другой клан может принять вызов, собрав такой же состав и внеся такую же ставку. Дальше 48 часов идёт гонка — считается общий улов рыбы обеих команд, у кого больше — тот победил. Победители забирают банк за вычетом комиссии (≈1.8× ставки на игрока). Пока в турнире есть неразрешённый взнос — распустить клан, выйти из него или исключить оплатившего участника нельзя.','Create a clan (up to 8 players) in the 🛡️ Clan tab and invite friends. The captain starts a tournament and pays a ⭐ stake for themselves — clanmates then join in and pay the same stake. The tournament is published to the public list, and any other clan can accept the challenge by matching the team size and stake. Then it\'s a 48-hour race — total fish caught by both teams is compared, higher wins. Winners split the pot minus a fee (≈1.8× the stake per player). While a tournament is unresolved you can\'t disband the clan, leave it, or kick a member who has already paid in.')+'<br><br>'
     +'<b style="color:#fff">'+t('👋 Бонус за возвращение','👋 Comeback bonus')+'</b><br>'+t('Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.','If you haven\'t logged in for 3+ days — your next visit gives you a coin gift: 3-6 days away — 🪙200, 7-13 days — 🪙500, 14+ days — 🪙1000.')+'<br><br>'
