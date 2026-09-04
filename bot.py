@@ -5102,6 +5102,120 @@ async def tournamentstats_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('clantournaments'))
+async def clantournaments_command(message: types.Message):
+    """
+    Список всех незавершённых клановых турниров (funding/open/matching/running) с ID —
+    чтобы найти зависший турнир и продвинуть его вручную через /clanforce.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю список клановых турниров...")
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
+                all_t = await resp.json()
+        all_t = all_t or {}
+        now_ms = int(time.time() * 1000)
+        active = {tid: t for tid, t in all_t.items() if isinstance(t, dict) and t.get('status') not in ('settled', 'expired')}
+        if not active:
+            await message.answer("Активных клановых турниров сейчас нет.")
+            return
+
+        status_labels = {
+            'funding': '🟡 Сбор взносов',
+            'open': '🔵 В списке (ждёт соперника)',
+            'matching': '🟠 Соперник собирает состав',
+            'running': '🟢 Гонка идёт',
+        }
+        deadline_field = {
+            'funding': 'fundingDeadline',
+            'open': 'listExpiresAt',
+            'matching': 'matchingDeadline',
+            'running': 'matchEndsAt',
+        }
+        lines = []
+        for tid, t in sorted(active.items(), key=lambda kv: kv[1].get('number', 0) or 0):
+            status = t.get('status', '?')
+            label = status_labels.get(status, status)
+            number = t.get('number')
+            num_str = f"#{number}" if number else tid[:8]
+            init_name = t.get('initiatorClanName', '?')
+            acc_name = t.get('acceptedByClanName')
+            amount = t.get('amountPerPerson', 0)
+            vs = f"«{init_name}» vs «{acc_name}»" if acc_name else f"«{init_name}» (ждёт соперника)"
+            field = deadline_field.get(status)
+            time_left = ""
+            if field and t.get(field):
+                left_ms = t[field] - now_ms
+                if left_ms > 0:
+                    time_left = f" · осталось ~{max(1, left_ms // 3600000)}ч"
+                else:
+                    time_left = " · ⚠️ дедлайн прошёл, ждёт фоновой проверки (или зависла — можно /clanforce)"
+            lines.append(f"{label} {num_str} — {vs} — ⭐{amount}/чел{time_left}\nID: <code>{tid}</code>")
+        text = "🛡️ Активные клановые турниры:\n\n" + "\n\n".join(lines) + "\n\nПринудительно продвинуть: /clanforce ID"
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('clanforce'))
+async def clanforce_command(message: types.Message):
+    """
+    Принудительно продвигает конкретный клановый турнир по его текущему статусу —
+    той же самой логикой/функциями, что использует фоновая clan_tournament_loop, только
+    не дожидаясь дедлайна. Для зависшего турнира (что-то не сработало автоматически)
+    вместо ручного вмешательства в Firebase.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n<code>/clanforce ID_турнира</code>\n\n"
+            "Продвигает турнир по текущему статусу той же логикой, что и фоновая проверка "
+            "(funding→open, open→expired, matching→running/open, running→settled) — не дожидаясь дедлайна.\n"
+            "Список турниров и их ID: /clantournaments",
+            parse_mode="HTML"
+        )
+        return
+    tournament_id = parts[1].strip()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}") as resp:
+                t = await resp.json()
+            if not isinstance(t, dict):
+                await message.answer("❌ Турнир с таким ID не найден.")
+                return
+            status = t.get('status')
+            if status == 'funding':
+                await _fixate_tournament(session, base, tournament_id)
+                await message.answer(f"✅ Турнир {tournament_id} зафиксирован и опубликован в общий список (funding → open).")
+            elif status == 'open':
+                await _expire_open_tournament(session, base, tournament_id)
+                await message.answer(f"✅ Турнир {tournament_id} принудительно закрыт как просроченный (open → expired), возврат разослан.")
+            elif status == 'matching':
+                required = t.get('requiredCount', 0)
+                participants_b = t.get('participantsB') or {}
+                if required and len(participants_b) >= required:
+                    await _start_tournament_race(session, base, tournament_id)
+                    await message.answer(f"✅ Турнир {tournament_id} запущен (matching → running).")
+                else:
+                    await _expire_matching_window(session, base, tournament_id)
+                    await message.answer(f"✅ Окно сбора соперника для турнира {tournament_id} принудительно закрыто (matching → open), возврат разослан.")
+            elif status == 'running':
+                await _settle_tournament(session, base, tournament_id)
+                await message.answer(f"✅ Турнир {tournament_id} принудительно завершён (running → settled), итоги и выплаты разосланы.")
+            else:
+                await message.answer(f"Турнир {tournament_id} уже в терминальном статусе «{status}» — действий не требуется.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('startpromo'))
 async def startpromo_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -5446,6 +5560,8 @@ async def comm_command(message: types.Message):
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
+        "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
+        "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/comm — список команд\n\n"
         "🎮 <b>Команды для всех:</b>\n\n"
         "/start — запустить игру\n\n"
