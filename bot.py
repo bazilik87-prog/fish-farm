@@ -50,8 +50,16 @@ for _clan_tester_username in os.getenv("CLAN_TEST_USERNAMES", "").split(","):
     if _clan_tester_username:
         CLAN_TEST_USERNAMES.add(_clan_tester_username)
 
+# Общий рубильник «кланы открыты для всех» — включается/выключается командой /clansopen
+# on|off (без редеплоя), значение дублируется в Firebase config/clans_open_all, чтобы не
+# потерять его при рестарте процесса (см. загрузку в main()). Пока False — доступ только
+# по спискам CLAN_TESTERS/CLAN_TEST_USERNAMES выше.
+CLANS_OPEN_ALL = False
+
 
 def is_clan_tester(user_id, username=None) -> bool:
+    if CLANS_OPEN_ALL:
+        return True
     try:
         if int(user_id) in CLAN_TESTERS:
             return True
@@ -5102,6 +5110,39 @@ async def tournamentstats_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('clansopen'))
+async def clansopen_command(message: types.Message):
+    """
+    Открывает/закрывает клановую систему для ВСЕХ игроков разом — переключает
+    CLANS_OPEN_ALL, который is_clan_tester() проверяет раньше списков тестеров.
+    Значение дублируется в Firebase (config/clans_open_all) и подхватывается заново
+    при старте процесса (см. main()), чтобы рестарт/редеплой не сбрасывал переключатель.
+    """
+    global CLANS_OPEN_ALL
+    if message.from_user.id != ADMIN_ID:
+        return
+    arg = message.text.strip()[len('/clansopen'):].strip().lower()
+    if arg not in ('on', 'off'):
+        status = "🟢 открыты для всех игроков" if CLANS_OPEN_ALL else "🔒 доступны только тестерам (CLAN_TEST_USER_IDS/CLAN_TEST_USERNAMES)"
+        await message.answer(
+            f"Сейчас кланы: {status}\n\n"
+            "Использование:\n<code>/clansopen on</code> — открыть кланы для ВСЕХ игроков\n"
+            "<code>/clansopen off</code> — вернуть доступ только тестерам",
+            parse_mode="HTML"
+        )
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    new_value = (arg == 'on')
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/config/clans_open_all.json{FB_AUTH}", json=new_value)
+        CLANS_OPEN_ALL = new_value
+        await message.answer("🟢 Кланы открыты для всех игроков!" if new_value else "🔒 Кланы снова доступны только тестерам.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('clantournaments'))
 async def clantournaments_command(message: types.Message):
     """
@@ -5212,6 +5253,59 @@ async def clanforce_command(message: types.Message):
                 await message.answer(f"✅ Турнир {tournament_id} принудительно завершён (running → settled), итоги и выплаты разосланы.")
             else:
                 await message.answer(f"Турнир {tournament_id} уже в терминальном статусе «{status}» — действий не требуется.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('clanslist'))
+async def clanslist_command(message: types.Message):
+    """Список всех созданных в игре кланов — название, состав, капитан, дата создания."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Загружаю список кланов...")
+    import aiohttp
+    from datetime import datetime
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans.json{FB_AUTH}") as resp:
+                all_clans = await resp.json()
+        all_clans = all_clans or {}
+        clans_list = [(cid, c) for cid, c in all_clans.items() if isinstance(c, dict)]
+        if not clans_list:
+            await message.answer("Кланов пока никто не создал.")
+            return
+        clans_list.sort(key=lambda kv: kv[1].get('createdAt', 0), reverse=True)
+
+        lines = []
+        for cid, c in clans_list:
+            name = c.get('name', '?')
+            members = c.get('members') or {}
+            captain_label = '?'
+            for m in members.values():
+                if isinstance(m, dict) and m.get('role') == 'captain':
+                    captain_label = ('@' + m['username']) if m.get('username') else (m.get('name') or '?')
+                    break
+            count = c.get('membersCount', len(members) or 1)
+            maxm = c.get('maxMembers', 2)
+            created = c.get('createdAt')
+            created_str = datetime.fromtimestamp(created / 1000).strftime('%d.%m.%Y') if created else '?'
+            lines.append(f"🛡️ «{name}» — {count}/{maxm} · капитан {captain_label} · с {created_str}\nID: <code>{cid}</code>")
+
+        header = f"🛡️ Всего кланов: {len(clans_list)}\n\n"
+        chunks = []
+        current = header
+        for line in lines:
+            candidate = current + line + "\n\n"
+            if len(candidate) > 3500:
+                chunks.append(current)
+                current = line + "\n\n"
+            else:
+                current = candidate
+        if current.strip():
+            chunks.append(current)
+        for chunk in chunks:
+            await message.answer(chunk, parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -5560,6 +5654,8 @@ async def comm_command(message: types.Message):
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
+        "/clansopen on|off — открыть/закрыть клановую систему для ВСЕХ игроков\n"
+        "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/comm — список команд\n\n"
@@ -7582,6 +7678,16 @@ async def clan_tournament_loop():
 
 
 async def main():
+    global CLANS_OPEN_ALL
+    try:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/config/clans_open_all.json{FB_AUTH}") as resp:
+                CLANS_OPEN_ALL = bool(await resp.json())
+    except Exception as e:
+        print(f"Не удалось загрузить config/clans_open_all при старте, остаётся False: {e}")
+
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
     app.router.add_options('/invoice', create_invoice)
