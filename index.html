@@ -4517,13 +4517,32 @@ function renderClanTourCard(tr) {
   }
 
   if (tr.status === 'running' || tr.status === 'settled') {
-    var leading = tr.scoreA === tr.scoreB ? '' : (tr.scoreA > tr.scoreB ? tr.initiatorClanName : tr.acceptedByClanName);
+    // Кто лидирует/победил должно считываться с первого взгляда прямо по цифрам счёта,
+    // а не только по мелкой строке ниже — раньше оба числа выглядели одинаково важными
+    // независимо от того, кто впереди, и это было неочевидно.
+    var tied = tr.status === 'settled' ? !!tr.tie : (tr.scoreA === tr.scoreB);
+    var aLead = !tied && (tr.status === 'settled' ? tr.winnerClanId === tr.initiatorClanId : tr.scoreA > tr.scoreB);
+    var bLead = !tied && (tr.status === 'settled' ? tr.winnerClanId === tr.acceptedByClanId : tr.scoreB > tr.scoreA);
+    var aColor = aLead ? '#6ddc6d' : (bLead ? '#5a6b7a' : '#90caf9');
+    var bColor = bLead ? '#6ddc6d' : (aLead ? '#5a6b7a' : '#ffb74d');
     html += '<div style="display:flex;justify-content:space-around;align-items:center;margin-top:10px;background:#0f1f35;border-radius:8px;padding:10px">'
-      +'<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:#90caf9">'+(tr.scoreA||0)+'</div><div style="font-size:10px;color:#666">🐠 '+(tr.initiatorClanName||'')+'</div></div>'
+      +'<div style="text-align:center;'+(bLead?'opacity:0.55':'')+'">'
+        +'<div style="font-size:13px;height:16px">'+(aLead?'🏆':'')+'</div>'
+        +'<div style="font-size:22px;font-weight:800;color:'+aColor+'">'+(tr.scoreA||0)+'</div>'
+        +'<div style="font-size:10px;color:#666">🐠 '+(tr.initiatorClanName||'')+'</div>'
+      +'</div>'
       +'<div style="font-size:12px;color:#666">:</div>'
-      +'<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:#ffb74d">'+(tr.scoreB||0)+'</div><div style="font-size:10px;color:#666">🐠 '+(tr.acceptedByClanName||'')+'</div></div>'
+      +'<div style="text-align:center;'+(aLead?'opacity:0.55':'')+'">'
+        +'<div style="font-size:13px;height:16px">'+(bLead?'🏆':'')+'</div>'
+        +'<div style="font-size:22px;font-weight:800;color:'+bColor+'">'+(tr.scoreB||0)+'</div>'
+        +'<div style="font-size:10px;color:#666">🐠 '+(tr.acceptedByClanName||'')+'</div>'
+      +'</div>'
       +'</div>';
-    if (tr.status === 'running' && leading) html += '<div style="font-size:11px;color:#6ddc6d;text-align:center;margin-top:4px">🏆 '+t('Впереди:','Leading:')+' «'+leading+'»</div>';
+    if (tr.status === 'running') {
+      html += tied
+        ? '<div style="font-size:11px;color:#90caf9;text-align:center;margin-top:4px">🤝 '+t('Ничья на данный момент','Currently tied')+'</div>'
+        : '<div style="font-size:11px;color:#6ddc6d;text-align:center;margin-top:4px">🏆 '+t('Впереди:','Leading:')+' «'+(aLead ? tr.initiatorClanName : tr.acceptedByClanName)+'»</div>';
+    }
   }
 
   if (tr.status === 'settled') {
