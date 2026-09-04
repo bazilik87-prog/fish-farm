@@ -1064,6 +1064,60 @@ async def _next_tournament_number(session, base):
     return None
 
 
+TOURNAMENT_TAUNTS = [
+    "⚔️ Капитан клана «{clan}» бросил вызов всем — на кону {amount}⭐ с человека! Дайте им отпор!",
+    "🔥 «{clan}» решили, что им нет равных, и выставили {amount}⭐. Покажите, кто здесь главный!",
+    "😤 Куда они лезут?! Капитан «{clan}» открыл турнир на {amount}⭐ — самое время их осадить.",
+    "💥 «{clan}» бросают перчатку всем кланам разом — {amount}⭐ на кону. Стоит их порвать!",
+    "🛡 Новый турнир от «{clan}» — ставка {amount}⭐ с человека. Кто-нибудь готов ответить?",
+    "⚡ «{clan}» жаждут лёгкой славы и выставили {amount}⭐. Не дайте им уйти с победой без боя!",
+    "🎯 «{clan}» открыли счёт на {amount}⭐ и ждут соперника. Слабо принять вызов?",
+    "👀 Все смотрят на «{clan}» — они выставили {amount}⭐ и очень в себе уверены. А вы?",
+    "🏆 «{clan}» готовы драться за {amount}⭐ с человека. Найдётся клан, который их остудит?",
+]
+
+
+async def _notify_new_open_tournament(session, base, t):
+    """
+    Турнир опубликован (funding -> open) — «клич» игрокам, состоящим в ЛЮБОМ клане,
+    КРОМЕ клана-инициатора: провокационное уведомление в духе «дайте им отпор», чтобы
+    игрок открыл вкладку «Клан», увидел турнир в общем списке и, может, принял вызов.
+    Участников клана-инициатора не трогаем — они уже получили другое уведомление
+    («ваш капитан создал турнир, скинься») в момент оплаты первого взноса.
+    Best-effort: падение здесь не должно мешать самой публикации турнира — вызывающий
+    код это гарантирует (см. _fixate_tournament).
+    """
+    import random
+    init_clan_id = t.get('initiatorClanId')
+    init_clan_name = t.get('initiatorClanName', '?')
+    amount = t.get('amountPerPerson', 0)
+    text = random.choice(TOURNAMENT_TAUNTS).format(clan=init_clan_name, amount=amount)
+    try:
+        async with session.get(f"{base}/clans.json{FB_AUTH}") as resp:
+            all_clans = await resp.json()
+    except Exception:
+        return
+    all_clans = all_clans or {}
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    for cid, c in all_clans.items():
+        if cid == init_clan_id or not isinstance(c, dict):
+            continue
+        members = c.get('members') or {}
+        for m in members.values():
+            if not isinstance(m, dict):
+                continue
+            uid = m.get('userId')
+            if not uid:
+                continue
+            try:
+                await bot.send_message(uid, text, reply_markup=keyboard)
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+
+
 async def _fixate_tournament(session, base, tournament_id):
     """
     Переводит турнир funding -> open: фиксирует requiredCount по факту оплативших,
@@ -1098,6 +1152,10 @@ async def _fixate_tournament(session, base, tournament_id):
             if put_resp.status == 412:
                 continue
             if put_resp.status in (200, 204):
+                try:
+                    await _notify_new_open_tournament(session, base, t)
+                except Exception:
+                    pass
                 return t
             return None
     return None
@@ -1310,6 +1368,54 @@ def _tour_payer_label(v):
     return v.get('name') or f"ID:{v.get('userId')}"
 
 
+TOURNAMENT_VICTORY_TAUNTS = [
+    "⚔️ Клан «{clan}» в тяжелейшей схватке вырвал победу у соперника и забрал {total}⭐ на {count} бойцов!",
+    "💀 Клан «{clan}» разгромил своего противника в клановом турнире и унёс {total}⭐ на {count} участников!",
+    "🔥 Клан «{clan}» порвал соперника в клочья и забрал себе {total}⭐ (на {count} человек)!",
+    "🩸 Камня на камне не оставил клан «{clan}» от своего соперника — {total}⭐ на {count} участников улетели победителям!",
+    "💥 Клан «{clan}» стёр соперника в порошок и увёз домой {total}⭐ на {count} бойцов!",
+    "🏆 Клан «{clan}» одержал безоговорочную победу в клановом турнире — {total}⭐ достались {count} участникам команды!",
+    "⚡ Клан «{clan}» не оставил сопернику ни единого шанса и унёс {total}⭐ на {count} человек!",
+    "🛡 Клан «{clan}» вырвал победу в тяжелейшей схватке и забрал {total}⭐ (на {count} бойцов)!",
+]
+
+
+async def _broadcast_tournament_victory(session, base, winner_name, payout, winner_count):
+    """
+    После завершения турнира с победителем — хайп-рассылка ВСЕМ игрокам (не только
+    участникам турнира), в духе спортивных новостей: клан такой-то разгромил соперника и
+    забрал N звёзд. Соперника намеренно не называем — по просьбе (см. обсуждение): драма
+    без подробностей мотивирует сильнее и не выставляет проигравший клан перед всей игрой.
+    Best-effort — падение здесь не должно мешать основному завершению турнира, вызывающий
+    код (_settle_tournament) это гарантирует, оборачивая вызов в try/except.
+    """
+    import random
+    total = round(payout * winner_count, 2)
+    if total == int(total):
+        total = int(total)
+    text = random.choice(TOURNAMENT_VICTORY_TAUNTS).format(clan=winner_name, total=total, count=winner_count) \
+        + "\n\n🛡️ Собери свой клан и брось вызов — вкладка «Клан»!"
+    try:
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            data = await resp.json()
+    except Exception:
+        return
+    if not data:
+        return
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    for v in data.values():
+        uid = v.get('userId') if isinstance(v, dict) else None
+        if not uid:
+            continue
+        try:
+            await bot.send_message(uid, text, reply_markup=keyboard)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+
 async def _settle_tournament(session, base, tournament_id):
     """
     Переводит турнир running -> settled по истечении 48-часового окна гонки: сравнивает
@@ -1417,6 +1523,10 @@ async def _settle_tournament(session, base, tournament_id):
                     await bot.send_message(SUPPORT_GROUP_ID, text)
                 except Exception:
                     pass
+            try:
+                await _broadcast_tournament_victory(session, base, winner_name, payout, len(winner_participants))
+            except Exception:
+                pass
             return tdata
     return None
 
