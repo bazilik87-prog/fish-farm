@@ -1872,6 +1872,18 @@ async def clan_invite(request):
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
+    # Пуш приглашённому в Telegram — без t()/bilingual, тем же способом, что и остальные
+    # пуши третьим лицам без контекста initData (нет способа узнать язык получателя здесь).
+    try:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        await bot.send_message(int(target_user_id),
+            f"🛡️ Капитан {invite_payload['fromUsername']} зовёт тебя в клан «{clan_data.get('name', '')}»! Открой вкладку «Клан», чтобы принять или отклонить приглашение.",
+            reply_markup=keyboard)
+    except Exception:
+        pass
+
     return web.json_response({'ok': True}, headers=CORS)
 
 
