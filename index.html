@@ -3053,6 +3053,12 @@ function displayServerLotteryPrize(prize) {
       state.coins = Math.round((state.coins + prize.amount) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + prize.amount) * 100) / 100;
     } else if (prize.kind === 'fish') {
+      // Помечаем момент внешнего начисления рыбы — см. защиту в applyActionsResult()
+      // ниже: без этой метки "зависший" ответ /actions, отправленный ДО выигрыша,
+      // может прийти ПОСЛЕ него и обрезать склад по устаревшему (меньшему) unsoldCaught,
+      // выданному сервером ещё до того, как тот узнал об этих +N рыбах. Подтверждённый
+      // случай: игрок выиграл 200 рыб в лотерею, склад тут же обнулился до 0.
+      window._lastFishGrantAt = Date.now();
       for (var fi=0; fi<prize.amount; fi++) {
         var rf=randFish();
         pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000});
@@ -5124,6 +5130,7 @@ var PENDING_ACTIONS_KEY = 'ff_pending_actions';
 window._pendingActions = (function(){
   try { return JSON.parse(localStorage.getItem(PENDING_ACTIONS_KEY) || '[]'); } catch(e) { return []; }
 })();
+window._lastFishGrantAt = 0; // см. защиту от устаревших ответов /actions в applyActionsResult()
 function savePendingActionsLocally() {
   try { localStorage.setItem(PENDING_ACTIONS_KEY, JSON.stringify(window._pendingActions)); } catch(e){}
 }
@@ -5136,7 +5143,7 @@ function queueAction(action) {
     window._actionsFlushTimer = setTimeout(flushActions, 3000);
   }
 }
-function applyActionsResult(res) {
+function applyActionsResult(res, sentAt) {
   state.coins = res.coins;
   state.caught = res.caught;
   state.totalEarned = res.totalEarned;
@@ -5163,7 +5170,13 @@ function applyActionsResult(res) {
   // отдельно. Теперь чинится само: если сервер знает МЕНЬШЕ, чем локальный массив —
   // подрезаем локальный массив под реальное число, чтобы следующая продажа/доставка
   // не отклонялась той же самой рыбой снова и снова.
-  if (typeof res.unsoldCaught === 'number') {
+  // ВАЖНО: этот ответ мог быть отправлен ДО того, как рыба была начислена извне (приз
+  // лотереи — см. window._lastFishGrantAt) — тогда его unsoldCaught устарел и НЕ
+  // отражает эту прибавку. Применять обрезку в таком случае нельзя: "зависший" ответ
+  // старого запроса, пришедший ПОСЛЕ выигрыша, иначе стирал бы честно выигранную рыбу.
+  // Подтверждённый случай: игрок выиграл 200 рыб в лотерею, склад тут же обнулился.
+  var responseIsStale = window._lastFishGrantAt && sentAt && sentAt < window._lastFishGrantAt;
+  if (typeof res.unsoldCaught === 'number' && !responseIsStale) {
     var authoritative = Math.round(res.unsoldCaught);
     if (authoritative < state.liveFish.length) {
       state.liveFish.splice(0, state.liveFish.length - authoritative);
@@ -5180,6 +5193,7 @@ function flushActions() {
   var batch = window._pendingActions;
   window._pendingActions = [];
   savePendingActionsLocally();
+  var sentAt = Date.now();
   fetch(BOT_API_URL + '/actions', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -5188,7 +5202,7 @@ function flushActions() {
     if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); savePendingActionsLocally(); return; }
     // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
     // расхождение почти всегда просто округление, а не читерство.
-    applyActionsResult(res);
+    applyActionsResult(res, sentAt);
   }).catch(function(){
     // сеть недоступна — возвращаем действия в очередь (уже сохранены в localStorage), попробуем позже
     window._pendingActions = batch.concat(window._pendingActions);
