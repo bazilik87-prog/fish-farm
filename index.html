@@ -4493,10 +4493,27 @@ function clanTourIsArchived(tr) {
 
 function renderClanTourCard(tr) {
   var title = tr.number ? ('#'+tr.number) : t('черновик (не опубликован)','draft (not published)');
+  // Пока гонка идёт, статус «гонка идёт» сам по себе не говорит, побеждаешь ты или нет —
+  // вставляем между номером турнира и статусом крупную надпись заглавными буквами
+  // («ВЫ ЛИДИРУЕТЕ»/«ВЫ ПРОИГРЫВАЕТЕ»), с точки зрения именно этого игрока (mySide),
+  // зелёным/красным — должно бросаться в глаза сразу при входе в «Турниры».
+  var myLeadMid = '';
+  if (tr.status === 'running' && (tr.mySide === 'A' || tr.mySide === 'B')) {
+    var myScore = tr.mySide === 'A' ? (tr.scoreA || 0) : (tr.scoreB || 0);
+    var oppScore = tr.mySide === 'A' ? (tr.scoreB || 0) : (tr.scoreA || 0);
+    if (myScore > oppScore) {
+      myLeadMid = '<div style="font-size:16px;font-weight:900;color:#6ddc6d;letter-spacing:0.3px;white-space:nowrap">'+t('ВЫ ЛИДИРУЕТЕ',"YOU'RE LEADING")+'</div>';
+    } else if (myScore < oppScore) {
+      myLeadMid = '<div style="font-size:16px;font-weight:900;color:#ff6b6b;letter-spacing:0.3px;white-space:nowrap">'+t('ВЫ ПРОИГРЫВАЕТЕ',"YOU'RE LOSING")+'</div>';
+    } else {
+      myLeadMid = '<div style="font-size:16px;font-weight:900;color:#90caf9;letter-spacing:0.3px;white-space:nowrap">'+t('НИЧЬЯ','TIED')+'</div>';
+    }
+  }
   var html = '<div class="card">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center">'
-    +'<div style="font-size:14px;font-weight:700;color:#fff">🏆 '+title+'</div>'
-    +'<div style="font-size:11px;color:#90caf9">'+clanTourStatusLabel(tr.status)+'</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+    +'<div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap">🏆 '+title+'</div>'
+    +myLeadMid
+    +'<div style="font-size:11px;color:#90caf9;white-space:nowrap">'+clanTourStatusLabel(tr.status)+'</div>'
     +'</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Ставка:','Stake:')+' ⭐'+tr.amountPerPerson+' '+t('с человека','per person')+'</div>';
 
