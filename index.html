@@ -958,7 +958,7 @@ function stripUndefinedDeep(val) {
   return val;
 }
 
-function save() {
+function save(immediate) {
   try {
     saveSaltKnifeToLoc(); // фиксируем склад текущей локации перед сохранением
     var upg={};
@@ -1008,10 +1008,26 @@ function save() {
       fbSaveData = stripUndefinedDeep(fbSaveData);
       window._pendingFbSave = fbSaveData;
       if (window._fbSaveTimer) clearTimeout(window._fbSaveTimer);
-      window._fbSaveTimer = setTimeout(function(){
+      if (immediate) {
+        // Обычно запись в Firebase откладывается на 2с (см. ниже, почему) — но для
+        // событий вроде отправки доставки это опасно: рыба уже списана локально и
+        // делавери уже создан в localStorage (сохраняется синхронно, тут всё ок), а вот
+        // копия в Firebase ещё 2 секунды не долетает. Если игрок за это время закроет
+        // Mini App, отложенный setTimeout просто не успеет выполниться и никогда не
+        // выполнится — Firebase так и останется со старым (додоставочным) снимком. Если
+        // потом при следующем открытии loadFromFirebase() посчитает, что серверная копия
+        // "новее" localStorage (может случиться из-за гонки с lastSeen при повторном
+        // входе), applyState() откатит игрока назад — рыба "вернётся", доставка "исчезнет".
+        // Подтверждённый случай от игрока. Для таких критичных разовых действий пишем в
+        // Firebase сразу, без debounce.
         flushFirebaseSave(window._pendingFbSave);
         window._fbSaveTimer = null;
-      }, 2000);
+      } else {
+        window._fbSaveTimer = setTimeout(function(){
+          flushFirebaseSave(window._pendingFbSave);
+          window._fbSaveTimer = null;
+        }, 2000);
+      }
     }
     // Денежные поля (coins/caught/totalEarned/energy) теперь синкаем через bot.py,
     // который сверяет прирост с физически возможным потолком — раз в 8с с debounce.
@@ -5534,7 +5550,7 @@ function sendDelivery() {
   state.saltOrder=0; state.knifeOrder=0;
   state.selectedItems=[]; state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   addQuestProgress('deliver', 1);
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase, без 2с debounce — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function selectDriverTransport(id) {
@@ -5700,7 +5716,7 @@ function sendDriverDelivery() {
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.selectedDriverItems=[]; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.marketSubpage=null;
   showNotif(t('Водитель отправлен на ','Driver sent on ')+tr2.emoji+' '+trName(tr2.id)+'!');
-  showTab('market'); save();
+  showTab('market'); save(true); // сразу в Firebase — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function hireDriver(transportId) {
@@ -5761,7 +5777,7 @@ function hireDriver(transportId) {
   addQuestProgress('deliver', 1);
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   showNotif(t('Водитель отправлен на ','Driver sent on ')+tr2.emoji+' '+trName(tr2.id)+'!');
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 function repairTr(id) {
