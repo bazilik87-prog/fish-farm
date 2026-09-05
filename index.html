@@ -1768,13 +1768,14 @@ function renderMarket() {
     var hasTicket = (state.truckTickets||0) > 0;
     trBtns += '<button class="btn '+(hasTicket?'btn-green':'')+'" onclick="useTruckTicket()" '+(hasTicket?'':'disabled')+'>🎫 '+t('Аренда за билет (','Rent by ticket (')+(state.truckTickets||0)+')</button>';
   }
+  var repairCostNow = Math.round(tr.repairCost * ((getLoc(state.currentLoc)||{}).tapMult||1));
   html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">🚚 '+t('Транспорт','Transport')+'</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+trBtns+'</div>'
     +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+trName(tr.id)+' · '+tr.capacity+t(' рыб · ',' fish · ')+fmtTime(dt)+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<span style="font-size:11px;color:'+durColor(dur)+'">🔧 '+(broken?t('Сломан!','Broken!'):dur+'%')+'</span>'
     +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px"><div style="background:'+durColor(dur)+';height:6px;border-radius:4px;width:'+dur+'%"></div></div>'
-    +(dur<100?'<button class="btn '+(state.coins>=tr.repairCost?'btn-gold':'')+'" onclick="repairTr(\''+tr.id+'\')" '+(state.coins>=tr.repairCost?'':'disabled')+' style="font-size:10px;padding:4px 8px">🔧 🪙'+fmt(tr.repairCost)+'</button>':'')
+    +(dur<100?'<button class="btn '+(state.coins>=repairCostNow?'btn-gold':'')+'" onclick="repairTr(\''+tr.id+'\')" '+(state.coins>=repairCostNow?'':'disabled')+' style="font-size:10px;padding:4px 8px">🔧 🪙'+fmt(repairCostNow)+'</button>':'')
     +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ '+t('Сломан — нужен ремонт!','Broken — needs repair!')+'</div>':'')+'</div>';
 
   // Список рыб с выбором вида
@@ -5124,6 +5125,21 @@ function showInstructions() {
     +'🚗 '+t('Машина — 50000🪙 · 40 рыб · 25 мин','Car — 50000🪙 · 40 fish · 25 min')+'<br>'
     +'🚛 '+t('Грузовик — 300000🪙 · 100 рыб · 40 мин','Truck — 300000🪙 · 100 fish · 40 min')+'<br>'
     +t('Каждая доставка -10% прочности. 0% = сломан, нужен ручной ремонт 🔧','Each delivery -10% durability. 0% = broken, needs manual repair 🔧')+'<br>'
+    +t('Цена ремонта растёт вместе с текущей локацией:','Repair cost grows with your current location:')
+    +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
+      +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0">'
+        +'<td style="padding:3px 4px;text-align:left">'+t('Транспорт','Transport')+'</td>'
+        +'<td style="padding:3px 4px;text-align:right">🌿</td>'
+        +'<td style="padding:3px 4px;text-align:right">🏞</td>'
+        +'<td style="padding:3px 4px;text-align:right">🌴</td>'
+        +'<td style="padding:3px 4px;text-align:right">🌊</td>'
+        +'<td style="padding:3px 4px;text-align:right">🚀</td>'
+      +'</tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🚲</td><td style="padding:3px 4px;text-align:right">50</td><td style="padding:3px 4px;text-align:right">100</td><td style="padding:3px 4px;text-align:right">250</td><td style="padding:3px 4px;text-align:right">750</td><td style="padding:3px 4px;text-align:right">2,500</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🛵</td><td style="padding:3px 4px;text-align:right">500</td><td style="padding:3px 4px;text-align:right">1,000</td><td style="padding:3px 4px;text-align:right">2,500</td><td style="padding:3px 4px;text-align:right">7,500</td><td style="padding:3px 4px;text-align:right">25,000</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🚗</td><td style="padding:3px 4px;text-align:right">5,000</td><td style="padding:3px 4px;text-align:right">10,000</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">75,000</td><td style="padding:3px 4px;text-align:right">250,000</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚛</td><td style="padding:3px 4px;text-align:right">30,000</td><td style="padding:3px 4px;text-align:right">60,000</td><td style="padding:3px 4px;text-align:right">150,000</td><td style="padding:3px 4px;text-align:right">450,000</td><td style="padding:3px 4px;text-align:right">1,500,000</td></tr>'
+    +'</table>'
     +'🚛 '+t('Грузовик с прицепом (аренда на рынке рядом со списком транспорта, ⭐5→5→10→15→25 по локации) — 200 рыб · 15 мин · не изнашивается, действует 12 часов','Truck with trailer (rental at the market next to the transport list, ⭐5→5→10→15→25 by location) — 200 fish · 15 min · doesn\'t wear out, lasts 12 hours')+'<br><br>'
     +'<b style="color:#fff">'+t('⬆️ Улучшения','⬆️ Upgrades')+'</b><br>'
     +'🎣 '+t('Удочка — увеличивает монеты за улов и шанс улова (макс 5 ур.)','Rod — increases coins per catch and catch chance (max lvl 5)')+'<br>'
@@ -5782,10 +5798,14 @@ function hireDriver(transportId) {
 }
 function repairTr(id) {
   var tr=getTr(id); if (!tr) return;
-  if (state.coins<tr.repairCost) { showNotif(t('Не хватает монет!','Not enough coins!')); return; }
-  state.coins=Math.round((state.coins-tr.repairCost)*100)/100;
+  // Цена ремонта растёт вместе с текущей локацией — как апгрейды/соль/ножи (раньше была
+  // одинаковой везде, что не совпадало с общей логикой экономики игры).
+  var lm=(getLoc(state.currentLoc)||{}).tapMult||1;
+  var cost=Math.round(tr.repairCost*lm);
+  if (state.coins<cost) { showNotif(t('Не хватает монет!','Not enough coins!')); return; }
+  state.coins=Math.round((state.coins-cost)*100)/100;
   state.durability[id]=100;
-  queueAction({type:'repair_transport', transport: id});
+  queueAction({type:'repair_transport', loc: state.currentLoc, transport: id});
   flushActions();
   showNotif('🔧 '+tr.emoji+' '+trName(tr.id)+' '+t('отремонтирован!','repaired!'));
   addQuestProgress('repair', 1);

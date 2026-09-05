@@ -3841,10 +3841,14 @@ async def process_actions(request):
 
         elif a_type == 'repair_transport':
             tr_id = act.get('transport')
-            repair_cost = TRANSPORT_REPAIR_COST.get(tr_id)
-            if repair_cost is None or tr_id not in unlocked_transports:
+            base_repair_cost = TRANSPORT_REPAIR_COST.get(tr_id)
+            if base_repair_cost is None or tr_id not in unlocked_transports:
                 rejected += 1
                 continue
+            # Раньше ремонт стоил одинаково на всех локациях — по просьбе должен расти
+            # вместе с текущей локацией, как апгрейды/соль/ножи (mult уже посчитан выше
+            # из act.get('loc'), для той локации, где игрок физически находится сейчас).
+            repair_cost = round(base_repair_cost * mult)
             if coins < repair_cost:
                 rejected += 1
                 continue
