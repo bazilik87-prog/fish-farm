@@ -843,7 +843,11 @@ async def social_tasks_list(request):
     tasks = tasks or {}
     claimed = claimed or {}
     result = []
-    for task_id, t in tasks.items():
+    # Сортируем по task_id (в нём зашит unix-таймстамп создания: task_<ts>) по убыванию —
+    # самое новое задание должно быть ПЕРВЫМ в списке, отодвигая старые вниз. Раньше
+    # порядок был "как отдал Firebase" — это фактически по возрастанию ts (старые сверху),
+    # и новое задание всегда попадало в конец списка, а не в начало, как хотелось.
+    for task_id, t in sorted(tasks.items(), key=lambda kv: kv[0], reverse=True):
         if not isinstance(t, dict) or not t.get('active'):
             continue
         result.append({
