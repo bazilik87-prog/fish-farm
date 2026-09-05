@@ -4118,6 +4118,8 @@ function renderClan() {
 }
 
 function renderClanMain(html) {
+  html += '<button class="btn btn-full" style="background:#6a4520;margin-bottom:10px" onclick="openClanTournaments()">🏆 '+t('Турниры','Tournaments')+'</button>';
+
   var created = myClan.createdAt ? new Date(myClan.createdAt).toLocaleDateString() : '';
   html += '<div class="card">'
     +'<div style="font-size:16px;font-weight:700;color:#fff">🛡️ '+myClan.name+'</div>'
@@ -4166,8 +4168,6 @@ function renderClanMain(html) {
       html += '<div class="card" style="text-align:center;color:#90caf9;font-size:12px">'+t('Клан достиг максимального размера (8/8)','The clan has reached max size (8/8)')+'</div>';
     }
   }
-
-  html += '<button class="btn btn-full" style="background:#6a4520;margin-bottom:6px" onclick="openClanTournaments()">🏆 '+t('Турниры','Tournaments')+'</button>';
 
   if (myClan.isCaptain) {
     if (myClan.hasUnresolvedTournament) {
@@ -4594,10 +4594,6 @@ function renderClanTourCard(tr) {
 }
 
 function renderClanTournaments(html) {
-  html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
-  html += '<button class="btn btn-full" style="background:#1a3a5a;margin-bottom:10px" onclick="openClanTournamentsBrowse()">🔍 '+t('Найти турнир соперника','Browse opponent tournaments')+'</button>';
-  html += '<button class="btn btn-full" style="background:#2a2a4a;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
-
   if (clanTourState.isCaptain) {
     html += '<div class="card">'
       +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Создать турнир — минимальный взнос 50⭐ (это минимум, который можно вручную вернуть звёздами, если турнир не состоится)','Create a tournament — minimum stake 50⭐ (the smallest amount that can be manually refunded in Stars if the tournament falls through)')+'</div>'
@@ -4608,6 +4604,9 @@ function renderClanTournaments(html) {
 
   if (clanTourState.loading) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    html += '<button class="btn btn-full" style="background:#1a3a5a;margin-bottom:10px" onclick="openClanTournamentsBrowse()">🔍 '+t('Найти турнир соперника','Browse opponent tournaments')+'</button>';
+    html += '<button class="btn btn-full" style="background:#2a2a4a;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
+    html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
     document.getElementById('content').innerHTML = html;
     return;
   }
@@ -4616,13 +4615,15 @@ function renderClanTournaments(html) {
 
   if (!active.length) {
     html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('У клана сейчас нет активных турниров','Your clan has no active tournaments right now')+'</div>';
-    document.getElementById('content').innerHTML = html;
-    return;
+  } else {
+    for (var i=0; i<active.length; i++) {
+      html += renderClanTourCard(active[i]);
+    }
   }
 
-  for (var i=0; i<active.length; i++) {
-    html += renderClanTourCard(active[i]);
-  }
+  html += '<button class="btn btn-full" style="background:#1a3a5a;margin-bottom:10px" onclick="openClanTournamentsBrowse()">🔍 '+t('Найти турнир соперника','Browse opponent tournaments')+'</button>';
+  html += '<button class="btn btn-full" style="background:#2a2a4a;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
+  html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
 
   document.getElementById('content').innerHTML = html;
 }
@@ -4636,10 +4637,9 @@ function openClanTournamentsArchive() {
 }
 
 function renderClanTournamentsArchive(html) {
-  html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="clanView=\'tournaments\';renderClan()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
-
   if (clanTourState.loading) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'tournaments\';renderClan()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
     document.getElementById('content').innerHTML = html;
     return;
   }
@@ -4648,13 +4648,13 @@ function renderClanTournamentsArchive(html) {
 
   if (!archived.length) {
     html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Архив пока пуст — здесь появятся завершённые и истёкшие турниры','Archive is empty — finished and expired tournaments will show up here')+'</div>';
-    document.getElementById('content').innerHTML = html;
-    return;
+  } else {
+    for (var i=0; i<archived.length; i++) {
+      html += renderClanTourCard(archived[i]);
+    }
   }
 
-  for (var i=0; i<archived.length; i++) {
-    html += renderClanTourCard(archived[i]);
-  }
+  html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'tournaments\';renderClan()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
 
   document.getElementById('content').innerHTML = html;
 }
@@ -4684,16 +4684,16 @@ function fetchClanTournamentsOpen() {
 }
 
 function renderClanTournamentsBrowse(html) {
-  html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="openClanTournaments()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
-
   if (clanTourBrowseState.loading) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+    html += '<button class="btn btn-full" style="background:#0f3460" onclick="openClanTournaments()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
     document.getElementById('content').innerHTML = html;
     return;
   }
 
   if (!clanTourBrowseState.tournaments.length) {
     html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Сейчас нет опубликованных турниров других кланов','No published tournaments from other clans right now')+'</div>';
+    html += '<button class="btn btn-full" style="background:#0f3460" onclick="openClanTournaments()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
     document.getElementById('content').innerHTML = html;
     return;
   }
@@ -4718,6 +4718,8 @@ function renderClanTournamentsBrowse(html) {
 
     html += '</div>';
   }
+
+  html += '<button class="btn btn-full" style="background:#0f3460" onclick="openClanTournaments()">← '+t('Назад к турнирам клана','Back to clan tournaments')+'</button>';
 
   document.getElementById('content').innerHTML = html;
 }
