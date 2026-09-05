@@ -4243,12 +4243,16 @@ async def process_actions(request):
             # игрока (list-like push через уникальный ключ Firebase), не влияет на игровую
             # логику и не может провалить запрос — обёрнуто в отдельный try.
             try:
-                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                log_entry = {
                     "ts": now_ms,
                     "coins_before": round(save_base_coins * 100) / 100,
                     "coins_after": coins,
                     "n_actions": len(actions)
-                })
+                }
+                summary = summarize_actions_for_log(actions, coins - save_base_coins)
+                if summary:
+                    log_entry["details"] = summary
+                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json=log_entry)
             except Exception:
                 pass
     except Exception as e:
@@ -5807,6 +5811,49 @@ async def comm_command(message: types.Message):
 
 LOC_NAMES = {'pond': '🌿 Пруд', 'river': '🏞 Река', 'tropics': '🌴 Тропики', 'deep': '🌊 Глубины', 'space': '🚀 Космос'}
 UPG_NAMES = {'rod': 'Удочка', 'net': 'Сеть', 'boat': 'Лодка', 'sonar': 'Сонар'}
+TRANSPORT_NAMES = {'bike': '🚲 Велосипед', 'moped': '🛵 Мопед', 'car': '🚗 Машина', 'truck': '🚛 Грузовик', 'rentalTruck': '🚛🚚 Грузовик с прицепом'}
+
+
+def describe_action(act):
+    """
+    Человекочитаемая метка одного действия — для /actionlog при крупных списаниях/начислениях
+    (см. summarize_actions_for_log). Не претендует на полноту по всем типам действий,
+    только по тем, что реально могут дать разовую трату/начисление от 10,000 монет —
+    для мелочи (тапы, продажа) подробности не нужны, там и так всё понятно по сумме.
+    """
+    t = act.get('type')
+    if t == 'unlock_location':
+        return f"🗺 разлочка {LOC_NAMES.get(act.get('loc'), act.get('loc'))}"
+    if t == 'buy_upgrade':
+        return f"⬆️ апгрейд {UPG_NAMES.get(act.get('upg'), act.get('upg'))}"
+    if t == 'buy_transport':
+        return f"🚚 покупка {TRANSPORT_NAMES.get(act.get('transport'), act.get('transport'))}"
+    if t == 'repair_transport':
+        return f"🔧 ремонт {TRANSPORT_NAMES.get(act.get('transport'), act.get('transport'))}"
+    if t == 'buy_supplies':
+        return f"🧂🔪 заказ соль={act.get('salt', 0)}/нож={act.get('knife', 0)}"
+    if t == 'admin_grant':
+        return f"👑 админ-начисление +{act.get('amount', 0)}"
+    if t == 'bulk_sell':
+        return f"💰 оптовая продажа {act.get('kind', '?')} x{act.get('qty', '?')}"
+    return t or '?'
+
+
+def summarize_actions_for_log(actions, delta):
+    """
+    Разбивка по типам действий для /actionlog — добавляется в запись ТОЛЬКО когда сумма
+    изменения за один запрос от 10,000 монет (в любую сторону), чтобы не раздувать лог
+    подробностями на каждый чих (обычный тап/продажа и так понятны по одной цифре).
+    """
+    if abs(delta) < 10000:
+        return None
+    counts = {}
+    for act in actions:
+        if not isinstance(act, dict):
+            continue
+        label = describe_action(act)
+        counts[label] = counts.get(label, 0) + 1
+    return [f"{label} x{n}" if n > 1 else label for label, n in counts.items()]
 
 
 @dp.message(Command('syncerrors'))
@@ -6118,7 +6165,9 @@ async def actionlog_command(message: types.Message):
                 # баланса, на котором закончился предыдущий обработанный запрос — явный
                 # признак гонки (второй запрос не увидел результат первого).
                 mismatch = " ⚠️ РАСХОЖДЕНИЕ" if (prev_after is not None and abs(before - prev_after) > 0.01) else ""
-                all_lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){src_label}{mismatch}")
+                details = entry.get('details')
+                details_str = f"\n   └ {', '.join(details)}" if details else ""
+                all_lines.append(f"{dt.strftime('%d.%m %H:%M:%S')} · было {before:,.0f} → стало {after:,.0f} ({n} действ.){src_label}{mismatch}{details_str}")
                 prev_after = after
 
             # Telegram режет сообщения длиннее 4096 символов — за активный день может
