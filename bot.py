@@ -5309,46 +5309,63 @@ async def clantournaments_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
                 all_t = await resp.json()
-        all_t = all_t or {}
-        now_ms = int(time.time() * 1000)
-        active = {tid: t for tid, t in all_t.items() if isinstance(t, dict) and t.get('status') not in ('settled', 'expired')}
-        if not active:
-            await message.answer("Активных клановых турниров сейчас нет.")
-            return
+            all_t = all_t or {}
+            now_ms = int(time.time() * 1000)
+            active = {tid: t for tid, t in all_t.items() if isinstance(t, dict) and t.get('status') not in ('settled', 'expired')}
+            if not active:
+                await message.answer("Активных клановых турниров сейчас нет.")
+                return
 
-        status_labels = {
-            'funding': '🟡 Сбор взносов',
-            'open': '🔵 В списке (ждёт соперника)',
-            'matching': '🟠 Соперник собирает состав',
-            'running': '🟢 Гонка идёт',
-        }
-        deadline_field = {
-            'funding': 'fundingDeadline',
-            'open': 'listExpiresAt',
-            'matching': 'matchingDeadline',
-            'running': 'matchEndsAt',
-        }
-        lines = []
-        for tid, t in sorted(active.items(), key=lambda kv: kv[1].get('number', 0) or 0):
-            status = t.get('status', '?')
-            label = status_labels.get(status, status)
-            number = t.get('number')
-            num_str = f"#{number}" if number else tid[:8]
-            init_name = t.get('initiatorClanName', '?')
-            acc_name = t.get('acceptedByClanName')
-            amount = t.get('amountPerPerson', 0)
-            vs = f"«{init_name}» vs «{acc_name}»" if acc_name else f"«{init_name}» (ждёт соперника)"
-            field = deadline_field.get(status)
-            time_left = ""
-            if field and t.get(field):
-                left_ms = t[field] - now_ms
-                if left_ms > 0:
-                    time_left = f" · осталось ~{max(1, left_ms // 3600000)}ч"
-                else:
-                    time_left = " · ⚠️ дедлайн прошёл, ждёт фоновой проверки (или зависла — можно /clanforce)"
-            lines.append(f"{label} {num_str} — {vs} — ⭐{amount}/чел{time_left}\nID: <code>{tid}</code>")
-        text = "🛡️ Активные клановые турниры:\n\n" + "\n\n".join(lines) + "\n\nПринудительно продвинуть: /clanforce ID"
-        await message.answer(text, parse_mode="HTML")
+            status_labels = {
+                'funding': '🟡 Сбор взносов',
+                'open': '🔵 В списке (ждёт соперника)',
+                'matching': '🟠 Соперник собирает состав',
+                'running': '🟢 Гонка идёт',
+            }
+            deadline_field = {
+                'funding': 'fundingDeadline',
+                'open': 'listExpiresAt',
+                'matching': 'matchingDeadline',
+                'running': 'matchEndsAt',
+            }
+            lines = []
+            for tid, t in sorted(active.items(), key=lambda kv: kv[1].get('number', 0) or 0):
+                status = t.get('status', '?')
+                label = status_labels.get(status, status)
+                number = t.get('number')
+                num_str = f"#{number}" if number else tid[:8]
+                init_name = t.get('initiatorClanName', '?')
+                acc_name = t.get('acceptedByClanName')
+                amount = t.get('amountPerPerson', 0)
+                vs = f"«{init_name}» vs «{acc_name}»" if acc_name else f"«{init_name}» (ждёт соперника)"
+                field = deadline_field.get(status)
+                time_left = ""
+                if field and t.get(field):
+                    left_ms = t[field] - now_ms
+                    if left_ms > 0:
+                        time_left = f" · осталось ~{max(1, left_ms // 3600000)}ч"
+                    else:
+                        time_left = " · ⚠️ дедлайн прошёл, ждёт фоновой проверки (или зависла — можно /clanforce)"
+                score_line = ""
+                if status == 'running':
+                    try:
+                        live = await _tournament_live_catches(session, base, t)
+                        participants_a = t.get('participantsA') or {}
+                        participants_b = t.get('participantsB') or {}
+                        score_a = sum(live.get(p, 0) for p in participants_a.keys())
+                        score_b = sum(live.get(p, 0) for p in participants_b.keys())
+                        if score_a == score_b:
+                            lead = "🤝 ничья"
+                        elif score_a > score_b:
+                            lead = f"впереди «{init_name}»"
+                        else:
+                            lead = f"впереди «{acc_name}»"
+                        score_line = f"\n⚡ {score_a} : {score_b} — {lead}"
+                    except Exception:
+                        score_line = ""
+                lines.append(f"{label} {num_str} — {vs} — ⭐{amount}/чел{time_left}{score_line}\nID: <code>{tid}</code>")
+            text = "🛡️ Активные клановые турниры:\n\n" + "\n\n".join(lines) + "\n\nПринудительно продвинуть: /clanforce ID"
+            await message.answer(text, parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
