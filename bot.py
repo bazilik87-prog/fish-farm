@@ -5346,14 +5346,25 @@ async def clantournaments_command(message: types.Message):
                         time_left = f" · осталось ~{max(1, left_ms // 3600000)}ч"
                     else:
                         time_left = " · ⚠️ дедлайн прошёл, ждёт фоновой проверки (или зависла — можно /clanforce)"
+
+                participants_a = t.get('participantsA') or {}
+                participants_b = t.get('participantsB') or {}
+                players_line = ""
+                if status in ('matching', 'running'):
+                    players_line = f"\n👥 {len(participants_a)} vs {len(participants_b)}"
+                elif status in ('funding', 'open'):
+                    players_line = f"\n👥 {len(participants_a)} игроков собрано"
+
                 score_line = ""
                 if status == 'running':
                     try:
                         live = await _tournament_live_catches(session, base, t)
-                        participants_a = t.get('participantsA') or {}
-                        participants_b = t.get('participantsB') or {}
                         score_a = sum(live.get(p, 0) for p in participants_a.keys())
                         score_b = sum(live.get(p, 0) for p in participants_b.keys())
+                        if score_a == int(score_a):
+                            score_a = int(score_a)
+                        if score_b == int(score_b):
+                            score_b = int(score_b)
                         if score_a == score_b:
                             lead = "🤝 ничья"
                         elif score_a > score_b:
@@ -5363,7 +5374,7 @@ async def clantournaments_command(message: types.Message):
                         score_line = f"\n⚡ {score_a} : {score_b} — {lead}"
                     except Exception:
                         score_line = ""
-                lines.append(f"{label} {num_str} — {vs} — ⭐{amount}/чел{time_left}{score_line}\nID: <code>{tid}</code>")
+                lines.append(f"{label} {num_str} — {vs} — ⭐{amount}/чел{time_left}{players_line}{score_line}\nID: <code>{tid}</code>")
             text = "🛡️ Активные клановые турниры:\n\n" + "\n\n".join(lines) + "\n\nПринудительно продвинуть: /clanforce ID"
             await message.answer(text, parse_mode="HTML")
     except Exception as e:
