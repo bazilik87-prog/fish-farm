@@ -5789,7 +5789,7 @@ async def comm_command(message: types.Message):
         "/ban_ids 111 222 333 — забанить конкретный список ID (если рефералы вперемешку — боты и настоящие)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
-        "/pay @username СУММА — уведомить игрока о выплате GRAM\n"
+        "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
@@ -6678,28 +6678,34 @@ async def pay_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n<code>/pay @username СУММА</code>\n\nПример:\n<code>/pay @Metelegram12 0.073</code>",
+            "Использование:\n<code>/pay @username СУММА</code> или <code>/pay 123456789 СУММА</code> (по ID)\n\nПример:\n<code>/pay @Metelegram12 0.073</code>",
             parse_mode="HTML"
         )
         return
-    username = text[1].lstrip('@').lower()
+    arg = text[1].lstrip('@')
     amount = text[2]
     import aiohttp
     try:
-        url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
-        user_id = None
-        if data:
-            for v in data.values():
-                if str(v.get('username','')).lower() == username:
-                    user_id = v.get('userId')
-                    break
-        if not user_id:
-            found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
-            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
-            return
+        if arg.isdigit():
+            user_id = int(arg)
+            display = f"ID:{user_id}"
+        else:
+            username = arg.lower()
+            url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard.json{FB_AUTH}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+            user_id = None
+            if data:
+                for v in data.values():
+                    if str(v.get('username','')).lower() == username:
+                        user_id = v.get('userId')
+                        break
+            if not user_id:
+                found_names = [str(v.get('username','')) for v in data.values() if v.get('username')] if data else []
+                await message.answer(f"❌ Игрок @{username} не найден. Попробуй по ID.\nИмена в базе: {', '.join(found_names[:10])}")
+                return
+            display = f"@{username}"
         await bot.send_message(
             user_id,
             f"✅ <b>Выплата выполнена!</b>\n\n"
@@ -6710,7 +6716,7 @@ async def pay_command(message: types.Message):
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-        await message.answer(f"✅ Уведомление отправлено @{username} (ID: {user_id}) о выплате {amount} GRAM")
+        await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате {amount} GRAM")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
