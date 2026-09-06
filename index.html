@@ -1326,11 +1326,16 @@ function showNotif(msg, dead) {
   // привязка к слову тихо резала и другие монетные уведомления, где эмодзи 🪙 стоит
   // без привязки к конкретному тексту (квесты, редкая рыба) — теперь любое сообщение
   // с 🪙 считается важным независимо от языка и конкретной формулировки.
-  var important = msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
+  // Поимка редкой рыбы (Осетрина) исключена из истории отдельно — за 10-минутное окно
+  // активности при быстром тапе таких уведомлений может набраться десятки подряд с
+  // одинаковой суммой, и они забивают всю историю, вытесняя более значимые события.
+  // Тост на экране всё равно показывается — в историю просто не сохраняем.
+  var isRareFishCatch = msg.indexOf('Поймал Осетрину') >= 0 || msg.indexOf('Caught a Sturgeon') >= 0;
+  var important = !isRareFishCatch && (msg.indexOf('💰') >= 0 || msg.indexOf('💀') >= 0 ||
                   msg.indexOf('🪙') >= 0 || msg.indexOf('📦') >= 0 ||
                   msg.indexOf('🧂') >= 0 || msg.indexOf('🎁') >= 0 ||
                   msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 ||
-                  msg.indexOf('🏆') >= 0 || msg.indexOf('🎰') >= 0 || msg.indexOf('💎') >= 0 || dead;
+                  msg.indexOf('🏆') >= 0 || msg.indexOf('🎰') >= 0 || msg.indexOf('💎') >= 0 || dead);
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
