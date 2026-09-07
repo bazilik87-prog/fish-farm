@@ -4043,7 +4043,9 @@ var clanChecked = false;
 var myClan = null;
 var myClanInvites = [];
 var clanView = 'main'; // 'main' | 'invite' | 'tournaments' | 'tournaments_browse' | 'tournaments_archive'
-var clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: false, invitedIds: {}};
+var clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: false};
+var clanSearchState = {query: '', loading: false, items: [], searched: false};
+var clanInvitedIds = {}; // общий для рефералов и поиска — чтобы "Приглашён" отражался в обоих списках
 var clanTourState = {loading: false, isCaptain: false, tournaments: []};
 var clanTourBrowseState = {loading: false, isCaptain: false, myClanId: null, tournaments: []};
 var clanTourLiveTimer = null;
@@ -4309,9 +4311,40 @@ function respondClanInvite(clanId, action) {
 
 function openClanReferrals() {
   clanView = 'invite';
-  clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: true, invitedIds: {}};
+  clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: true};
+  clanSearchState = {query: '', loading: false, items: [], searched: false};
   renderClan();
   fetchClanReferrals(0);
+}
+
+function searchClanPlayers() {
+  var input = document.getElementById('clan-search-input');
+  var query = input ? input.value.trim() : '';
+  if (query.length < 2) {
+    showNotif(t('Введи минимум 2 символа','Enter at least 2 characters'));
+    return;
+  }
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  clanSearchState.query = query;
+  clanSearchState.loading = true;
+  clanSearchState.searched = true;
+  renderClan();
+  fetch(BOT_API_URL + '/clan_search_players', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, query: query})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      clanSearchState.loading = false;
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось выполнить поиск','search failed')));
+        clanSearchState.items = [];
+        renderClan();
+        return;
+      }
+      clanSearchState.items = res.data.players || [];
+      renderClan();
+    }).catch(function(){ clanSearchState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); renderClan(); });
 }
 
 function fetchClanReferrals(offset) {
@@ -4332,8 +4365,43 @@ function fetchClanReferrals(offset) {
   }).catch(function(){ clanRefState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
+function renderClanInviteRow(p) {
+  var invited = !!clanInvitedIds[p.userId];
+  return '<div class="card" style="padding:10px 12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center">'
+    +'<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+p.name+'</div>'
+    +(invited
+      ? '<span style="font-size:11px;color:#6ddc6d">✔ '+t('Приглашён','Invited')+'</span>'
+      : '<button class="btn btn-gold" style="padding:5px 12px;font-size:11px" onclick="inviteClanReferral('+p.userId+')">➕ '+t('Пригласить','Invite')+'</button>')
+    +'</div>'
+    +'<div style="font-size:11px;color:#90caf9;margin-top:4px">'
+    +(p.username ? '<span onclick="openTgUser(\''+p.username+'\')" style="color:#4fc3f7;text-decoration:underline;cursor:pointer">@'+p.username+'</span> · ' : '')
+    +clanLastSeenLabel(p.ts)+' · 🎣 '+fmt(p.caught||0)+'</div>'
+    +'</div>';
+}
+
 function renderClanReferrals(html) {
   html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
+
+  html += '<div class="card">'
+    +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Найти игрока по нику или юзернейму — можно пригласить любого, не только рефералов','Find a player by nickname or username — you can invite anyone, not just your referrals')+'</div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<input id="clan-search-input" placeholder="'+t('Ник или @username','Nickname or @username')+'" value="'+(clanSearchState.query||'').replace(/"/g,'&quot;')+'" onkeydown="if(event.key===\'Enter\')searchClanPlayers()" style="flex:1;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px">'
+    +'<button class="btn btn-gold" onclick="searchClanPlayers()">🔍</button>'
+    +'</div></div>';
+
+  if (clanSearchState.searched) {
+    if (clanSearchState.loading) {
+      html += '<div class="card" style="text-align:center;padding:16px;color:#666">⏳ '+t('Ищем...','Searching...')+'</div>';
+    } else if (!clanSearchState.items.length) {
+      html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Никого не найдено','No one found')+'</div>';
+    } else {
+      html += '<div style="font-size:12px;color:#90caf9;margin:10px 4px 8px">'+t('Результаты поиска','Search results')+'</div>';
+      for (var s=0; s<clanSearchState.items.length; s++) {
+        html += renderClanInviteRow(clanSearchState.items[s]);
+      }
+    }
+  }
 
   if (clanRefState.loading) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
@@ -4343,30 +4411,18 @@ function renderClanReferrals(html) {
 
   if (!clanRefState.total) {
     html += '<div class="card" style="text-align:center;padding:18px">'
-      +'<div style="font-size:13px;color:#90caf9;margin-bottom:12px">'+t('У тебя пока нет рефералов — приглашай в клан можно только тех, кто зашёл в игру по твоей ссылке.','You don\'t have referrals yet — you can only invite people who joined the game through your link.')+'</div>'
+      +'<div style="font-size:13px;color:#90caf9;margin-bottom:12px">'+t('У тебя пока нет рефералов — но искать и приглашать можно любого игрока через поиск выше.','You don\'t have referrals yet — but you can find and invite any player using the search above.')+'</div>'
       +'<div style="display:flex;gap:8px">'
-      +'<button class="btn btn-gold" style="flex:1" onclick="shareRefLink()">🔗 '+t('Пригласить','Invite')+'</button>'
+      +'<button class="btn btn-gold" style="flex:1" onclick="shareRefLink()">🔗 '+t('Пригласить по ссылке','Invite via link')+'</button>'
       +'<button class="btn" style="flex:1;background:#1565c0" onclick="copyRefLink()">📋 '+t('Скопировать ссылку','Copy link')+'</button>'
       +'</div></div>';
     document.getElementById('content').innerHTML = html;
     return;
   }
 
-  html += '<div style="font-size:12px;color:#90caf9;margin:0 4px 8px">'+t('Твои рефералы','Your referrals')+' ('+clanRefState.total+')</div>';
+  html += '<div style="font-size:12px;color:#90caf9;margin:10px 4px 8px">'+t('Твои рефералы','Your referrals')+' ('+clanRefState.total+')</div>';
   for (var i=0; i<clanRefState.items.length; i++) {
-    var r = clanRefState.items[i];
-    var invited = !!clanRefState.invitedIds[r.userId];
-    html += '<div class="card" style="padding:10px 12px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center">'
-      +'<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+r.name+'</div>'
-      +(invited
-        ? '<span style="font-size:11px;color:#6ddc6d">✔ '+t('Приглашён','Invited')+'</span>'
-        : '<button class="btn btn-gold" style="padding:5px 12px;font-size:11px" onclick="inviteClanReferral('+r.userId+')">➕ '+t('Пригласить','Invite')+'</button>')
-      +'</div>'
-      +'<div style="font-size:11px;color:#90caf9;margin-top:4px">'
-      +(r.username ? '<span onclick="openTgUser(\''+r.username+'\')" style="color:#4fc3f7;text-decoration:underline;cursor:pointer">@'+r.username+'</span> · ' : '')
-      +clanLastSeenLabel(r.ts)+' · 🎣 '+fmt(r.caught||0)+'</div>'
-      +'</div>';
+    html += renderClanInviteRow(clanRefState.items[i]);
   }
 
   html += '<div style="display:flex;gap:8px;margin-top:6px">';
@@ -4393,7 +4449,7 @@ function inviteClanReferral(userId) {
         showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось пригласить','failed to invite')));
         return;
       }
-      clanRefState.invitedIds[userId] = true;
+      clanInvitedIds[userId] = true;
       showNotif(t('✅ Приглашение отправлено','✅ Invitation sent'));
       renderClan();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });

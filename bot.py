@@ -1919,8 +1919,112 @@ async def clan_referrals(request):
     }, headers=CORS)
 
 
+async def clan_search_players(request):
+    """
+    Поиск игрока по нику/юзернейму СРЕДИ ВСЕХ игроков, не только рефералов капитана —
+    по просьбе расширили приглашение в клан за пределы реферальной цепочки. Ищем
+    подстроку в username/firstName прямо в публичном leaderboard (эти поля там уже
+    есть, отдельный fetch на каждого не нужен — leaderboard может быть большим, поэтому
+    важно не тянуть playerName для всех подряд). Игровой ник (playerName) подтягиваем
+    отдельно только для уже отфильтрованных и урезанных до limit кандидатов — так же,
+    как это делает /clan_referrals.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    query = str(data.get('query', '')).strip().lstrip('@').lower()
+    if len(query) < 2:
+        return web.json_response({'error': 'минимум 2 символа для поиска'}, status=400, headers=CORS)
+
+    import aiohttp, asyncio
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    limit = 20
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as resp2:
+                clan_data = await resp2.json()
+            if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
+                return web.json_response({'error': 'приглашать может только капитан'}, status=403, headers=CORS)
+
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as lresp:
+                all_lb = await lresp.json()
+            all_lb = all_lb or {}
+
+            starts, contains = [], []
+            for t_pid, lb in all_lb.items():
+                if not isinstance(lb, dict) or t_pid == pid or lb.get('clanId'):
+                    continue
+                target_user_id = lb.get('userId')
+                if not target_user_id:
+                    continue
+                username = str(lb.get('username') or '')
+                first_name = str(lb.get('firstName') or '')
+                hay_u, hay_f = username.lower(), first_name.lower()
+                if query not in hay_u and query not in hay_f:
+                    continue
+                row = {'pid': t_pid, 'userId': target_user_id, 'username': username,
+                       'firstName': first_name, 'caught': lb.get('caught', 0), 'ts': lb.get('ts', 0)}
+                if hay_u.startswith(query) or hay_f.startswith(query):
+                    starts.append(row)
+                else:
+                    contains.append(row)
+            starts.sort(key=lambda e: e['ts'], reverse=True)
+            contains.sort(key=lambda e: e['ts'], reverse=True)
+            candidates = (starts + contains)[:limit]
+
+            async def fetch_name(row):
+                try:
+                    async with session.get(f"{base}/saves/{row['pid']}/playerName.json{FB_AUTH}") as presp:
+                        player_name = await presp.json()
+                except Exception:
+                    player_name = None
+                return player_name
+
+            names = await asyncio.gather(*[fetch_name(row) for row in candidates]) if candidates else []
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    results = []
+    for row, player_name in zip(candidates, names):
+        name = (player_name.strip() if isinstance(player_name, str) and player_name.strip() else None) \
+            or row['username'] or row['firstName'] or f"ID:{row['userId']}"
+        results.append({
+            'userId': row['userId'], 'username': row['username'], 'name': name,
+            'caught': row['caught'], 'ts': row['ts'],
+        })
+    return web.json_response({'ok': True, 'players': results}, headers=CORS)
+
+
 async def clan_invite(request):
-    """Капитан приглашает конкретного реферала в свой клан — создаёт запись в pending_clan_invites."""
+    """
+    Капитан приглашает конкретного игрока в свой клан — создаёт запись в pending_clan_invites.
+    Раньше можно было звать только рефералов (тех, кто зашёл по ссылке капитана), теперь —
+    любого игрока (найденного через /clan_search_players или всё того же списка рефералов),
+    проверка на referrals/by убрана. Ограничения остались те же: только капитан, есть
+    свободное место, цель существует и ещё не в клане, нельзя пригласить самого себя.
+    """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
     try:
@@ -1944,6 +2048,8 @@ async def clan_invite(request):
     target_user_id = str(data.get('target_user_id', '')).strip()
     if not target_user_id or not target_user_id.isdigit():
         return web.json_response({'error': 'invalid target'}, status=400, headers=CORS)
+    if int(target_user_id) == real_user_id:
+        return web.json_response({'error': 'нельзя пригласить самого себя'}, status=400, headers=CORS)
     target_pid = f"tg_{target_user_id}"
 
     import aiohttp, time
@@ -1966,10 +2072,13 @@ async def clan_invite(request):
             if members_count >= max_members:
                 return web.json_response({'error': 'в клане нет свободных мест'}, status=400, headers=CORS)
 
-            async with session.get(f"{base}/referrals/by/{real_user_id}/{target_user_id}.json{FB_AUTH}") as fresp:
-                is_referral = await fresp.json()
-            if not is_referral:
-                return web.json_response({'error': 'этот игрок не в списке твоих рефералов'}, status=400, headers=CORS)
+            # Раньше существование цели неявно подтверждалось тем, что она есть в списке
+            # рефералов капитана. Теперь звать можно кого угодно по ID — проверяем, что
+            # это вообще реальный игрок (есть запись в leaderboard), а не случайное число.
+            async with session.get(f"{base}/leaderboard/{target_pid}/userId.json{FB_AUTH}") as eresp:
+                target_exists = await eresp.json()
+            if not target_exists:
+                return web.json_response({'error': 'игрок не найден'}, status=400, headers=CORS)
 
             async with session.get(f"{base}/saves/{target_pid}/clanId.json{FB_AUTH}") as tresp:
                 target_clan_id = await tresp.json()
@@ -7949,6 +8058,8 @@ async def main():
     app.router.add_options('/clan_create', clan_create)
     app.router.add_post('/clan_referrals', clan_referrals)
     app.router.add_options('/clan_referrals', clan_referrals)
+    app.router.add_post('/clan_search_players', clan_search_players)
+    app.router.add_options('/clan_search_players', clan_search_players)
     app.router.add_post('/clan_invite', clan_invite)
     app.router.add_options('/clan_invite', clan_invite)
     app.router.add_post('/clan_invite_respond', clan_invite_respond)
