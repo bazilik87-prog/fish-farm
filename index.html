@@ -696,6 +696,19 @@ function fmtTime(s) {
   if (LANG === 'en') return m>0 ? (m+'m'+(r>0?' '+r+'s':'')) : s+'s';
   return m>0 ? (m+'мин'+(r>0?' '+r+'с':'')) : s+'с';
 }
+// "Последний онлайн" для списка друзей — грубая давность по ts из leaderboard
+// (пишется сервером при каждом /actions реферала, так что это его реальная активность,
+// а не то, что он сам о себе сообщил).
+function fmtLastSeen(ts) {
+  var diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return t('только что','just now');
+  var diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return diffMin + t('мин назад','m ago');
+  var diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return diffH + t('ч назад','h ago');
+  var diffD = Math.floor(diffH / 24);
+  return diffD + t('дн назад','d ago');
+}
 function getLoc(id) {
   var lid = id||state.currentLoc;
   for (var i=0;i<LOCATIONS.length;i++) if (LOCATIONS[i].id===lid) return LOCATIONS[i];
@@ -3884,13 +3897,23 @@ function showMyFriends() {
         var ks = results[1];
         var name = p && p.username ? '@' + p.username : (p && p.firstName || t('Игрок #','Player #') + rid);
         var registeredAt = (ks && typeof ks === 'object' && ks.registered_at) ? ks.registered_at : 0;
-        entries.push({name: name, registeredAt: registeredAt});
+        // p.ts — время последнего действия реферала (пишется сервером при каждом /actions,
+        // см. leaderboard-патч) — используем как "последний онлайн". p.caught и p.coins
+        // там же, обновляются той же записью.
+        entries.push({name: name, registeredAt: registeredAt, lastSeen: (p && p.ts) || 0, caught: (p && p.caught) || 0, coins: (p && p.coins) || 0});
         loaded++;
         if (loaded === refIds.length) {
           entries.sort(function(a,b){ return b.registeredAt - a.registeredAt; }); // новые сверху
           html += '<div style="font-size:12px;color:#666;margin-bottom:10px">'+t('Приглашено: ','Invited: ') + entries.length + '</div>';
           entries.forEach(function(en) {
-            html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">🎣 ' + en.name + '</div>';
+            html += '<div style="background:#0a2a1a;border-radius:8px;padding:10px;margin-bottom:6px;color:#6ddc6d;font-size:13px">'
+              + '🎣 ' + en.name
+              + '<div style="font-size:11px;color:#7fb88a;margin-top:4px;display:flex;justify-content:space-between">'
+              + '<span>🐟 ' + fmt(en.caught) + '</span>'
+              + '<span>🪙 ' + fmt(en.coins) + '</span>'
+              + '<span>🕐 ' + (en.lastSeen ? fmtLastSeen(en.lastSeen) : t('никогда','never')) + '</span>'
+              + '</div>'
+              + '</div>';
           });
           html += '<button onclick="document.getElementById(\'friends-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">'+t('Закрыть','Close')+'</button>';
           inner.innerHTML = html;
