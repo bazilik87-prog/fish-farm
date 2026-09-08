@@ -79,6 +79,35 @@ def t(user, ru, en):
     lang = getattr(user, 'language_code', None)
     return ru if lang == 'ru' else en
 
+
+async def _cache_player_lang(session, base, pid, telegram_language_code):
+    """
+    Сохраняет упрощённый язык игрока ('ru' или 'en') в saves/{pid}/langCode — вызывается
+    там, где сервер и так получил свежий language_code от Telegram (сейчас — /clan_status,
+    он опрашивается фронтом каждые 60 секунд у КАЖДОГО игрока, не только у тестеров кланов,
+    поэтому язык кэшируется практически для всех активных игроков). Нужно это для пушей
+    «третьим лицам» (см. _player_lang) — в момент такой рассылки нет живого Telegram-апдейта
+    ОТ получателя, поэтому t() тут не применить, а language_code Telegram присылает только
+    вместе с апдейтом от самого пользователя, не отдаёт по запросу. Best-effort — падение
+    записи не должно ронять основной запрос, вызывающий код оборачивает в try/except.
+    """
+    lang = 'ru' if telegram_language_code == 'ru' else 'en'
+    await session.patch(f"{base}/saves/{pid}/langCode.json{FB_AUTH}", json=lang)
+
+
+async def _player_lang(session, base, pid):
+    """
+    Читает язык игрока, закэшированный туда _cache_player_lang(). 'en' по умолчанию, если
+    игрок ещё ни разу не «засветился» с момента добавления кэша, или сохранённое значение
+    не 'ru'/'en'. Используется вместо t() для пушей «третьим лицам» — см. её докстринг.
+    """
+    try:
+        async with session.get(f"{base}/saves/{pid}/langCode.json{FB_AUTH}") as r:
+            v = await r.json()
+    except Exception:
+        v = None
+    return v if v in ('ru', 'en') else 'en'
+
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher()
 
@@ -1065,15 +1094,24 @@ async def _next_tournament_number(session, base):
 
 
 TOURNAMENT_TAUNTS = [
-    "⚔️ Капитан клана «{clan}» бросил вызов всем — на кону {amount}⭐ с человека! Дайте им отпор!",
-    "🔥 «{clan}» решили, что им нет равных, и выставили {amount}⭐. Покажите, кто здесь главный!",
-    "😤 Куда они лезут?! Капитан «{clan}» открыл турнир на {amount}⭐ — самое время их осадить.",
-    "💥 «{clan}» бросают перчатку всем кланам разом — {amount}⭐ на кону. Стоит их порвать!",
-    "🛡 Новый турнир от «{clan}» — ставка {amount}⭐ с человека. Кто-нибудь готов ответить?",
-    "⚡ «{clan}» жаждут лёгкой славы и выставили {amount}⭐. Не дайте им уйти с победой без боя!",
-    "🎯 «{clan}» открыли счёт на {amount}⭐ и ждут соперника. Слабо принять вызов?",
-    "👀 Все смотрят на «{clan}» — они выставили {amount}⭐ и очень в себе уверены. А вы?",
-    "🏆 «{clan}» готовы драться за {amount}⭐ с человека. Найдётся клан, который их остудит?",
+    {'ru': "⚔️ Капитан клана «{clan}» бросил вызов всем — на кону {amount}⭐ с человека! Дайте им отпор!",
+     'en': "⚔️ The captain of clan «{clan}» has challenged everyone — {amount}⭐ per player is on the line! Show them what you've got!"},
+    {'ru': "🔥 «{clan}» решили, что им нет равных, и выставили {amount}⭐. Покажите, кто здесь главный!",
+     'en': "🔥 «{clan}» think nobody can touch them and put up {amount}⭐. Show them who's really in charge!"},
+    {'ru': "😤 Куда они лезут?! Капитан «{clan}» открыл турнир на {amount}⭐ — самое время их осадить.",
+     'en': "😤 Who do they think they are?! The captain of «{clan}» opened a {amount}⭐ tournament — time to put them in their place."},
+    {'ru': "💥 «{clan}» бросают перчатку всем кланам разом — {amount}⭐ на кону. Стоит их порвать!",
+     'en': "💥 «{clan}» just threw down the gauntlet to every clan at once — {amount}⭐ on the line. Someone should tear them apart!"},
+    {'ru': "🛡 Новый турнир от «{clan}» — ставка {amount}⭐ с человека. Кто-нибудь готов ответить?",
+     'en': "🛡 New tournament from «{clan}» — a {amount}⭐ stake per player. Anyone brave enough to answer?"},
+    {'ru': "⚡ «{clan}» жаждут лёгкой славы и выставили {amount}⭐. Не дайте им уйти с победой без боя!",
+     'en': "⚡ «{clan}» are hungry for easy glory and put up {amount}⭐. Don't let them win without a fight!"},
+    {'ru': "🎯 «{clan}» открыли счёт на {amount}⭐ и ждут соперника. Слабо принять вызов?",
+     'en': "🎯 «{clan}» opened a {amount}⭐ pot and are waiting for an opponent. Too scared to accept?"},
+    {'ru': "👀 Все смотрят на «{clan}» — они выставили {amount}⭐ и очень в себе уверены. А вы?",
+     'en': "👀 Everyone's watching «{clan}» — they put up {amount}⭐ and they're feeling very sure of themselves. Are you?"},
+    {'ru': "🏆 «{clan}» готовы драться за {amount}⭐ с человека. Найдётся клан, который их остудит?",
+     'en': "🏆 «{clan}» are ready to fight for {amount}⭐ per player. Is there a clan out there to cool them down?"},
 ]
 
 
@@ -1091,7 +1129,7 @@ async def _notify_new_open_tournament(session, base, t):
     init_clan_id = t.get('initiatorClanId')
     init_clan_name = t.get('initiatorClanName', '?')
     amount = t.get('amountPerPerson', 0)
-    text = random.choice(TOURNAMENT_TAUNTS).format(clan=init_clan_name, amount=amount)
+    taunt = random.choice(TOURNAMENT_TAUNTS)
     try:
         async with session.get(f"{base}/clans.json{FB_AUTH}") as resp:
             all_clans = await resp.json()
@@ -1105,12 +1143,14 @@ async def _notify_new_open_tournament(session, base, t):
         if cid == init_clan_id or not isinstance(c, dict):
             continue
         members = c.get('members') or {}
-        for m in members.values():
+        for pid_m, m in members.items():
             if not isinstance(m, dict):
                 continue
             uid = m.get('userId')
             if not uid:
                 continue
+            lang = await _player_lang(session, base, pid_m)
+            text = taunt[lang].format(clan=init_clan_name, amount=amount)
             try:
                 await bot.send_message(uid, text, reply_markup=keyboard)
             except Exception:
@@ -1274,9 +1314,9 @@ async def _start_tournament_race(session, base, tournament_id):
                 continue
             if put_resp.status not in (200, 204):
                 return None
-            # Уведомляем всех участников обеих команд — без t()/bilingual, тем же
-            # способом, что и остальные пуши третьим лицам без контекста initData
-            # (например, "у тебя появился реферер" в ветке rb:).
+            # Уведомляем всех участников обеих команд — нет живого Telegram-апдейта ОТ
+            # каждого из них в этот момент, поэтому язык берём из кэша (_player_lang),
+            # а не из t() (см. её докстринг).
             init_name = tdata.get('initiatorClanName', '')
             acc_name = tdata.get('acceptedByClanName', '')
             number = tdata.get('number')
@@ -1285,9 +1325,12 @@ async def _start_tournament_race(session, base, tournament_id):
                 uid = m.get('userId')
                 if not uid:
                     continue
+                lang = await _player_lang(session, base, p)
+                text = (f"🏁 Старт! Турнир #{number} между «{init_name}» и «{acc_name}» начался — 48 часов на улов рыбы. Следи за live-счётом во вкладке «Клан»."
+                        if lang == 'ru' else
+                        f"🏁 Go! Tournament #{number} between «{init_name}» and «{acc_name}» has started — 48 hours to catch fish. Track the live score in the Clan tab.")
                 try:
-                    await bot.send_message(uid,
-                        f"🏁 Старт! Турнир #{number} между «{init_name}» и «{acc_name}» начался — 48 часов на улов рыбы. Следи за live-счётом во вкладке «Клан».")
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
             return tdata
@@ -1388,14 +1431,22 @@ def _tour_payer_label(v):
 
 
 TOURNAMENT_VICTORY_TAUNTS = [
-    "⚔️ Клан «{clan}» в тяжелейшей схватке вырвал победу у соперника и забрал {total}⭐ на {count} бойцов!",
-    "💀 Клан «{clan}» разгромил своего противника в клановом турнире и унёс {total}⭐ на {count} участников!",
-    "🔥 Клан «{clan}» порвал соперника в клочья и забрал себе {total}⭐ (на {count} человек)!",
-    "🩸 Камня на камне не оставил клан «{clan}» от своего соперника — {total}⭐ на {count} участников улетели победителям!",
-    "💥 Клан «{clan}» стёр соперника в порошок и увёз домой {total}⭐ на {count} бойцов!",
-    "🏆 Клан «{clan}» одержал безоговорочную победу в клановом турнире — {total}⭐ достались {count} участникам команды!",
-    "⚡ Клан «{clan}» не оставил сопернику ни единого шанса и унёс {total}⭐ на {count} человек!",
-    "🛡 Клан «{clan}» вырвал победу в тяжелейшей схватке и забрал {total}⭐ (на {count} бойцов)!",
+    {'ru': "⚔️ Клан «{clan}» в тяжелейшей схватке вырвал победу у соперника и забрал {total}⭐ на {count} бойцов!",
+     'en': "⚔️ Clan «{clan}» clawed out a hard-fought victory over their rival and walked away with {total}⭐ split among {count} fighters!"},
+    {'ru': "💀 Клан «{clan}» разгромил своего противника в клановом турнире и унёс {total}⭐ на {count} участников!",
+     'en': "💀 Clan «{clan}» crushed their opponent in the clan tournament and took home {total}⭐ for {count} members!"},
+    {'ru': "🔥 Клан «{clan}» порвал соперника в клочья и забрал себе {total}⭐ (на {count} человек)!",
+     'en': "🔥 Clan «{clan}» tore their rival to shreds and pocketed {total}⭐ ({count} players strong)!"},
+    {'ru': "🩸 Камня на камне не оставил клан «{clan}» от своего соперника — {total}⭐ на {count} участников улетели победителям!",
+     'en': "🩸 Clan «{clan}» left nothing standing — {total}⭐ flew straight to the {count} winners!"},
+    {'ru': "💥 Клан «{clan}» стёр соперника в порошок и увёз домой {total}⭐ на {count} бойцов!",
+     'en': "💥 Clan «{clan}» wiped their rival off the map and carried home {total}⭐ for {count} fighters!"},
+    {'ru': "🏆 Клан «{clan}» одержал безоговорочную победу в клановом турнире — {total}⭐ достались {count} участникам команды!",
+     'en': "🏆 Clan «{clan}» scored a decisive win in the clan tournament — {total}⭐ went to {count} team members!"},
+    {'ru': "⚡ Клан «{clan}» не оставил сопернику ни единого шанса и унёс {total}⭐ на {count} человек!",
+     'en': "⚡ Clan «{clan}» gave their rival no chance at all and walked off with {total}⭐ for {count} players!"},
+    {'ru': "🛡 Клан «{clan}» вырвал победу в тяжелейшей схватке и забрал {total}⭐ (на {count} бойцов)!",
+     'en': "🛡 Clan «{clan}» pulled off a hard-won victory and claimed {total}⭐ ({count} fighters strong)!"},
 ]
 
 
@@ -1412,8 +1463,9 @@ async def _broadcast_tournament_victory(session, base, winner_name, payout, winn
     total = round(payout * winner_count, 2)
     if total == int(total):
         total = int(total)
-    text = random.choice(TOURNAMENT_VICTORY_TAUNTS).format(clan=winner_name, total=total, count=winner_count) \
-        + "\n\n🛡️ Собери свой клан и брось вызов — вкладка «Клан»!"
+    taunt = random.choice(TOURNAMENT_VICTORY_TAUNTS)
+    tail = {'ru': "\n\n🛡️ Собери свой клан и брось вызов — вкладка «Клан»!",
+            'en': "\n\n🛡️ Gather your clan and throw down a challenge — Clan tab!"}
     try:
         async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
             data = await resp.json()
@@ -1424,10 +1476,12 @@ async def _broadcast_tournament_victory(session, base, winner_name, payout, winn
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
     ]])
-    for v in data.values():
+    for pid_p, v in data.items():
         uid = v.get('userId') if isinstance(v, dict) else None
         if not uid:
             continue
+        lang = await _player_lang(session, base, pid_p)
+        text = taunt[lang].format(clan=winner_name, total=total, count=winner_count) + tail[lang]
         try:
             await bot.send_message(uid, text, reply_markup=keyboard)
         except Exception:
@@ -1503,16 +1557,25 @@ async def _settle_tournament(session, base, tournament_id):
                         pass
                 return tdata
 
+            # Нет живого Telegram-апдейта ОТ каждого получателя в этот момент (фоновая
+            # задача) — язык берём из кэша (_player_lang), как и в остальных пушах
+            # «третьим лицам».
             for p, v in participants_a.items():
                 uid = v.get('userId') if isinstance(v, dict) else None
                 if not uid:
                     continue
                 won = winner_clan_id == tdata.get('initiatorClanId')
+                lang = await _player_lang(session, base, p)
+                if lang == 'ru':
+                    text = (f"🏆 Турнир #{number} завершён — победа! «{init_name}» {score_a}:{score_b} «{acc_name}». Тебе начислят {payout}⭐ — жди звёзды от администратора."
+                            if won else
+                            f"😔 Турнир #{number} завершён — поражение. «{init_name}» {score_a}:{score_b} «{acc_name}». В следующий раз повезёт!")
+                else:
+                    text = (f"🏆 Tournament #{number} is over — victory! «{init_name}» {score_a}:{score_b} «{acc_name}». You'll get {payout}⭐ — wait for the stars from the admin."
+                            if won else
+                            f"😔 Tournament #{number} is over — defeat. «{init_name}» {score_a}:{score_b} «{acc_name}». Better luck next time!")
                 try:
-                    await bot.send_message(uid,
-                        f"🏆 Турнир #{number} завершён — победа! «{init_name}» {score_a}:{score_b} «{acc_name}». Тебе начислят {payout}⭐ — жди звёзды от администратора."
-                        if won else
-                        f"😔 Турнир #{number} завершён — поражение. «{init_name}» {score_a}:{score_b} «{acc_name}». В следующий раз повезёт!")
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
             for p, v in participants_b.items():
@@ -1520,11 +1583,17 @@ async def _settle_tournament(session, base, tournament_id):
                 if not uid:
                     continue
                 won = winner_clan_id == tdata.get('acceptedByClanId')
+                lang = await _player_lang(session, base, p)
+                if lang == 'ru':
+                    text = (f"🏆 Турнир #{number} завершён — победа! «{acc_name}» {score_b}:{score_a} «{init_name}». Тебе начислят {payout}⭐ — жди звёзды от администратора."
+                            if won else
+                            f"😔 Турнир #{number} завершён — поражение. «{acc_name}» {score_b}:{score_a} «{init_name}». В следующий раз повезёт!")
+                else:
+                    text = (f"🏆 Tournament #{number} is over — victory! «{acc_name}» {score_b}:{score_a} «{init_name}». You'll get {payout}⭐ — wait for the stars from the admin."
+                            if won else
+                            f"😔 Tournament #{number} is over — defeat. «{acc_name}» {score_b}:{score_a} «{init_name}». Better luck next time!")
                 try:
-                    await bot.send_message(uid,
-                        f"🏆 Турнир #{number} завершён — победа! «{acc_name}» {score_b}:{score_a} «{init_name}». Тебе начислят {payout}⭐ — жди звёзды от администратора."
-                        if won else
-                        f"😔 Турнир #{number} завершён — поражение. «{acc_name}» {score_b}:{score_a} «{init_name}». В следующий раз повезёт!")
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
 
@@ -1647,12 +1716,22 @@ async def clan_status(request):
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'ok': True, 'isTester': False, 'clan': None, 'invites': []}, headers=CORS)
-
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
+
+    # Этот эндпоинт опрашивается фронтом раз в 60 секунд у ЛЮБОГО игрока (не только
+    # тестеров кланов) — удобная точка, чтобы кэшировать его язык для пушей «третьим
+    # лицам» (см. _cache_player_lang). Best-effort, не должно мешать основному ответу.
+    try:
+        async with aiohttp.ClientSession() as lang_session:
+            await _cache_player_lang(lang_session, base, pid, real_user.get('language_code'))
+    except Exception:
+        pass
+
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'ok': True, 'isTester': False, 'clan': None, 'invites': []}, headers=CORS)
+
     clan = None
     invites = []
     try:
@@ -2111,15 +2190,18 @@ async def clan_invite(request):
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
-    # Пуш приглашённому в Telegram — без t()/bilingual, тем же способом, что и остальные
-    # пуши третьим лицам без контекста initData (нет способа узнать язык получателя здесь).
+    # Пуш приглашённому в Telegram — нет живого апдейта ОТ него самого в этот момент,
+    # поэтому язык берём из кэша (_player_lang), а не из t().
     try:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
         ]])
-        await bot.send_message(int(target_user_id),
-            f"🛡️ Капитан {invite_payload['fromUsername']} зовёт тебя в клан «{clan_data.get('name', '')}»! Открой вкладку «Клан», чтобы принять или отклонить приглашение.",
-            reply_markup=keyboard)
+        async with aiohttp.ClientSession() as lang_session:
+            lang = await _player_lang(lang_session, base, target_pid)
+        text = (f"🛡️ Капитан {invite_payload['fromUsername']} зовёт тебя в клан «{clan_data.get('name', '')}»! Открой вкладку «Клан», чтобы принять или отклонить приглашение."
+                if lang == 'ru' else
+                f"🛡️ Captain {invite_payload['fromUsername']} is inviting you to join clan «{clan_data.get('name', '')}»! Open the Clan tab to accept or decline.")
+        await bot.send_message(int(target_user_id), text, reply_markup=keyboard)
     except Exception:
         pass
 
@@ -7625,10 +7707,15 @@ async def successful_payment(message: types.Message):
                             m_uid = m.get('userId') if isinstance(m, dict) else None
                             if not m_uid or m_uid == int(captain_id):
                                 continue
+                            # Не t(message.from_user, ...) — это язык КАПИТАНА (он же
+                            # платящий), а не получателя; у каждого сокомандника берём его
+                            # собственный кэшированный язык (см. _player_lang).
+                            m_lang = await _player_lang(session, base, m_pid)
+                            m_text = (f"🏆 Капитан вашего клана «{clan_data.get('name', '')}» создал турнир со ставкой {amount}⭐! Зайди во вкладку «Клан», чтобы внести свой взнос — у клана есть 6 часов."
+                                      if m_lang == 'ru' else
+                                      f"🏆 Your clan captain «{clan_data.get('name', '')}» started a tournament with a {amount}⭐ stake! Open the Clan tab to chip in — your clan has 6 hours.")
                             try:
-                                await bot.send_message(m_uid, t(message.from_user,
-                                    f"🏆 Капитан вашего клана «{clan_data.get('name', '')}» создал турнир со ставкой {amount}⭐! Зайди во вкладку «Клан», чтобы внести свой взнос — у клана есть 6 часов.",
-                                    f"🏆 Your clan captain «{clan_data.get('name', '')}» started a tournament with a {amount}⭐ stake! Open the Clan tab to chip in — your clan has 6 hours."))
+                                await bot.send_message(m_uid, m_text)
                             except Exception:
                                 pass
                     else:
@@ -7772,14 +7859,18 @@ async def successful_payment(message: types.Message):
                                 break
                     if ok and final_tdata is not None:
                         # Уведомляем остальных участников своего клана — приглашаем тоже
-                        # внести взнос в оставшееся 2-часовое окно.
+                        # внести взнос в оставшееся 2-часовое окно. Язык каждого получателя —
+                        # из кэша (_player_lang), нет живого апдейта ОТ него самого сейчас.
                         for m_pid, m in (clan_data.get('members') or {}).items():
                             m_uid = m.get('userId') if isinstance(m, dict) else None
                             if not m_uid or m_uid == int(captain_id):
                                 continue
+                            m_lang = await _player_lang(session, base, m_pid)
+                            m_text = (f"⚔️ Ваш клан «{clan_data.get('name','')}» принял вызов на турнир (ставка {final_tdata.get('amountPerPerson', 0)}⭐)! Зайди во вкладку «Клан», чтобы внести взнос — на сбор всего 2 часа."
+                                      if m_lang == 'ru' else
+                                      f"⚔️ Your clan «{clan_data.get('name','')}» accepted a tournament challenge (stake {final_tdata.get('amountPerPerson', 0)}⭐)! Open the Clan tab to chip in — you have 2 hours to gather the squad.")
                             try:
-                                await bot.send_message(m_uid,
-                                    f"⚔️ Ваш клан «{clan_data.get('name','')}» принял вызов на турнир (ставка {final_tdata.get('amountPerPerson', 0)}⭐)! Зайди во вкладку «Клан», чтобы внести взнос — на сбор всего 2 часа.")
+                                await bot.send_message(m_uid, m_text)
                             except Exception:
                                 pass
                         # И клан-инициатора — что их турнир приняли.
@@ -7790,9 +7881,12 @@ async def successful_payment(message: types.Message):
                                 m_uid = m.get('userId') if isinstance(m, dict) else None
                                 if not m_uid:
                                     continue
+                                m_lang = await _player_lang(session, base, m_pid)
+                                m_text = (f"⚔️ Ваш турнир #{final_tdata.get('number')} принял клан «{clan_data.get('name','')}»! Идёт сбор их состава — 2 часа."
+                                          if m_lang == 'ru' else
+                                          f"⚔️ Your tournament #{final_tdata.get('number')} was accepted by clan «{clan_data.get('name','')}»! They're gathering their squad now — 2 hours.")
                                 try:
-                                    await bot.send_message(m_uid,
-                                        f"⚔️ Ваш турнир #{final_tdata.get('number')} принял клан «{clan_data.get('name','')}»! Идёт сбор их состава — 2 часа.")
+                                    await bot.send_message(m_uid, m_text)
                                 except Exception:
                                     pass
                 if ok and final_tdata is not None:
