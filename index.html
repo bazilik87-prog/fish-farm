@@ -2203,7 +2203,7 @@ function startCutting(name) {
   addQuestProgress('filet', packs);
   filetPacks[name]=1;
   showNotif('🔪 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на разделку!',' sent for cutting!'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
@@ -2218,7 +2218,7 @@ function startPacking(bid) {
   var packMin = Math.round(packTime/60000);
   var packLabel = packMin>=60 ? (Math.floor(packMin/60)+t('ч ','h ')+(packMin%60?packMin%60+t('м','m'):'')) : packMin+t('мин','m');
   showNotif('📦 '+fishName(slot.name)+t(' отправлена на упаковку — ',' sent for packing — ')+packLabel+'!');
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
 }
 
 function collectFilet(bid) {
@@ -2252,7 +2252,7 @@ function startSalting(name) {
   state.salting.push({bid:genBid(),name:name,emoji:def?def.emoji:'🐟',packets:packs,startedAt:Date.now(),endsAt:Date.now()+1800000});
   dryPacks[name]=1;
   showNotif('🧂 '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на засолку!',' sent for salting!'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — рыба уже списана локально, нельзя рисковать 2с окном (см. save())
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
@@ -2265,7 +2265,7 @@ function startDryingFromSalt(bid) {
   state.drying.push({bid:genBid(),name:slot.name,emoji:slot.emoji,packets:slot.packets,startedAt:Date.now(),endsAt:Date.now()+dtime*1000});
   state.salting.splice(idx,1);
   showNotif('🌡 '+fishName(slot.name)+t(' отправлена на сушку!',' sent for drying!'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 
@@ -2306,7 +2306,7 @@ function startDrying(name) {
   state.drying.push({bid:genBid(),name:name, emoji:def?def.emoji:'🐟', packets:packs, startedAt:Date.now(), endsAt:Date.now()+dtime*1000});
   dryPacks[name] = 1;
   showNotif((def?def.emoji:'🐟')+' '+packs+t(' пак. ',' pack. ')+fishName(name)+t(' отправлено на сушку!',' sent for drying!'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 
@@ -3120,7 +3120,7 @@ function displayServerLotteryPrize(prize) {
     showLotteryResult(t('🎰 Результат','🎰 Result'), localizedPrizeLabel(prize), '#b794f6', false);
     showNotif(t('🎰 Лотерея: ','🎰 Lottery: ')+localizedPrizeLabel(prize));
   }
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — приз (рыба/соль/ножи/тикет) уже списан со стороны сервера, нельзя рисковать 2с окном (см. save())
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   // Джекпот на сервере мог измениться (вырос при проигрыше или сбросился при выигрыше) —
   // кэш на экране раньше обновлялся только в ветке самого выигрыша, поэтому после обычного
