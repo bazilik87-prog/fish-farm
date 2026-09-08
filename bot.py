@@ -6026,8 +6026,8 @@ async def comm_command(message: types.Message):
         "/breakref_all @username — разорвать ВСЕ реферальные связи этого реферера разом\n"
         "/ban_referrals @username — забанить всех рефералов этого реферера разом (фермы ботов)\n"
         "/ban_ids 111 222 333 — забанить конкретный список ID (если рефералы вперемешку — боты и настоящие)\n"
-        "/tempban 111 222 [дней] — временный бан на N дней (по умолч. 7), прогресс не трогает, разбан сам по истечении\n"
-        "/unban 123456789 — досрочно снять бан (постоянный или временный)\n"
+        "/tempban 111 @username [дней] — временный бан на N дней (по умолч. 7), ID и/или @username, прогресс не трогает, разбан сам по истечении\n"
+        "/unban 123456789 — досрочно снять бан (постоянный или временный), ID или @username\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
@@ -6796,42 +6796,74 @@ async def ban_command(message: types.Message):
 @dp.message(Command('tempban'))
 async def tempban_command(message: types.Message):
     """
-    Временный бан по списку ID — в отличие от /ban_ids ничего не удаляет (прогресс,
-    лидерборд, реферальные связи остаются как есть), просто блокирует вход на N дней.
-    По истечении срока разбан происходит САМ — is_ban_active() перестаёт блокировать,
-    как только now_ms проходит сохранённую метку, ничего вручную снимать не нужно.
+    Временный бан по списку ID и/или @username — в отличие от /ban_ids ничего не удаляет
+    (прогресс, лидерборд, реферальные связи остаются как есть), просто блокирует вход на
+    N дней. По истечении срока разбан происходит САМ — is_ban_active() перестаёт
+    блокировать, как только now_ms проходит сохранённую метку, ничего вручную снимать не нужно.
     """
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.strip().split(None, 1)
     if len(args) < 2:
         await message.answer(
-            "Использование:\n<code>/tempban 111 222 333 [дней]</code>\n"
-            "(ID через пробел/запятую/строку; последним числом можно указать срок — если "
-            "не указан, по умолчанию 7 дней)\n\n"
+            "Использование:\n<code>/tempban 111 @username 333 [дней]</code>\n"
+            "(ID и/или @username через пробел/запятую/строку — можно мешать; последним "
+            "отдельным числом можно указать срок — если не указан, по умолчанию 7 дней)\n\n"
             "⚠️ В отличие от /ban_ids — НИЧЕГО не удаляет (прогресс и рефералка целы), "
             "только блокирует вход на указанный срок. Разбан — автоматически по истечении.",
             parse_mode="HTML"
         )
         return
     raw = args[1].replace(',', ' ').replace('\n', ' ')
-    tokens = [t for t in raw.split() if t.isdigit()]
+    tokens = [t for t in raw.split() if t]
     days = 7
-    # Последний токен — срок в днях, если это отдельное небольшое число (Telegram ID
+    # Последний токен — срок в днях, если это отдельное короткое число (Telegram ID
     # всегда длиннее — от 5+ цифр), а не ещё один ID.
-    if tokens and len(tokens[-1]) <= 3:
+    if tokens and tokens[-1].isdigit() and len(tokens[-1]) <= 3:
         days = int(tokens[-1])
         tokens = tokens[:-1]
-    target_uids = list(dict.fromkeys(tokens))  # без дублей, порядок сохраняем
-    if not target_uids:
-        await message.answer("❌ Не нашёл ни одного числового ID во входных данных.")
+    if not tokens:
+        await message.answer("❌ Не нашёл ни одного ID/username во входных данных.")
         return
     if days <= 0:
         await message.answer("❌ Срок бана должен быть положительным числом дней.")
         return
 
-    import aiohttp, asyncio as _asyncio
+    import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+
+    # Разбираем токены на голые ID и @username — вторые резолвим через лидерборд
+    # (та же логика, что уже в /pay — ищем userId по username без учёта регистра).
+    id_tokens = [t for t in tokens if t.lstrip('@').isdigit()]
+    username_tokens = [t.lstrip('@').lower() for t in tokens if not t.lstrip('@').isdigit()]
+    target_uids = list(dict.fromkeys(t.lstrip('@') for t in id_tokens))
+    not_found = []
+    if username_tokens:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb_data = await resp.json()
+            lb_data = lb_data or {}
+            by_username = {}
+            for v in lb_data.values():
+                if isinstance(v, dict) and v.get('username'):
+                    by_username[str(v['username']).lower()] = v.get('userId')
+            for uname in username_tokens:
+                uid = by_username.get(uname)
+                if uid:
+                    target_uids.append(str(uid))
+                else:
+                    not_found.append('@' + uname)
+        except Exception as e:
+            await message.answer(f"❌ Ошибка поиска по username: {e}")
+            return
+    target_uids = list(dict.fromkeys(target_uids))  # без дублей, порядок сохраняем
+    if not_found:
+        await message.answer("⚠️ Не нашёл в лидерборде: " + ", ".join(not_found) + (" — остальных всё равно баню." if target_uids else " Больше никого не нашёл."))
+    if not target_uids:
+        return
+
+    import aiohttp, asyncio as _asyncio
     now_ms = int(time_module.time() * 1000)
     ban_until = now_ms + days * 86400000
 
@@ -6894,20 +6926,39 @@ async def tempban_command(message: types.Message):
 
 @dp.message(Command('unban'))
 async def unban_command(message: types.Message):
-    """Досрочно снять бан (постоянный или временный) с конкретного ID."""
+    """Досрочно снять бан (постоянный или временный) — по ID или @username."""
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.strip().split()
-    if len(args) < 2 or not args[1].isdigit():
-        await message.answer("Использование:\n<code>/unban 123456789</code>", parse_mode="HTML")
+    if len(args) < 2:
+        await message.answer("Использование:\n<code>/unban 123456789</code> или <code>/unban @username</code>", parse_mode="HTML")
         return
-    target_uid = args[1]
+    arg = args[1].lstrip('@')
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
+        if arg.isdigit():
+            target_uid = arg
+            display = f"ID {target_uid}"
+        else:
+            username = arg.lower()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb_data = await resp.json()
+            target_uid = None
+            if lb_data:
+                for v in lb_data.values():
+                    if isinstance(v, dict) and str(v.get('username', '')).lower() == username:
+                        target_uid = v.get('userId')
+                        break
+            if not target_uid:
+                await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                return
+            target_uid = str(target_uid)
+            display = f"@{username} (ID {target_uid})"
         async with aiohttp.ClientSession() as session:
             await session.delete(f"{base}/banned/{target_uid}.json{FB_AUTH}")
-        await message.answer(f"✅ Бан снят с ID {target_uid}.")
+        await message.answer(f"✅ Бан снят с {display}.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
