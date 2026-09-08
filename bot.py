@@ -1822,9 +1822,10 @@ async def clan_create(request):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/banned/{real_user_id}.json{FB_AUTH}") as bresp:
-                if await bresp.json():
-                    return web.json_response({'error': 'account banned'}, status=403, headers=CORS)
-
+                ban_val = await bresp.json()
+                if is_ban_active(ban_val, now_ms):
+                    ban_until_out = ban_val if isinstance(ban_val, (int, float)) else None
+                    return web.json_response({'error': 'account banned', 'banned_until': ban_until_out}, status=403, headers=CORS)
             saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
             async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
                 etag = resp.headers.get("ETag")
@@ -2238,6 +2239,7 @@ async def clan_invite_respond(request):
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
+    now_ms = int(time_module.time() * 1000)
     try:
         async with aiohttp.ClientSession() as session:
             invite_url = f"{base}/pending_clan_invites/{pid}/{clan_id}.json{FB_AUTH}"
@@ -2260,8 +2262,10 @@ async def clan_invite_respond(request):
                 return web.json_response({'error': 'ты уже состоишь в клане'}, status=400, headers=CORS)
 
             async with session.get(f"{base}/banned/{real_user_id}.json{FB_AUTH}") as bresp:
-                if await bresp.json():
-                    return web.json_response({'error': 'account banned'}, status=403, headers=CORS)
+                ban_val = await bresp.json()
+                if is_ban_active(ban_val, now_ms):
+                    ban_until_out = ban_val if isinstance(ban_val, (int, float)) else None
+                    return web.json_response({'error': 'account banned', 'banned_until': ban_until_out}, status=403, headers=CORS)
 
             async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as cresp:
                 clan_data_check = await cresp.json()
@@ -6022,6 +6026,8 @@ async def comm_command(message: types.Message):
         "/breakref_all @username — разорвать ВСЕ реферальные связи этого реферера разом\n"
         "/ban_referrals @username — забанить всех рефералов этого реферера разом (фермы ботов)\n"
         "/ban_ids 111 222 333 — забанить конкретный список ID (если рефералы вперемешку — боты и настоящие)\n"
+        "/tempban 111 222 [дней] — временный бан на N дней (по умолч. 7), прогресс не трогает, разбан сам по истечении\n"
+        "/unban 123456789 — досрочно снять бан (постоянный или временный)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
@@ -6050,6 +6056,20 @@ async def comm_command(message: types.Message):
         "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
         parse_mode="HTML"
     )
+
+
+def is_ban_active(value, now_ms):
+    """
+    banned/{id} теперь хранит либо True (бан навсегда, как раньше — /ban, /ban_ids,
+    /ban_referrals), либо число — unix-время в мс, до которого действует временный бан
+    (/tempban). Формат сохранён обратно совместимым: старые постоянные баны (просто True)
+    продолжают работать как есть, ничего мигрировать не нужно.
+    """
+    if value is True:
+        return True
+    if isinstance(value, (int, float)):
+        return now_ms < value
+    return False
 
 
 LOC_NAMES = {'pond': '🌿 Пруд', 'river': '🏞 Река', 'tropics': '🌴 Тропики', 'deep': '🌊 Глубины', 'space': '🚀 Космос'}
@@ -6769,6 +6789,125 @@ async def ban_command(message: types.Message):
                 await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
 
         await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('tempban'))
+async def tempban_command(message: types.Message):
+    """
+    Временный бан по списку ID — в отличие от /ban_ids ничего не удаляет (прогресс,
+    лидерборд, реферальные связи остаются как есть), просто блокирует вход на N дней.
+    По истечении срока разбан происходит САМ — is_ban_active() перестаёт блокировать,
+    как только now_ms проходит сохранённую метку, ничего вручную снимать не нужно.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split(None, 1)
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n<code>/tempban 111 222 333 [дней]</code>\n"
+            "(ID через пробел/запятую/строку; последним числом можно указать срок — если "
+            "не указан, по умолчанию 7 дней)\n\n"
+            "⚠️ В отличие от /ban_ids — НИЧЕГО не удаляет (прогресс и рефералка целы), "
+            "только блокирует вход на указанный срок. Разбан — автоматически по истечении.",
+            parse_mode="HTML"
+        )
+        return
+    raw = args[1].replace(',', ' ').replace('\n', ' ')
+    tokens = [t for t in raw.split() if t.isdigit()]
+    days = 7
+    # Последний токен — срок в днях, если это отдельное небольшое число (Telegram ID
+    # всегда длиннее — от 5+ цифр), а не ещё один ID.
+    if tokens and len(tokens[-1]) <= 3:
+        days = int(tokens[-1])
+        tokens = tokens[:-1]
+    target_uids = list(dict.fromkeys(tokens))  # без дублей, порядок сохраняем
+    if not target_uids:
+        await message.answer("❌ Не нашёл ни одного числового ID во входных данных.")
+        return
+    if days <= 0:
+        await message.answer("❌ Срок бана должен быть положительным числом дней.")
+        return
+
+    import aiohttp, asyncio as _asyncio
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    ban_until = now_ms + days * 86400000
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async def ban_one(target_uid):
+                pid = f"tg_{target_uid}"
+                try:
+                    # Сначала честно докручиваем автодоход, накопленный ДО момента бана —
+                    # игрок не должен терять то, что уже реально заработал по факту.
+                    async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+                        sv = await resp.json() or {}
+                    cur_loc = sv.get('loc') or 'pond'
+                    if cur_loc not in LOCATION_MULT:
+                        cur_loc = 'pond'
+                    last_seen = sv.get('lastSeen') or now_ms
+                    auto_elapsed_sec = max(0, (now_ms - last_seen) / 1000)
+                    coins = float(sv.get('coins', 0) or 0)
+                    total_earned = float(sv.get('totalEarned', 0) or 0)
+                    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24 * 30:
+                        is_prem = await is_premium(int(target_uid))
+                        upg_levels = sv.get('upgLevels') or {}
+                        cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}
+                        auto_per_sec = 0
+                        for upg_id, per_level in AUTO_PER_LEVEL.items():
+                            lvl = max(0, min(int(cur_lv.get(upg_id, 0) or 0), MAX_UPGRADE_LEVEL))
+                            auto_per_sec += per_level * lvl
+                        auto_per_sec = auto_per_sec * LOCATION_MULT.get(cur_loc, 1) * (PREMIUM_AUTO_MULT if is_prem else 1)
+                        auto_earned = round(auto_per_sec * auto_elapsed_sec / 60 * 100) / 100
+                        if auto_earned > 0:
+                            coins = round((coins + auto_earned) * 100) / 100
+                            total_earned = round((total_earned + auto_earned) * 100) / 100
+                    # lastSeen выставляем на МОМЕНТ ОКОНЧАНИЯ бана (в будущее) — весь /actions
+                    # заблокирован проверкой бана раньше, чем доходит до расчёта автодохода,
+                    # так что за сам период бана ничего накопиться и не могло. Но если бы
+                    # lastSeen остался в прошлом (на момент бана), при возврате сервер увидел
+                    # бы "не было N дней" и задним числом накрутил бы и автодоход, и
+                    # камбэк-бонус — ровно за то время, пока играть было нельзя. Выставляя
+                    # lastSeen сразу на ban_until, оба пересчёта при разбане стартуют с нуля.
+                    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                        'coins': coins, 'totalEarned': total_earned, 'lastSeen': ban_until
+                    })
+                    await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=ban_until)
+                    return True
+                except Exception:
+                    return False
+
+            banned_count = 0
+            chunk_size = 30
+            for i in range(0, len(target_uids), chunk_size):
+                chunk = target_uids[i:i+chunk_size]
+                results = await _asyncio.gather(*[ban_one(u) for u in chunk])
+                banned_count += sum(1 for r in results if r)
+
+        until_str = datetime.fromtimestamp(ban_until / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m.%Y %H:%M МСК')
+        await message.answer(f"✅ Временно забанено {banned_count} из {len(target_uids)} аккаунтов на {days} дн. (до {until_str}). Прогресс и рефералка не тронуты.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('unban'))
+async def unban_command(message: types.Message):
+    """Досрочно снять бан (постоянный или временный) с конкретного ID."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование:\n<code>/unban 123456789</code>", parse_mode="HTML")
+        return
+    target_uid = args[1]
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.delete(f"{base}/banned/{target_uid}.json{FB_AUTH}")
+        await message.answer(f"✅ Бан снят с ID {target_uid}.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 

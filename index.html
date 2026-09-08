@@ -5370,6 +5370,7 @@ function savePendingActionsLocally() {
   try { localStorage.setItem(PENDING_ACTIONS_KEY, JSON.stringify(window._pendingActions)); } catch(e){}
 }
 function queueAction(action) {
+  if (window._isBanned) return; // см. showBannedOverlay()
   window._pendingActions.push(action);
   savePendingActionsLocally();
   if (window._pendingActions.length >= 40) flushActions(); // не даём очереди расти бесконечно
@@ -5423,6 +5424,7 @@ function applyActionsResult(res, sentAt) {
   localStorage.setItem(SAVE_KEY, JSON.stringify(raw));
 }
 function flushActions() {
+  if (window._isBanned) return; // см. showBannedOverlay() — при бане дальше не долбим сервер
   if (window._actionsFlushTimer) { clearTimeout(window._actionsFlushTimer); window._actionsFlushTimer = null; }
   if (!window._pendingActions.length || !tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
   var batch = window._pendingActions;
@@ -5434,6 +5436,13 @@ function flushActions() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ actions: batch, init_data: tg.initData })
   }).then(function(r){ return r.json(); }).then(function(res){
+    if (res && res.error === 'account banned') {
+      // Бан обнаружен — не переставляем действия обратно в очередь (они всё равно
+      // никогда не пройдут, пока бан активен) и глушим дальнейшие попытки отправки,
+      // чтобы не долбить сервер впустую. Вместо этого — понятный экран игроку.
+      showBannedOverlay(res.banned_until);
+      return;
+    }
     if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); savePendingActionsLocally(); return; }
     // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
     // расхождение почти всегда просто округление, а не читерство.
@@ -5463,6 +5472,34 @@ document.addEventListener('visibilitychange', function(){ if (document.hidden) f
 // На случай, если предыдущая сессия закрылась до отправки — досылаем оставшееся сразу при запуске
 if (window._pendingActions.length) setTimeout(flushActions, 1000);
 
+// ── Экран бана ────────────────────────────────────────
+// Раньше при бане клиент просто видел неуспешный ответ /actions и молча переставлял
+// действия обратно в очередь НАВСЕГДА — игрок не понимал, что происходит: игра будто
+// зависала/не сохранялась, без единого объяснения. Теперь — понятный полноэкранный
+// экран с указанием срока (если бан временный) или без срока (постоянный).
+function showBannedOverlay(bannedUntil) {
+  if (window._isBanned) return; // уже показан — не дублируем
+  window._isBanned = true;
+  window._pendingActions = [];
+  savePendingActionsLocally();
+  if (window._actionsFlushTimer) { clearTimeout(window._actionsFlushTimer); window._actionsFlushTimer = null; }
+  var untilText = '';
+  if (bannedUntil && typeof bannedUntil === 'number') {
+    var d = new Date(bannedUntil);
+    var pad = function(n){ return n<10?'0'+n:''+n; };
+    var dstr = pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+    untilText = t('Доступ будет восстановлен автоматически: ','Access will be restored automatically: ') + dstr;
+  } else {
+    untilText = t('Обратитесь в поддержку, если считаете это ошибкой.','Contact support if you believe this is a mistake.');
+  }
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0a0a14;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff;font-family:inherit';
+  overlay.innerHTML =
+    '<div style="font-size:48px;margin-bottom:16px">🚫</div>'
+    + '<div style="font-size:18px;font-weight:700;margin-bottom:10px;color:#ff6b6b">'+t('Аккаунт временно заблокирован','Account temporarily suspended')+'</div>'
+    + '<div style="font-size:14px;color:#aaa;max-width:320px;line-height:1.5">'+untilText+'</div>';
+  document.body.appendChild(overlay);
+}
 // ── Действия ──────────────────────────────────────────
 function tapOcean(e) {
   e.preventDefault();
