@@ -716,10 +716,6 @@ async def create_invoice(request):
                     return web.json_response({'error': 'нельзя принять свой же турнир'}, status=400, headers=CORS)
                 if int(time_module.time() * 1000) >= tdata.get('listExpiresAt', 0):
                     return web.json_response({'error': 'срок турнира истёк'}, status=400, headers=CORS)
-                if await _clan_has_active_match(session, fb_base, my_clan_id, exclude_id=tournament_id):
-                    return web.json_response({'error': 'у твоего клана уже есть активный турнир с соперником'}, status=400, headers=CORS)
-                if await _clan_has_active_match(session, fb_base, tdata.get('initiatorClanId'), exclude_id=tournament_id):
-                    return web.json_response({'error': 'клан-инициатор сейчас занят другим турниром'}, status=400, headers=CORS)
             amount = tdata.get('amountPerPerson', 0)
             payload = f"cta:{user_id}:{tournament_id}:{my_clan_id}"
             if len(payload.encode('utf-8')) > 128:
@@ -1165,28 +1161,6 @@ async def _fixate_tournament(session, base, tournament_id):
     return None
 
 
-async def _clan_has_active_match(session, base, clan_id, exclude_id=None):
-    """
-    True, если у клана уже есть турнир в статусе matching/running — как инициатор, так и
-    принимающая сторона считаются. Реализует правило «у клана может идти только 1 активный
-    турнир с соперником одновременно», не мешая при этом иметь сколько угодно параллельных
-    turnиров в funding/open (свой сбор без соперника — не ограничен).
-    """
-    if not clan_id:
-        return False
-    async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
-        all_t = await resp.json()
-    all_t = all_t or {}
-    for tid, t in all_t.items():
-        if exclude_id and tid == exclude_id:
-            continue
-        if not isinstance(t, dict) or t.get('status') not in ('matching', 'running'):
-            continue
-        if t.get('initiatorClanId') == clan_id or t.get('acceptedByClanId') == clan_id:
-            return True
-    return False
-
-
 async def _clan_unresolved_tournament_info(session, base, clan_id):
     """
     Защита ставок в клановых турнирах: капитан не может ни распустить клан, ни выгнать
@@ -1196,8 +1170,10 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
     неважно, чей именно взнос, важно что деньги клана в игре); paid_pids — множество pid
     участников ИМЕННО ЭТОГО клана с оплаченным взносом хоть в одном таком турнире (для
     точечной защиты при kick конкретного игрока); summary — компактная сводка самого
-    «актуального» из этих турниров (приоритет running > matching > open > funding) для
-    баннера на главном экране, см. использование в /clan_status; None, если таких нет.
+    «актуального» из этих турниров (приоритет running > matching > open > funding, плюс
+    поле activeCount — сколько их всего сейчас у клана, лимита на число одновременных
+    турниров с соперником больше нет) для баннера на главном экране, см. использование
+    в /clan_status; None, если таких нет.
     settled/expired не защищены — там банк уже посчитан либо подлежит ручному возврату,
     роспуск/удаление больше ничего не портит.
     """
@@ -1208,6 +1184,7 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
     all_t = all_t or {}
     has_unresolved = False
     paid_pids = set()
+    active_count = 0
     status_priority = {'running': 0, 'matching': 1, 'open': 2, 'funding': 3}
     deadline_field = {'funding': 'fundingDeadline', 'open': 'listExpiresAt', 'matching': 'matchingDeadline', 'running': 'matchEndsAt'}
     best_tid, best_t = None, None
@@ -1219,6 +1196,7 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
         if not is_initiator and not is_acceptor:
             continue
         has_unresolved = True
+        active_count += 1
         participants = t.get('participantsA') if is_initiator else t.get('participantsB')
         paid_pids.update((participants or {}).keys())
         if best_t is None or status_priority.get(t.get('status'), 9) < status_priority.get(best_t.get('status'), 9):
@@ -1233,6 +1211,10 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
             'number': best_t.get('number'),
             'deadline': best_t.get(deadline_field.get(status), 0),
             'opponentClanName': (best_t.get('acceptedByClanName') if is_initiator else best_t.get('initiatorClanName')) or None,
+            # Сколько всего одновременных незавершённых турниров у клана — раньше всегда
+            # было 0 или 1 (один активный матч на клан), теперь лимита нет, и баннер должен
+            # уметь показать "+N", а не молча прятать остальные гонки за приоритетом.
+            'activeCount': active_count,
         }
         if status == 'running':
             # Живой счёт для баннера на главном экране — myScore/oppScore уже с точки
@@ -7760,8 +7742,6 @@ async def successful_payment(message: types.Message):
                         clan_data = await cresp.json()
                     if not isinstance(clan_data, dict) or clan_data.get('captainId') != int(captain_id):
                         error_reason = 'clan changed'
-                    elif await _clan_has_active_match(session, base, clan_id, exclude_id=tournament_id):
-                        error_reason = 'own clan busy'
                     else:
                         for attempt in range(6):
                             async with session.get(f"{base}/clan_tournaments/{tournament_id}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as tresp:
@@ -7772,9 +7752,6 @@ async def successful_payment(message: types.Message):
                                 break
                             if tdata.get('initiatorClanId') == clan_id:
                                 error_reason = 'own tournament'
-                                break
-                            if await _clan_has_active_match(session, base, tdata.get('initiatorClanId'), exclude_id=tournament_id):
-                                error_reason = 'initiator busy'
                                 break
                             now_ms = int(time.time() * 1000)
                             player_name = await _tournament_player_name(session, base, pid, message.from_user)
