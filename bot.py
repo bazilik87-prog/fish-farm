@@ -6918,6 +6918,7 @@ async def tempban_command(message: types.Message):
                 results = await _asyncio.gather(*[ban_one(u) for u in chunk])
                 banned_count += sum(1 for r in results if r)
 
+        from datetime import datetime, timezone, timedelta
         until_str = datetime.fromtimestamp(ban_until / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m.%Y %H:%M МСК')
         await message.answer(f"✅ Временно забанено {banned_count} из {len(target_uids)} аккаунтов на {days} дн. (до {until_str}). Прогресс и рефералка не тронуты.")
     except Exception as e:
