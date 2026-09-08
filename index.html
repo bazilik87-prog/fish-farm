@@ -138,6 +138,16 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="refcontest-banner-btn">Мой счёт →</div>
 </div>
+<div id="clantournament-banner" onclick="openClanTournamentsFromBanner()" style="display:none;background:linear-gradient(135deg,#5c1010,#c62828,#5c1010);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">🛡️</div>
+    <div>
+      <div style="font-size:16px;font-weight:800;color:#fff" id="clantournament-banner-title">Турнир клана</div>
+      <div id="clantournament-timer" style="font-size:11px;color:#ffcdd2;margin-top:2px">—</div>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="clantournament-banner-btn">Клан →</div>
+</div>
 <div id="loc-bar"></div>
 <div id="next-loc-progress" style="background:#16213e;padding:4px 0 1px"></div>
 <div id="stats">
@@ -218,6 +228,8 @@ function applyStaticTranslations() {
     'tournament-banner-btn': t('Топ →', 'Top →'),
     'refcontest-banner-title': t('Реферальный конкурс', 'Referral contest'),
     'refcontest-banner-btn': t('Мой счёт →', 'My score →'),
+    'clantournament-banner-title': t('Турнир клана', 'Clan tournament'),
+    'clantournament-banner-btn': t('Клан →', 'Clan →'),
     'weather-text': weatherName(currentWeather.id),
     'tab-lbl-upgrades': t('Апгрейды', 'Upgrades'),
     'tab-lbl-aquarium': t('Рыбы', 'Fish'),
@@ -4085,12 +4097,57 @@ function checkClanTester() {
     clanTester = !!res.isTester;
     myClan = res.clan || null;
     myClanInvites = res.invites || [];
+    updateClanTournamentBanner();
     // Не перерисовываем поверх активного поля ввода названия клана — иначе фоновый
     // ответ статуса может прилететь прямо во время печати и оборвать ввод.
     var activeInputId = document.activeElement && document.activeElement.id;
     var isTyping = activeInputId === 'clan-name-input' || activeInputId === 'clan-tour-amount';
     if (currentTab === 'clan' && !isTyping) renderClan();
   }).catch(function(){ clanChecked = true; });
+}
+
+// Баннер на главном экране — как «Турнир недели», но для клановых турниров: показывается,
+// только если у клана игрока сейчас есть незавершённый турнир (funding/open/matching/running).
+// Данные приходят вместе с /clan_status (myClan.activeTournament), отдельного запроса не нужно.
+// Минимум информации: пока гонка не идёт — статус и время; как только идёт — сразу счёт
+// (крупно, цветом по тому, ведём мы или нет) и время до конца, без лишнего текста.
+function updateClanTournamentBanner() {
+  var el = document.getElementById('clantournament-banner');
+  if (!el) return;
+  var at = myClan && myClan.activeTournament;
+  if (!at) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  var titleEl = document.getElementById('clantournament-banner-title');
+  var timerEl = document.getElementById('clantournament-timer');
+
+  var msLeft = (at.deadline || 0) - Date.now();
+  var timeText = '';
+  if (msLeft > 0) {
+    var totalMin = Math.floor(msLeft / 60000);
+    var d = Math.floor(totalMin / 1440), h = Math.floor((totalMin % 1440) / 60), m = totalMin % 60;
+    timeText = d > 0
+      ? (t('осталось ', 'left ') + d + t('д ', 'd ') + h + t('ч', 'h'))
+      : (t('осталось ', 'left ') + h + t('ч ', 'h ') + m + t('м', 'm'));
+  }
+
+  if (at.status === 'running' && typeof at.myScore === 'number' && typeof at.oppScore === 'number') {
+    var leading = at.myScore > at.oppScore, losing = at.myScore < at.oppScore;
+    var color = leading ? '#8fe38f' : (losing ? '#ff8a80' : '#fff');
+    if (titleEl) { titleEl.style.color = color; titleEl.textContent = at.myScore + ' : ' + at.oppScore; }
+    if (timerEl) timerEl.textContent = timeText;
+  } else {
+    var statusText = clanTourStatusLabel(at.status);
+    if (titleEl) {
+      titleEl.style.color = '#fff';
+      titleEl.textContent = (at.number ? ('#' + at.number + ' — ') : '') + t('Турнир клана', 'Clan tournament');
+    }
+    if (timerEl) timerEl.textContent = statusText.charAt(0).toUpperCase() + statusText.slice(1) + (timeText ? ' · ' + timeText : '');
+  }
+}
+
+function openClanTournamentsFromBanner() {
+  showTab('clan');
+  openClanTournaments();
 }
 
 function openTgUser(username) {
@@ -6258,6 +6315,8 @@ function startGame() {
       setInterval(checkRefContest, 60000);
       setInterval(updateRefContestBanner, 30000);
       checkClanTester();
+      setInterval(checkClanTester, 60000);
+      setInterval(updateClanTournamentBanner, 30000);
     });
   }, 800);
 

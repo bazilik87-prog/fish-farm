@@ -1192,19 +1192,25 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
     Защита ставок в клановых турнирах: капитан не может ни распустить клан, ни выгнать
     конкретного участника, пока у клана есть незавершённый турнир (funding/open/matching/
     running — то есть банк ещё не выплачен и не возвращён). Возвращает (has_unresolved,
-    paid_pids): has_unresolved — есть ли у клана вообще такой турнир (для disband — неважно,
-    чей именно взнос, важно что деньги клана в игре); paid_pids — множество pid участников
-    ИМЕННО ЭТОГО клана с оплаченным взносом хоть в одном таком турнире (для точечной защиты
-    при kick конкретного игрока). settled/expired не защищены — там банк уже посчитан либо
-    подлежит ручному возврату, роспуск/удаление больше ничего не портит.
+    paid_pids, summary): has_unresolved — есть ли у клана вообще такой турнир (для disband —
+    неважно, чей именно взнос, важно что деньги клана в игре); paid_pids — множество pid
+    участников ИМЕННО ЭТОГО клана с оплаченным взносом хоть в одном таком турнире (для
+    точечной защиты при kick конкретного игрока); summary — компактная сводка самого
+    «актуального» из этих турниров (приоритет running > matching > open > funding) для
+    баннера на главном экране, см. использование в /clan_status; None, если таких нет.
+    settled/expired не защищены — там банк уже посчитан либо подлежит ручному возврату,
+    роспуск/удаление больше ничего не портит.
     """
     if not clan_id:
-        return False, set()
+        return False, set(), None
     async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
         all_t = await resp.json()
     all_t = all_t or {}
     has_unresolved = False
     paid_pids = set()
+    status_priority = {'running': 0, 'matching': 1, 'open': 2, 'funding': 3}
+    deadline_field = {'funding': 'fundingDeadline', 'open': 'listExpiresAt', 'matching': 'matchingDeadline', 'running': 'matchEndsAt'}
+    best_tid, best_t = None, None
     for tid, t in all_t.items():
         if not isinstance(t, dict) or t.get('status') in ('settled', 'expired'):
             continue
@@ -1215,7 +1221,34 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
         has_unresolved = True
         participants = t.get('participantsA') if is_initiator else t.get('participantsB')
         paid_pids.update((participants or {}).keys())
-    return has_unresolved, paid_pids
+        if best_t is None or status_priority.get(t.get('status'), 9) < status_priority.get(best_t.get('status'), 9):
+            best_tid, best_t = tid, t
+    summary = None
+    if best_t is not None:
+        status = best_t.get('status')
+        is_initiator = best_t.get('initiatorClanId') == clan_id
+        summary = {
+            'id': best_tid,
+            'status': status,
+            'number': best_t.get('number'),
+            'deadline': best_t.get(deadline_field.get(status), 0),
+            'opponentClanName': (best_t.get('acceptedByClanName') if is_initiator else best_t.get('initiatorClanName')) or None,
+        }
+        if status == 'running':
+            # Живой счёт для баннера на главном экране — myScore/oppScore уже с точки
+            # зрения ЭТОГО клана (не A/B), чтобы фронту не нужно было знать про
+            # initiator/acceptor и самому решать, кто "мы".
+            try:
+                live = await _tournament_live_catches(session, base, best_t)
+                participants_a = best_t.get('participantsA') or {}
+                participants_b = best_t.get('participantsB') or {}
+                score_a = sum(live.get(p, 0) for p in participants_a.keys())
+                score_b = sum(live.get(p, 0) for p in participants_b.keys())
+                summary['myScore'] = score_a if is_initiator else score_b
+                summary['oppScore'] = score_b if is_initiator else score_a
+            except Exception:
+                pass
+    return has_unresolved, paid_pids, summary
 
 
 async def _start_tournament_race(session, base, tournament_id):
@@ -1651,10 +1684,11 @@ async def clan_status(request):
                     clan = _clan_public(clan_id, clan_data, real_user_id)
                     # Флаг для фронта — блокировать/подсвечивать кнопку «Распустить клан» и
                     # «Удалить» у конкретных участников заранее, а не только по ошибке сервера.
-                    has_unresolved, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+                    has_unresolved, paid_pids, tour_summary = await _clan_unresolved_tournament_info(session, base, clan_id)
                     clan['hasUnresolvedTournament'] = has_unresolved
                     clan['tournamentLockedPids'] = list(paid_pids)
                     clan['iAmLocked'] = pid in paid_pids
+                    clan['activeTournament'] = tour_summary
             else:
                 async with session.get(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}") as iresp:
                     raw_invites = await iresp.json()
@@ -2265,7 +2299,7 @@ async def clan_kick(request):
             if target_pid not in members:
                 return web.json_response({'error': 'этот игрок не состоит в клане'}, status=400, headers=CORS)
 
-            _, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+            _, paid_pids, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
             if target_pid in paid_pids:
                 return web.json_response(
                     {'error': 'у этого игрока есть оплаченный взнос в незавершённом турнире — дождись его завершения'},
@@ -2352,7 +2386,7 @@ async def clan_leave(request):
             if pid not in members:
                 return web.json_response({'error': 'ты не состоишь в этом клане'}, status=400, headers=CORS)
 
-            _, paid_pids = await _clan_unresolved_tournament_info(session, base, clan_id)
+            _, paid_pids, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
             if pid in paid_pids:
                 return web.json_response(
                     {'error': 'нельзя покинуть клан — у тебя есть оплаченный взнос в незавершённом турнире, дождись его завершения'},
@@ -2429,7 +2463,7 @@ async def clan_disband(request):
             if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
                 return web.json_response({'error': 'распустить клан может только капитан'}, status=403, headers=CORS)
 
-            has_unresolved, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
+            has_unresolved, _, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
             if has_unresolved:
                 return web.json_response(
                     {'error': 'нельзя распустить клан — есть незавершённый турнир с оплаченными взносами, дождись его завершения'},
