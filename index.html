@@ -2241,7 +2241,7 @@ function collectFilet(bid) {
   var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
   state.filets[idx]={bid:slot.bid,name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
   showNotif('🍱 '+t('Филе','Filet')+' '+fishName(slot.name)+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 
@@ -2334,7 +2334,7 @@ function collectDried(bid) {
   state.drying.splice(idx,1);
   addQuestProgress('dry', packs);
   showNotif('📦 '+packs+t(' пак. ',' pack. ')+slot.emoji+' '+fishName(slot.name)+' '+t('сушёной готово!','dried ready!'));
-  updateUI(); save();
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
 
@@ -6120,7 +6120,12 @@ function checkDeaths() {
     } else {
       showNotif(t('💀 Погибло ','💀 ')+dead.length+t(' рыб!',' fish died!'),true);
     }
-    save();
+    // Немедленно в Firebase — иначе есть 2с окно, где эти рыбы уже удалены локально, но
+    // сервер ещё думает, что они живы. Если в это окно попадёт устаревший снимок из
+    // Firebase (см. loadFromFirebase), уже "погибшая" рыба может "воскреснуть" — а на
+    // следующей проверке умереть ЕЩЁ РАЗ, с тем же числом в уведомлении. Подтверждённый
+    // случай: "Погибло 195" дважды подряд с разницей в 10 минут.
+    save(true);
   }
 }
 function checkDelivery() {
@@ -6136,7 +6141,7 @@ function checkDelivery() {
     if (saltArrived>0) { state.salt=(state.salt||0)+saltArrived; addQuestProgress('buysalt', saltArrived); msg+=' · 🧂+'+saltArrived; }
     if (knifeArrived>0) { state.knife=(state.knife||0)+knifeArrived; addQuestProgress('buyknife', knifeArrived); msg+=' · 🔪+'+knifeArrived; }
     showNotif(msg);
-    state.delivery=null; updateUI(); save();
+    state.delivery=null; updateUI(); save(true); // сразу в Firebase — иначе "доставка ещё активна" может воскреснуть и попытаться собраться повторно
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   }
   if (state.delivery2 && Date.now()>=state.delivery2.endsAt) {
@@ -6151,7 +6156,7 @@ function checkDelivery() {
     if (d2salt>0) { state.salt=(state.salt||0)+d2salt; addQuestProgress('buysalt', d2salt); d2msg+=' · 🧂+'+d2salt; }
     if (d2knife>0) { state.knife=(state.knife||0)+d2knife; addQuestProgress('buyknife', d2knife); d2msg+=' · 🔪+'+d2knife; }
     showNotif(d2msg);
-    state.delivery2=null; updateUI(); save();
+    state.delivery2=null; updateUI(); save(true); // сразу в Firebase — см. комментарий выше
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   }
   if (currentTab==='market') renderMarket();
