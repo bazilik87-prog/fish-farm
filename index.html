@@ -6244,20 +6244,6 @@ function tick() {
 }
 
 // ── Запуск ────────────────────────────────────────────
-// Снимок lastSeen из localStorage СНИМАЕМ ДО load()/save() ниже. Раньше save() на
-// строке "save();" сразу же перезаписывал localStorage свежим lastSeen:Date.now(),
-// а loadFromFirebase() (см. ниже) сравнивал fbData.lastSeen именно с этим уже
-// "подделанным" значением — из-за чего условие fbTime > localTime почти никогда не
-// выполнялось, и корректные серверные данные (например, купленный транспорт) никогда
-// не подтягивались на новом устройстве или после восстановления старого локального
-// бэкапа. Теперь сравниваем с ПОДЛИННЫМ значением, которое было в сторадже до старта
-// этой сессии.
-var _bootLocalLastSeen = 0;
-try {
-  var _bootRaw = localStorage.getItem(SAVE_KEY);
-  var _bootData = _bootRaw ? JSON.parse(_bootRaw) : null;
-  _bootLocalLastSeen = _bootData ? (_bootData.lastSeen || 0) : 0;
-} catch(e) {}
 applyStaticTranslations();
 load();
 calcStats();
@@ -6276,12 +6262,10 @@ function loadFromFirebase(callback) {
   firebaseDB.ref('saves/' + pid).once('value', function(snap) {
     var fbData = snap.val();
     if (!fbData) { callback(); return; }
+    var localRaw = localStorage.getItem(SAVE_KEY);
+    var localData = localRaw ? JSON.parse(localRaw) : null;
     var fbTime = fbData.lastSeen || 0;
-    // Сравниваем с _bootLocalLastSeen (снимок ДО того, как стартовый save() выше
-    // перезаписал localStorage текущим временем) — иначе локальное "сейчас" всегда
-    // побеждает, и облачные данные никогда не применяются. См. комментарий у объявления
-    // _bootLocalLastSeen в начале файла.
-    var localTime = _bootLocalLastSeen;
+    var localTime = localData ? (localData.lastSeen || 0) : 0;
     if (fbTime > localTime) {
       // Firebase новее — применяем его данные
       applyState(fbData);
@@ -6398,11 +6382,31 @@ function startGame() {
 
 if (userId && firebaseDB) {
   firebaseDB.ref('banned/' + userId).once('value', function(snap) {
-    if (snap.val()) {
+    var banVal = snap.val();
+    var nowMs = Date.now();
+    // Раньше здесь была простая проверка "if (snap.val())" — она блокировала игру при
+    // ЛЮБОМ truthy-значении, а число (unix-время окончания временного бана) в JS тоже
+    // truthy даже когда бан уже истёк или когда это будущая метка временного бана с
+    // понятным сроком. Из-за этого игрок с временным баном видел общий "Доступ ограничен"
+    // без даты — и что хуже, эта проверка не понимала, что временный бан вообще может
+    // закончиться, поэтому даже после истечения срока экран показывался бы снова при
+    // следующей загрузке (сервер бы уже пустил, а этот ранний клиентский чек — нет).
+    var isPermaBan = banVal === true;
+    var isTempBanActive = typeof banVal === 'number' && banVal > nowMs;
+    if (isPermaBan || isTempBanActive) {
+      var untilHtml = '';
+      if (isTempBanActive) {
+        var d = new Date(banVal);
+        var pad = function(n){ return n<10?'0'+n:''+n; };
+        var dstr = pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+        untilHtml = '<div style="font-size:13px;color:#90caf9;margin-top:8px">'+t('Доступ будет восстановлен автоматически: ','Access will be restored automatically: ')+dstr+'</div>';
+      } else {
+        untilHtml = '<div style="font-size:13px;color:#90caf9;margin-top:8px">'+t('Обратитесь к администратору, если считаете это ошибкой.','Contact the administrator if you believe this is a mistake.')+'</div>';
+      }
       document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px;color:#fff">'
         + '<div><div style="font-size:48px;margin-bottom:16px">🚫</div>'
-        + '<div style="font-size:16px;font-weight:600">Доступ ограничен</div>'
-        + '<div style="font-size:13px;color:#90caf9;margin-top:8px">Обратитесь к администратору, если считаете это ошибкой.</div></div></div>';
+        + '<div style="font-size:16px;font-weight:600">'+t('Аккаунт ','Account ')+(isTempBanActive?t('временно заблокирован','temporarily suspended'):t('заблокирован','blocked'))+'</div>'
+        + untilHtml + '</div></div>';
     } else {
       startGame();
     }
