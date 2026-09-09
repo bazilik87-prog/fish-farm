@@ -6028,6 +6028,7 @@ async def comm_command(message: types.Message):
         "/ban_ids 111 222 333 — забанить конкретный список ID (если рефералы вперемешку — боты и настоящие)\n"
         "/tempban 111 @username [дней] — временный бан на N дней (по умолч. 7), ID и/или @username, прогресс не трогает, разбан сам по истечении\n"
         "/unban 123456789 — досрочно снять бан (постоянный или временный), ID или @username\n"
+        "/banlist — список всех активных банов (постоянные + временные с датой окончания)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
@@ -6227,6 +6228,22 @@ async def playerinfo_command(message: types.Message):
             async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as resp:
                 referred_by_him = await resp.json()
 
+            # Суммарно выведено GRAM за всё время — считаем по withdrawals_log, где теперь
+            # (с добавлением user_id в запись при каждом выводе) можно фильтровать по игроку.
+            # Выводы ДО этого изменения не будут учтены — там user_id ещё не писался.
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as resp:
+                withdrawals = await resp.json()
+            total_gram_withdrawn = 0.0
+            withdrawal_count = 0
+            if isinstance(withdrawals, dict):
+                for w in withdrawals.values():
+                    if isinstance(w, dict) and str(w.get('user_id', '')) == str(uid):
+                        total_gram_withdrawn += float(w.get('gram', 0) or 0)
+                        withdrawal_count += 1
+
+            async with session.get(f"{base}/banned/{uid}.json{FB_AUTH}") as resp:
+                ban_val = await resp.json()
+
         display_name = f"@{username}" if username else "без ника"
         lines = [f"👤 {display_name} (ID: {uid})"]
 
@@ -6265,6 +6282,10 @@ async def playerinfo_command(message: types.Message):
         total_earned = sv.get('totalEarned', 0)
         caught = sv.get('caught', 0)
         lines.append(f"🪙 Баланс: {coins:,.0f} · Всего заработано: {total_earned:,.0f} · Поймано: {caught:,}")
+        if withdrawal_count:
+            lines.append(f"💎 Выведено GRAM: {total_gram_withdrawn:,.5f} ({withdrawal_count} вывод(ов))")
+        else:
+            lines.append("💎 Выведено GRAM: 0 (выводов не было)")
 
         now_ms = int(time.time() * 1000)
         is_prem = bool(premium_until) and premium_until > now_ms
@@ -6273,6 +6294,14 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"💎 Premium: активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
         else:
             lines.append("💎 Premium: не активен")
+
+        if ban_val is True:
+            lines.append("🚫 Бан: НАВСЕГДА")
+        elif isinstance(ban_val, (int, float)) and ban_val > now_ms:
+            ban_until_dt = datetime.fromtimestamp(ban_val / 1000, tz=timezone(timedelta(hours=3)))
+            lines.append(f"🚫 Бан: временный, до {ban_until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
+        else:
+            lines.append("✅ Бан: нет")
 
         if referrer_id:
             lines.append(f"👥 Пришёл по рефералке от ID: {referrer_id}")
@@ -6960,6 +6989,64 @@ async def unban_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             await session.delete(f"{base}/banned/{target_uid}.json{FB_AUTH}")
         await message.answer(f"✅ Бан снят с {display}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('banlist'))
+async def banlist_command(message: types.Message):
+    """Список всех активных банов — постоянных и временных (просроченные временные не
+    показываем, is_ban_active() их и так больше не блокирует — они как разбаненные)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/banned.json{FB_AUTH}") as resp:
+                banned_data = await resp.json()
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb_data = await resp.json()
+        by_uid = {}
+        if isinstance(lb_data, dict):
+            for v in lb_data.values():
+                if isinstance(v, dict) and v.get('userId'):
+                    by_uid[str(v['userId'])] = v.get('username')
+
+        permanent, temporary = [], []
+        if isinstance(banned_data, dict):
+            for uid, val in banned_data.items():
+                if val is True:
+                    permanent.append(uid)
+                elif isinstance(val, (int, float)) and val > now_ms:
+                    temporary.append((uid, val))
+
+        if not permanent and not temporary:
+            await message.answer("📋 Забаненных игроков нет.")
+            return
+
+        temporary.sort(key=lambda x: x[1])  # у кого раньше кончится — вверху
+        lines = [f"📋 Активные баны — навсегда: {len(permanent)}, временных: {len(temporary)}\n"]
+        if permanent:
+            lines.append("🚫 НАВСЕГДА:")
+            for uid in permanent:
+                uname = by_uid.get(str(uid))
+                lines.append(f"  {'@'+uname if uname else 'ID:'+str(uid)} (ID:{uid})")
+            lines.append("")
+        if temporary:
+            lines.append("⏳ ВРЕМЕННЫЕ:")
+            for uid, until in temporary:
+                uname = by_uid.get(str(uid))
+                until_dt = datetime.fromtimestamp(until / 1000, tz=timezone(timedelta(hours=3)))
+                left_h = round((until - now_ms) / 3600000, 1)
+                lines.append(f"  {'@'+uname if uname else 'ID:'+str(uid)} (ID:{uid}) — до {until_dt.strftime('%d.%m %H:%M')} МСК (~{left_h}ч осталось)")
+
+        text = "\n".join(lines)
+        # На случай очень длинного списка — режем по 4000 символов, как в /actionlog
+        for i in range(0, len(text), 4000):
+            await message.answer(text[i:i+4000])
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -8169,11 +8256,14 @@ async def successful_payment(message: types.Message):
         except ValueError:
             gram_amount = 0
 
-        # Публичная лента выводов — для баннера "История выплат" в игре
+        # Публичная лента выводов — для баннера "История выплат" в игре.
+        # user_id добавлен, чтобы /playerinfo мог посчитать, сколько GRAM вывел конкретный
+        # игрок за всё время — раньше запись была полностью анонимной, это посчитать было
+        # нельзя. Для выводов ДО этого изменения user_id не будет — они не попадут в сумму.
         try:
             import aiohttp, time as time_mod
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-            entry = {"amount": int(coins), "gram": gram_amount, "wallet": wallet, "ts": int(time_mod.time() * 1000)}
+            entry = {"amount": int(coins), "gram": gram_amount, "wallet": wallet, "ts": int(time_mod.time() * 1000), "user_id": user_id}
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
         except Exception:
