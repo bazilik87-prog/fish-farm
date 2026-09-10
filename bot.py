@@ -92,7 +92,13 @@ async def _cache_player_lang(session, base, pid, telegram_language_code):
     записи не должно ронять основной запрос, вызывающий код оборачивает в try/except.
     """
     lang = 'ru' if telegram_language_code == 'ru' else 'en'
-    await session.patch(f"{base}/saves/{pid}/langCode.json{FB_AUTH}", json=lang)
+    # PATCH на РОДИТЕЛЬСКИЙ узел с объектом {langCode: ...} — как и все остальные PATCH
+    # в этом файле (см. {'clanId': ...} и т.п.). PATCH прямо на лист (saves/{pid}/langCode.json)
+    # с голым скаляром в теле Firebase REST не гарантированно поддерживает как "update
+    # children" — вероятный молчаливый баг: не кидает исключение (try/except у вызывающего
+    # кода ловил бы только сетевые ошибки), но и не записывает, из-за чего _player_lang()
+    # всегда возвращал дефолтный 'en', даже у русскоязычных игроков.
+    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={'langCode': lang})
 
 
 async def _player_lang(session, base, pid):
