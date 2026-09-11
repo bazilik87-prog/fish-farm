@@ -92,13 +92,7 @@ async def _cache_player_lang(session, base, pid, telegram_language_code):
     записи не должно ронять основной запрос, вызывающий код оборачивает в try/except.
     """
     lang = 'ru' if telegram_language_code == 'ru' else 'en'
-    # PATCH на РОДИТЕЛЬСКИЙ узел с объектом {langCode: ...} — как и все остальные PATCH
-    # в этом файле (см. {'clanId': ...} и т.п.). PATCH прямо на лист (saves/{pid}/langCode.json)
-    # с голым скаляром в теле Firebase REST не гарантированно поддерживает как "update
-    # children" — вероятный молчаливый баг: не кидает исключение (try/except у вызывающего
-    # кода ловил бы только сетевые ошибки), но и не записывает, из-за чего _player_lang()
-    # всегда возвращал дефолтный 'en', даже у русскоязычных игроков.
-    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={'langCode': lang})
+    await session.patch(f"{base}/saves/{pid}/langCode.json{FB_AUTH}", json=lang)
 
 
 async def _player_lang(session, base, pid):
@@ -2960,11 +2954,18 @@ def pick_random_weather():
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
-def pick_lottery_prize(mult, jackpot):
+def pick_lottery_prize(mult, jackpot, include_jackpot=True):
     """
     Определяет приз лотереи — точная копия весов из index.html, но теперь единственное
     место, где это решается (сервер), а не клиент. Возвращает dict с полями:
     kind ('coins'|'fish'|'salt'|'knife'|'truck_ticket'|'jackpot'), amount, label.
+
+    include_jackpot=False — для бесплатных круток за рекламу: джекпот растят только
+    платные крутки за ⭐ и бесплатная Premium-крутка (см. grow_jackpot в lottery_spin/
+    successful_payment), а крутка за рекламу — доступна раз в час без всякой платы и
+    ограничений, поэтому же джекпот из её собственного пула призов просто убираем:
+    иначе бесплатная реклама могла бы выигрывать пул, который растили только платящие
+    игроки, ничего сама в него не вкладывая.
     """
     import random
     c1 = round(300 * mult)
@@ -2980,9 +2981,10 @@ def pick_lottery_prize(mult, jackpot):
         {'kind': 'knife', 'amount': k1, 'label': f'🔪 {k1:,} ножей на склад', 'weight': 7},
         {'kind': 'truck_ticket', 'amount': 1, 'label': '🚛 Билет на аренду грузовика (12ч)', 'weight': 3},
         {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 30},
-        {'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
-         'weight': 1.616162 if jackpot >= 200 else 0.16016},
     ]
+    if include_jackpot:
+        prizes.append({'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
+                        'weight': 1.616162 if jackpot >= 200 else 0.16016})
     total = sum(p['weight'] for p in prizes)
     r = random.random() * total
     acc = 0
@@ -3413,7 +3415,7 @@ async def lottery_spin(request):
                         mult = m
 
                 if prize is None:
-                    prize = pick_lottery_prize(mult, jackpot)  # решаем приз один раз, не перевыбираем на retry
+                    prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via != 'ad'))  # решаем приз один раз, не перевыбираем на retry
 
                 merged = dict(sv)
                 if prize['kind'] == 'coins':
