@@ -3934,8 +3934,10 @@ function renderDepositsModal() {
 function openDepositPrompt() {
   var modal = document.getElementById('deposits-modal');
   if (!modal) return;
+  var openFeeLabel = isPremiumActive() ? t('бесплатно (Premium)','free (Premium)') : t('за ⭐1','for ⭐1');
   modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f">'
-    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">➕ '+t('Открыть вклад','Open deposit')+'</div>'
+    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:2px">➕ '+t('Открыть вклад','Open deposit')+'</div>'
+    + '<div style="font-size:11px;color:#90caf9;margin-bottom:12px">'+t('Открытие — ','Opening — ')+openFeeLabel+'</div>'
     + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма (мин. 50,000)','Amount (min. 50,000)')+'</div>'
     + '<input id="deposit-amount-input" type="number" min="50000" step="1000" value="50000" style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d6a4f;background:#132a44;color:#fff;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none">'
     + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Срок','Term')+'</div>'
@@ -3951,6 +3953,38 @@ function confirmOpenDeposit(termDays) {
   var amount = input ? Math.floor(parseFloat(input.value)) : 0;
   if (!amount || amount < 50000) { showNotif(t('❌ Минимум 50,000 монет','❌ Minimum 50,000 coins')); return; }
   if (state.coins < amount) { showNotif(t('❌ Не хватает монет!','❌ Not enough coins!')); return; }
+
+  if (isPremiumActive()) {
+    // Premium открывает бесплатно — тот же путь, что и раньше, через обычное действие.
+    queueAction({type: 'open_deposit', amount: amount, termDays: termDays});
+    flushActions();
+    openDepositLocal(amount, termDays);
+    return;
+  }
+
+  // Без Premium открытие вклада стоит 1⭐ — платёж через инвойс. Саму сумму вклада
+  // списывает сервер в successful_payment ПОСЛЕ подтверждённой оплаты, не здесь.
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') { showNotif(t('❌ Нет соединения','❌ No connection')); return; }
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL + '/invoice', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'open_deposit', amount: amount, termDays: termDays, init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif(t('❌ Ошибка: ','❌ Error: ')+(res.data&&res.data.error||t('неизвестная','unknown'))); return; }
+      var invLink = res.data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if (status === 'paid') {
+          openDepositLocal(amount, termDays);
+        }
+      });
+    }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
+}
+function openDepositLocal(amount, termDays) {
+  // Общий "оптимистичный" отклик и для Premium (бесплатно), и для платного пути (после
+  // подтверждения оплаты) — реальные деньги в обоих случаях уже проведены на сервере,
+  // здесь только мгновенное обновление интерфейса.
   state.coins = Math.round((state.coins - amount) * 100) / 100;
   state.deposits = state.deposits || [];
   state.deposits.push({
@@ -3960,9 +3994,7 @@ function confirmOpenDeposit(termDays) {
     startedAt: Date.now(),
     endsAt: Date.now() + termDays * 86400000
   });
-  queueAction({type: 'open_deposit', amount: amount, termDays: termDays});
-  flushActions();
-  showNotif(t('🏦 Вклад открыт на ','🏦 Deposit opened for ')+termDays+t(' дней!',' days!'));
+  showNotif(t('🏦 Вклад открыт: ','🏦 Deposit opened: ')+fmt(amount)+t(' монет на ',' coins for ')+termDays+t(' дней!',' days!'));
   updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
   renderDepositsModal();
 }
@@ -5260,6 +5292,7 @@ function renderPremiumCard() {
       +'✅ '+t('Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)','Bank fee 3⭐ instead of 5⭐ (both × location multiplier)')+'<br>'
       +'✅ '+t('Защита стрика (окно 72ч вместо 48ч)','Streak protection (72h window instead of 48h)')+'<br>'
       +'✅ '+t('Бесплатная крутка лотереи в день','One free lottery spin per day')+'<br>'
+      +'✅ '+t('Бесплатное открытие вклада (вместо ⭐1)','Free deposit opening (instead of ⭐1)')+'<br>'
       +'✅ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
       +'</div>';
   }
@@ -5274,6 +5307,7 @@ function renderPremiumCard() {
     +'✨ '+t('Комиссия банка 3⭐ вместо 5⭐ (обе × множитель локации)','Bank fee 3⭐ instead of 5⭐ (both × location multiplier)')+'<br>'
     +'✨ '+t('Защита стрика ежедневного бонуса','Daily bonus streak protection')+'<br>'
     +'✨ '+t('Бесплатная крутка лотереи каждый день','Free lottery spin every day')+'<br>'
+    +'✨ '+t('Бесплатное открытие вклада (вместо ⭐1)','Free deposit opening (instead of ⭐1)')+'<br>'
     +'✨ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
     +'<button class="btn btn-full" onclick="buyPremium()" style="background:linear-gradient(135deg,#9b59b6,#6a3a8e);font-weight:700">👑 '+t('Оформить за ⭐300/мес','Subscribe for ⭐300/mo')+'</button>'
     +'</div>';
@@ -5438,7 +5472,7 @@ function showInstructions() {
       +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:1</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
     +'</table>'
     +t('(комиссия указана обычная/Premium; курс — монет за 1 GRAM). GRAM отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per 1 GRAM). GRAM is sent manually within 24h.')+'<br><br>'
-    +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
+    +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Открытие — ⭐1 (бесплатно для Premium). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Opening costs ⭐1 (free for Premium). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Срок','Term')+'</td><td style="padding:3px 4px;text-align:right">'+t('Ставка','Rate')+'</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">'+t('15 дней','15 days')+'</td><td style="padding:3px 4px;text-align:right">8% '+t('годовых','APR')+'</td></tr>'

@@ -422,6 +422,34 @@ async def get_coin_balance(user_id):
         return 0
 
 
+async def add_deposit_entry(user_id, deposit):
+    """
+    Атомарно добавляет один вклад в saves/{pid}/deposits — та же ETag-защита с retry,
+    что и у deduct_coin_balance(), чтобы параллельное открытие вклада (например, через
+    оплату звёздами и обычный /actions одновременно) не затёрло чужую запись при записи
+    всего массива целиком.
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    url = f"{base}/saves/tg_{user_id}/deposits.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(6):
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    current = await resp.json()
+                current = current if isinstance(current, list) else []
+                current.append(deposit)
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(url, json=current, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    return put_resp.status in (200, 204)
+    except Exception:
+        return False
+    return False
+
+
 async def deduct_coin_balance(user_id, amount):
     """
     Атомарно списывает amount монет с баланса игрока — ETag-блокировка с retry, а не
@@ -510,6 +538,32 @@ async def create_invoice(request):
                 payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Fee", amount=fee)],
+                provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
+        elif action == 'open_deposit':
+            amount = data.get('amount')
+            term_days = data.get('termDays')
+            user_id = real_user_id
+            if not isinstance(amount, (int, float)) or amount < DEPOSIT_MIN_AMOUNT:
+                return web.json_response({'error': f'минимум {DEPOSIT_MIN_AMOUNT:,} монет'}, status=400, headers=CORS)
+            if term_days not in DEPOSIT_RATES:
+                return web.json_response({'error': 'неверный срок вклада'}, status=400, headers=CORS)
+            if await is_premium(user_id):
+                return web.json_response({'error': 'Premium открывает вклад бесплатно — инвойс не нужен'}, status=400, headers=CORS)
+            balance = await get_coin_balance(user_id)
+            if amount > balance:
+                return web.json_response({'error': 'недостаточно монет на балансе'}, status=400, headers=CORS)
+            payload = f"dep:{user_id}:{int(amount)}:{term_days}"
+            if len(payload.encode('utf-8')) > 128:
+                return web.json_response({'error': 'payload too long'}, status=400, headers=CORS)
+            link = await bot.create_invoice_link(
+                title="Open Deposit",
+                description=f"{int(amount)} coins for {term_days} days",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Deposit fee", amount=1)],
                 provider_token="",
             )
             return web.json_response({'link': link}, headers=CORS)
@@ -4118,6 +4172,13 @@ async def process_actions(request):
             total_earned += amount
 
         elif a_type == 'open_deposit':
+            # Бесплатно этим путём можно открыть ТОЛЬКО с Premium — без него открытие
+            # платное (1⭐, через инвойс и successful_payment, отдельный путь записи в
+            # saves, минуя этот action). Если не Premium — значит кто-то пытается
+            # открыть вклад в обход оплаты (например, через консоль браузера).
+            if not is_prem:
+                rejected += 1
+                continue
             amount = act.get('amount')
             term_days = act.get('termDays')
             if not isinstance(amount, (int, float)) or amount < DEPOSIT_MIN_AMOUNT:
@@ -7885,7 +7946,8 @@ async def successful_payment(message: types.Message):
                      'Создание турнира клана' if payload.startswith('ctc:') else
                      'Взнос в турнир клана' if payload.startswith('ctp:') else
                      'Принять турнир клана' if payload.startswith('cta:') else
-                     'Биржа рефералов' if payload.startswith('rb:') else payload)
+                     'Биржа рефералов' if payload.startswith('rb:') else
+                     'Открытие вклада' if payload.startswith('dep:') else payload)
             await bot.send_message(
                 ADMIN_ID,
                 f"⭐ Новая оплата!\n👤 {payer_name}\n💰 {amount}⭐\n📦 {label}"
@@ -8367,6 +8429,54 @@ async def successful_payment(message: types.Message):
             )
         except Exception:
             pass
+
+    elif payload.startswith('dep:'):
+        parts = payload.split(':')
+        # dep:{user_id}:{amount}:{termDays}
+        if len(parts) < 4:
+            await message.answer(t(message.from_user,
+                "✅ Оплата получена! Свяжись с администратором, если вклад не появился в игре.",
+                "✅ Payment received! Contact the admin if the deposit doesn't show up in the game."))
+            return
+        user_id = parts[1]
+        amount = float(parts[2])
+        term_days = int(parts[3])
+
+        # Та же защита, что и у вывода в GRAM: списываем атомарно, с проверкой РЕАЛЬНОГО
+        # баланса на момент оплаты — баланс мог измениться с момента создания счёта.
+        deducted = await deduct_coin_balance(user_id, amount)
+        if not deducted:
+            await message.answer(t(message.from_user,
+                "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за открытие не возвращаются автоматически — напиши администратору.",
+                "❌ Insufficient coin balance at payment time. The Stars fee isn't auto-refunded — please contact the admin."))
+            return
+
+        now_ms = int(time_module.time() * 1000)
+        deposit = {
+            'id': f"dep_{now_ms}",
+            'amount': round(amount * 100) / 100,
+            'termDays': term_days,
+            'startedAt': now_ms,
+            'endsAt': now_ms + term_days * 86400000,
+        }
+        ok = await add_deposit_entry(user_id, deposit)
+        if not ok:
+            # Монеты уже списаны, а запись вклада не создалась — редкий, но денежный случай,
+            # стоит узнать сразу, а не через жалобу игрока через неделю.
+            if ADMIN_ID:
+                try:
+                    await bot.send_message(ADMIN_ID, f"⚠️ Списаны монеты за вклад, но запись не создалась!\nuser_id={user_id}, amount={amount}, срок={term_days}д — нужно вручную добавить вклад или вернуть монеты.")
+                except Exception:
+                    pass
+            await message.answer(t(message.from_user,
+                "⚠️ Монеты списаны, но при открытии вклада произошла ошибка. Мы уже разбираемся — напиши администратору.",
+                "⚠️ Coins were deducted, but there was an error opening the deposit. We're looking into it — please contact the admin."))
+            return
+
+        rate_pct = int(DEPOSIT_RATES.get(term_days, 0) * 100)
+        await message.answer(t(message.from_user,
+            f"✅ Вклад открыт!\n\n🪙 Сумма: {amount:,.0f}\n📅 Срок: {term_days} дней\n📈 Ставка: {rate_pct}% годовых",
+            f"✅ Deposit opened!\n\n🪙 Amount: {amount:,.0f}\n📅 Term: {term_days} days\n📈 Rate: {rate_pct}% APR"))
 
     elif payload.startswith('ex:'):
         parts = payload.split(':', 4)
