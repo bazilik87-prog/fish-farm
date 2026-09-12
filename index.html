@@ -1020,7 +1020,7 @@ function save(immediate) {
       // и он честно отклонялся сервером ("прошло 0 дней"). Подтверждённый случай:
       // ID 8824257585 — бонус +500 показан, но не начислен после 8 дней отсутствия.
       for (var fbKey in saveData) {
-        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2' || fbKey==='lastSeen') continue;
+        if (fbKey==='coins' || fbKey==='caught' || fbKey==='totalEarned' || fbKey==='energy' || fbKey==='upgLevels' || fbKey==='lastEnergyUpdate' || fbKey==='unsoldCaught' || fbKey==='lastAdLotterySpin' || fbKey==='premiumFreeSpinDate' || fbKey==='unlockedTransports' || fbKey==='durability' || fbKey==='dailyDay' || fbKey==='dailyLastClaim' || fbKey==='comebackClaimedAt' || fbKey==='questBonusDate' || fbKey==='ulocs' || fbKey==='deliveryEscrow' || fbKey==='deliveryEscrow2' || fbKey==='lastSeen' || fbKey==='deposits') continue;
         fbSaveData[fbKey] = saveData[fbKey];
       }
       // Firebase отклоняет ЦЕЛИКОМ весь update(), если хоть где-то внутри есть undefined
@@ -1111,6 +1111,7 @@ function load() {
     state.transport         = s.transport || 'bike';
     state.delivery          = s.delivery  || null;
     state.delivery2         = s.delivery2 || null;
+    state.deposits           = s.deposits || [];
     state.unlockedTransports= s.unlockedTransports || ['bike'];
     state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
     state.dailyDay          = s.dailyDay  || 0;
@@ -3436,7 +3437,8 @@ function renderBank() {
     '<div class="card" style="text-align:center;padding:20px">'
       +'<div style="font-size:32px;margin-bottom:8px">🏦</div>'
       +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">'+t('Банк FishFarm','FishFarm Bank')+'</div>'
-      +'<div style="font-size:12px;color:#90caf9">'+t('Обменяй монеты на GRAM','Exchange coins for GRAM')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:12px">'+t('Обменяй монеты на GRAM','Exchange coins for GRAM')+'</div>'
+      +'<button class="btn btn-full" onclick="showDeposits()" style="background:#0a3a1a;color:#6ddc6d">🏦 '+t('Вклады','Deposits')+(state.deposits&&state.deposits.length?' ('+state.deposits.length+')':'')+'</button>'
     +'</div>'
     +'<div class="card">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
@@ -3873,6 +3875,112 @@ function checkDailyNews() {
   });
 }
 
+// ── Вклады в банке ────────────────────────────────────
+// Фиксированные условия (согласованы заранее, не подбирать динамически):
+// 15 дней — 8% годовых, 30 дней — 12% годовых. Проценты считаются как обычный банковский
+// расчёт "годовая ставка / 365 × срок в днях" — НЕ ставка за весь срок целиком.
+// Сервер — источник правды по деньгам (см. open_deposit/close_deposit в bot.py), здесь
+// только отображение + оптимистичный локальный отклик.
+var DEPOSIT_RATES_CLIENT = {15: 0.08, 30: 0.12};
+function showDeposits() {
+  var modal = document.createElement('div');
+  modal.id = 'deposits-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  document.body.appendChild(modal);
+  renderDepositsModal();
+}
+function renderDepositsModal() {
+  var modal = document.getElementById('deposits-modal');
+  if (!modal) return;
+  // Скоро закроются — сверху.
+  var deposits = (state.deposits||[]).slice().sort(function(a,b){ return a.endsAt - b.endsAt; });
+  var now = Date.now();
+  var html = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">';
+  html += '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:4px">🏦 '+t('Вклады','Deposits')+'</div>';
+  html += '<div style="font-size:11px;color:#90caf9;margin-bottom:12px">'+t('Мин. сумма 50,000 · без ограничения по количеству вкладов','Min. amount 50,000 · no limit on number of deposits')+'</div>';
+
+  if (!deposits.length) {
+    html += '<div style="color:#90caf9;text-align:center;padding:16px 0;font-size:13px">'+t('Нет открытых вкладов','No open deposits')+'</div>';
+  } else {
+    deposits.forEach(function(d) {
+      var totalDur = Math.max(1, d.endsAt - d.startedAt);
+      var elapsed = Math.min(totalDur, now - d.startedAt);
+      var pct = Math.round(elapsed / totalDur * 100);
+      var matured = now >= d.endsAt;
+      var daysLeft = Math.max(0, Math.ceil((d.endsAt - now) / 86400000));
+      var rate = DEPOSIT_RATES_CLIENT[d.termDays] || 0;
+      var interest = Math.round(d.amount * rate * (d.termDays / 365) * 100) / 100;
+      var total = Math.round((d.amount + interest) * 100) / 100;
+      html += '<div style="background:#132a44;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
+        + '<span style="font-size:14px;font-weight:600;color:#fff">🪙'+fmt(d.amount)+'</span>'
+        + '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:#0a3a1a;color:#6ddc6d">'+Math.round(rate*100)+'% '+t('годовых','APR')+'</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Срок ','Term ')+d.termDays+t(' дней · ',' days · ')+(matured?t('готов к закрытию','ready to close'):t('осталось ','')+daysLeft+t(' дн.',' d.'))+'</div>'
+        + '<div style="height:4px;background:#1a1a2e;border-radius:2px;margin-top:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+(matured?'#6ddc6d':'#1565c0')+'"></div></div>'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px">'
+        + '<span style="font-size:11px;color:#7fb88a">'+t('К возврату ','Payout ')+fmt(total)+'</span>'
+        + '<button onclick="closeDeposit(\''+d.id+'\')" style="font-size:11px;padding:4px 10px;white-space:nowrap;background:'+(matured?'#1565c0':'transparent')+';color:'+(matured?'#fff':'#e57373')+';border:'+(matured?'none':'1px solid #e57373')+';border-radius:6px">'+(matured?t('Забрать','Claim'):t('Досрочно','Early'))+'</button>'
+        + '</div></div>';
+    });
+  }
+
+  html += '<button onclick="openDepositPrompt()" style="width:100%;padding:12px;background:#0a3a1a;border:none;border-radius:10px;color:#6ddc6d;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;margin-bottom:8px">➕ '+t('Открыть вклад','Open deposit')+'</button>';
+  html += '<button onclick="document.getElementById(\'deposits-modal\').remove()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">'+t('Закрыть','Close')+'</button>';
+  html += '</div>';
+  modal.innerHTML = html;
+}
+function openDepositPrompt() {
+  var modal = document.getElementById('deposits-modal');
+  if (!modal) return;
+  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f">'
+    + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">➕ '+t('Открыть вклад','Open deposit')+'</div>'
+    + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма (мин. 50,000)','Amount (min. 50,000)')+'</div>'
+    + '<input id="deposit-amount-input" type="number" min="50000" step="1000" value="50000" style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d6a4f;background:#132a44;color:#fff;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none">'
+    + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Срок','Term')+'</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:16px">'
+    + '<button onclick="confirmOpenDeposit(15)" style="flex:1;padding:10px;background:#132a44;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">15 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">8% '+t('годовых','APR')+'</span></button>'
+    + '<button onclick="confirmOpenDeposit(30)" style="flex:1;padding:10px;background:#132a44;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">30 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">12% '+t('годовых','APR')+'</span></button>'
+    + '</div>'
+    + '<button onclick="renderDepositsModal()" style="width:100%;padding:10px;background:transparent;border:1px solid #555;border-radius:8px;color:#aaa;font-size:13px">'+t('Назад','Back')+'</button>'
+    + '</div>';
+}
+function confirmOpenDeposit(termDays) {
+  var input = document.getElementById('deposit-amount-input');
+  var amount = input ? Math.floor(parseFloat(input.value)) : 0;
+  if (!amount || amount < 50000) { showNotif(t('❌ Минимум 50,000 монет','❌ Minimum 50,000 coins')); return; }
+  if (state.coins < amount) { showNotif(t('❌ Не хватает монет!','❌ Not enough coins!')); return; }
+  state.coins = Math.round((state.coins - amount) * 100) / 100;
+  state.deposits = state.deposits || [];
+  state.deposits.push({
+    id: 'dep_local_' + Date.now(),
+    amount: amount,
+    termDays: termDays,
+    startedAt: Date.now(),
+    endsAt: Date.now() + termDays * 86400000
+  });
+  queueAction({type: 'open_deposit', amount: amount, termDays: termDays});
+  flushActions();
+  showNotif(t('🏦 Вклад открыт на ','🏦 Deposit opened for ')+termDays+t(' дней!',' days!'));
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
+  renderDepositsModal();
+}
+function closeDeposit(id) {
+  var dep = null;
+  for (var i=0;i<(state.deposits||[]).length;i++) if (state.deposits[i].id===id) { dep = state.deposits[i]; break; }
+  if (!dep) return;
+  var matured = Date.now() >= dep.endsAt;
+  if (!matured && !confirm(t('Забрать досрочно? Проценты не начислятся, вернётся только тело вклада.','Withdraw early? No interest will be paid, only the principal.'))) return;
+  var rate = DEPOSIT_RATES_CLIENT[dep.termDays] || 0;
+  var interest = matured ? Math.round(dep.amount * rate * (dep.termDays / 365) * 100) / 100 : 0;
+  state.coins = Math.round((state.coins + dep.amount + interest) * 100) / 100;
+  state.deposits = (state.deposits||[]).filter(function(d){ return d.id !== id; });
+  queueAction({type: 'close_deposit', id: id});
+  flushActions();
+  showNotif(matured ? (t('🏦 Вклад закрыт! +🪙','🏦 Deposit closed! +🪙')+fmt(dep.amount+interest)) : t('🏦 Вклад закрыт досрочно, без процентов.','🏦 Deposit withdrawn early, no interest.'));
+  updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
+  renderDepositsModal();
+}
 function showMyFriends() {
   if (!firebaseDB || !userId) { showNotif(t('❌ Войди через Telegram','❌ Log in via Telegram')); return; }
   var modal = document.createElement('div');
@@ -5314,6 +5422,28 @@ function showInstructions() {
     +'💰 <b style="color:#FFD700">'+t('Постоянный бонус','Ongoing bonus')+'</b> — '+t('каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 10% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙50 прямо на баланс','every time your referral withdraws coins via the Bank, you automatically get 10% of their withdrawal amount! Example: a friend withdraws 500 coins → you get 🪙50 straight to your balance')+'<br><br>'
     +t('Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.','All referral bonuses arrive automatically when you enter the game and show up in the notification history as 👥 Referral bonus.')+'<br>'
     +t('В разделе «Мои друзья» можно видеть кто уже присоединился!','In the "My friends" section you can see who has already joined!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🏦 Банк и вклады','🏦 Bank and deposits')+'</b><br>'+t('Обмен монет на GRAM — минимум 1,000 монет за раз. Курс, потолок за раз и комиссия растут вместе с самой продвинутой открытой локацией:','Exchange coins for GRAM — minimum 1,000 coins per exchange. Rate, cap per exchange, and fee grow with your furthest unlocked location:')
+    +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
+      +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0">'
+        +'<td style="padding:3px 4px;text-align:left">'+t('Локация','Location')+'</td>'
+        +'<td style="padding:3px 4px;text-align:right">'+t('Курс','Rate')+'</td>'
+        +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
+        +'<td style="padding:3px 4px;text-align:right">⭐</td>'
+      +'</tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:1</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:1</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:1</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:1</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:1</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
+    +'</table>'
+    +t('(комиссия указана обычная/Premium; курс — монет за 1 GRAM). GRAM отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per 1 GRAM). GRAM is sent manually within 24h.')+'<br><br>'
+    +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
+    +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
+      +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Срок','Term')+'</td><td style="padding:3px 4px;text-align:right">'+t('Ставка','Rate')+'</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">'+t('15 дней','15 days')+'</td><td style="padding:3px 4px;text-align:right">8% '+t('годовых','APR')+'</td></tr>'
+      +'<tr><td style="padding:3px 4px">'+t('30 дней','30 days')+'</td><td style="padding:3px 4px;text-align:right">12% '+t('годовых','APR')+'</td></tr>'
+    +'</table>'
+    +'<br>'
     +'<b style="color:#fff">'+t('⚡ Бустеры','⚡ Boosters')+'</b><br>'+t('Временные усиления за ⭐ Telegram Stars. Цена растёт вместе с самой дальней открытой локацией начиная с Тропиков — на Пруду и Реке цена базовая:','Temporary boosts for ⭐ Telegram Stars. Price grows with your furthest unlocked location starting from Tropics — base price on Pond and River:')+'<br>'
     +'⚡ '+t('Авто-буст (⭐1→1→2→3→5) — +2 к автодобыче в минуту на 1 час (итого +120 монет)','Auto-boost (⭐1→1→2→3→5) — +2 auto-income per minute for 1 hour (total +120 coins)')+'<br>'
     +'🌡 '+t('Мгновенная сушка (⭐1→1→2→3→5) — все текущие пакеты досушиваются мгновенно','Instant drying (⭐1→1→2→3→5) — all current packs finish drying instantly')+'<br>'
@@ -5387,6 +5517,12 @@ function applyActionsResult(res, sentAt) {
   if (typeof res.energy === 'number') state.energy = res.energy;
   if (typeof res.dailyDay === 'number') state.dailyDay = res.dailyDay;
   if (typeof res.dailyLastClaim === 'number') state.dailyLastClaim = res.dailyLastClaim;
+  if (Array.isArray(res.deposits)) {
+    // Сервер сам закрывает созревшие вклады при КАЖДОМ /actions — просто синхронизируем
+    // список. Явное закрытие (close_deposit) показывает своё уведомление сразу при вызове,
+    // здесь лишний тост не нужен — иначе будет дублироваться.
+    state.deposits = res.deposits;
+  }
   if (res.claimed && res.claimed.total > 0) {
     (res.claimed.details||[]).forEach(function(d){
       if (d.type==='ref') showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ')+d.from+': +🪙'+fmt(d.amount));
@@ -6292,6 +6428,7 @@ function applyState(s) {
   state.transport         = s.transport || 'bike';
   state.delivery          = s.delivery  || null;
   state.delivery2         = s.delivery2 || null;
+  state.deposits          = s.deposits || [];
   state.unlockedTransports= s.unlockedTransports || ['bike'];
   state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
   state.dailyDay          = s.dailyDay  || 0;

@@ -240,6 +240,9 @@ async def is_premium(user_id):
 
 
 LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
+DEPOSIT_MIN_AMOUNT = 50000
+DEPOSIT_RATES = {15: 0.08, 30: 0.12}  # срок в днях -> ставка ГОДОВЫХ (не за весь срок!)
+DEPOSIT_YEAR_DAYS = 365
 LOCATION_ORDER = {'pond': 1, 'river': 2, 'tropics': 3, 'deep': 4, 'space': 5}
 
 # ── Формулы экономики (зеркалят index.html) — используются ТОЛЬКО для расчёта
@@ -3683,6 +3686,29 @@ async def process_actions(request):
             coins += auto_earned
             total_earned += auto_earned
 
+    # Автозакрытие созревших вкладов — при КАЖДОМ /actions (не только по явному действию
+    # игрока), чтобы проценты начислились сами, как только истёк срок, а не только когда
+    # игрок вспомнит зайти на вкладку "Вклады". Досрочное закрытие — отдельное действие
+    # ниже (close_deposit), без процентов.
+    deposits = sv.get('deposits') or []
+    if not isinstance(deposits, list):
+        deposits = []
+    deposits_changed = False
+    still_open_deposits = []
+    for dep in deposits:
+        if not isinstance(dep, dict):
+            continue
+        if dep.get('endsAt', 0) <= now_ms:
+            rate = DEPOSIT_RATES.get(dep.get('termDays'), 0)
+            amount = float(dep.get('amount', 0) or 0)
+            interest = round(amount * rate * (dep.get('termDays', 0) / DEPOSIT_YEAR_DAYS) * 100) / 100
+            coins = round((coins + amount + interest) * 100) / 100
+            deposits_changed = True
+        else:
+            still_open_deposits.append(dep)
+    if deposits_changed:
+        deposits = still_open_deposits
+
     prices_cache = None
     rejected = 0
     claim_result = None
@@ -4091,6 +4117,44 @@ async def process_actions(request):
             coins += amount
             total_earned += amount
 
+        elif a_type == 'open_deposit':
+            amount = act.get('amount')
+            term_days = act.get('termDays')
+            if not isinstance(amount, (int, float)) or amount < DEPOSIT_MIN_AMOUNT:
+                rejected += 1
+                continue
+            if term_days not in DEPOSIT_RATES:
+                rejected += 1
+                continue
+            if coins < amount:
+                rejected += 1
+                continue
+            coins = round((coins - amount) * 100) / 100
+            deposits.append({
+                'id': f"dep_{now_ms}_{len(deposits)}",
+                'amount': round(amount * 100) / 100,
+                'termDays': term_days,
+                'startedAt': now_ms,
+                'endsAt': now_ms + term_days * 86400000,
+            })
+            deposits_changed = True
+
+        elif a_type == 'close_deposit':
+            # Досрочное закрытие — только тело вклада, без процентов (условие оговорено
+            # заранее, это не баг, а фича — так и должно быть).
+            dep_id = act.get('id')
+            found = None
+            for dep in deposits:
+                if isinstance(dep, dict) and dep.get('id') == dep_id:
+                    found = dep
+                    break
+            if not found:
+                rejected += 1
+                continue
+            coins = round((coins + float(found.get('amount', 0) or 0)) * 100) / 100
+            deposits = [d for d in deposits if d is not found]
+            deposits_changed = True
+
         elif a_type == 'buy_upgrade':
             upg_id = act.get('upg')
             costs = UPGRADE_COSTS.get(upg_id)
@@ -4416,6 +4480,7 @@ async def process_actions(request):
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
                     "upgLevels": merged_upg,
+                    "deposits": deposits,
                     **other_fields,
                     **bonus_fields
                 })
@@ -4493,6 +4558,7 @@ async def process_actions(request):
         'upgLevels': upg_levels,
         'energy': round(energy * 100) / 100,
         'unsoldCaught': round(unsold * 100) / 100,
+        'deposits': deposits,
         'dailyDay': response_daily_day,
         'dailyLastClaim': response_daily_last_claim,
         'rejected': rejected,
@@ -6037,6 +6103,7 @@ async def comm_command(message: types.Message):
         "/tempban 111 @username [дней] — временный бан на N дней (по умолч. 7), ID и/или @username, прогресс не трогает, разбан сам по истечении\n"
         "/unban 123456789 — досрочно снять бан (постоянный или временный), ID или @username\n"
         "/banlist — список всех активных банов (постоянные + временные с датой окончания)\n"
+        "/deplist — список всех активных банковских вкладов по игрокам (скоро закроются — вверху)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
@@ -6108,6 +6175,10 @@ def describe_action(act):
         return f"👑 админ-начисление +{act.get('amount', 0)}"
     if t == 'bulk_sell':
         return f"💰 оптовая продажа {act.get('kind', '?')} x{act.get('qty', '?')}"
+    if t == 'open_deposit':
+        return f"🏦 открыт вклад {act.get('amount', '?')} на {act.get('termDays', '?')}д"
+    if t == 'close_deposit':
+        return f"🏦 закрыт вклад {act.get('id', '?')}"
     return t or '?'
 
 
@@ -7053,6 +7124,69 @@ async def banlist_command(message: types.Message):
 
         text = "\n".join(lines)
         # На случай очень длинного списка — режем по 4000 символов, как в /actionlog
+        for i in range(0, len(text), 4000):
+            await message.answer(text[i:i+4000])
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('deplist'))
+async def deplist_command(message: types.Message):
+    """Список всех активных банковских вкладов по всем игрокам — сортировка "скоро
+    закроются — вверху", как и в самой игре."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
+                saves_data = await resp.json()
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb_data = await resp.json()
+        by_uid = {}
+        if isinstance(lb_data, dict):
+            for v in lb_data.values():
+                if isinstance(v, dict) and v.get('userId'):
+                    by_uid[str(v['userId'])] = v.get('username')
+
+        all_deposits = []
+        total_amount = 0.0
+        if isinstance(saves_data, dict):
+            for pid, sv in saves_data.items():
+                if not isinstance(sv, dict):
+                    continue
+                deps = sv.get('deposits')
+                if not isinstance(deps, list):
+                    continue
+                uid = pid[3:] if pid.startswith('tg_') else pid
+                for d in deps:
+                    if not isinstance(d, dict):
+                        continue
+                    all_deposits.append((uid, d))
+                    total_amount += float(d.get('amount', 0) or 0)
+
+        if not all_deposits:
+            await message.answer("📋 Активных вкладов нет.")
+            return
+
+        all_deposits.sort(key=lambda x: x[1].get('endsAt', 0))  # скоро закроются — вверху
+        lines = [f"🏦 Активных вкладов: {len(all_deposits)} · общая сумма в них: {total_amount:,.0f} монет\n"]
+        for uid, d in all_deposits:
+            uname = by_uid.get(str(uid))
+            amount = float(d.get('amount', 0) or 0)
+            term_days = d.get('termDays', 0)
+            rate = DEPOSIT_RATES.get(term_days, 0)
+            interest = round(amount * rate * (term_days / DEPOSIT_YEAR_DAYS) * 100) / 100
+            ends_at = d.get('endsAt', 0)
+            matured = ends_at <= now_ms
+            end_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
+            status = "готов к закрытию" if matured else f"до {end_dt.strftime('%d.%m %H:%M')} МСК"
+            lines.append(f"  {'@'+uname if uname else 'ID:'+str(uid)} (ID:{uid}) — {amount:,.0f} на {term_days}д ({rate*100:.0f}% годовых, +{interest:,.0f}) — {status}")
+
+        text = "\n".join(lines)
         for i in range(0, len(text), 4000):
             await message.answer(text[i:i+4000])
     except Exception as e:
