@@ -8299,7 +8299,7 @@ async def successful_payment(message: types.Message):
             except Exception:
                 pass
 
-        # Реферальный бонус: 50% от суммы вывода — начисляем на сервере, после того как
+        # Реферальный бонус: 10% от суммы вывода — начисляем на сервере, после того как
         # монеты реально списаны с проверенного баланса (а не по слову клиента).
         try:
             import aiohttp, time as time_mod
@@ -8308,7 +8308,7 @@ async def successful_payment(message: types.Message):
                 async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as resp:
                     referrer_id = await resp.json()
                 if referrer_id:
-                    bonus = round(int(coins) * 0.5 * 100) / 100
+                    bonus = round(int(coins) * 0.1 * 100) / 100
                     key = f"ref_bonus_{user_id}_{int(time_mod.time() * 1000)}"
                     from_name = f"@{username}" if username else f"ID:{user_id}"
                     await session.put(f"{base}/ref_bonuses/tg_{referrer_id}/{key}.json{FB_AUTH}", json={
