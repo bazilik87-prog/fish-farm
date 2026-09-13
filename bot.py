@@ -4778,6 +4778,37 @@ async def sync_state(request):
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
+    # Диагностический лог — та же цель, что и action_logs в process_actions/лотерее:
+    # без этого крупные ЛЕГИТИМНЫЕ приросты оффлайн-дохода через /sync были НЕВИДИМЫ в
+    # /actionlog (он показывает только записи /actions) — такой прирост тихо попадал в
+    # saves/{pid}/coins ДО следующего /actions-запроса, и весь скачок при аудите выглядел
+    # так, будто его сделало первое попавшееся действие в ЭТОМ запросе (реальный случай:
+    # @parjary, 13.09 — 43,971 оффлайн-дохода от Сети/Лодки/Сонара записал именно /sync за
+    # несколько секунд до claim_bonuses, а в логе это ошибочно выглядело как один сплошной
+    # скачок claim_bonuses). Порог 10,000 — тот же, что в summarize_actions_for_log, чтобы
+    # не раздувать лог на каждый чих обычной игры (тут /sync дёргается раз в 8с). Клэмп
+    # (suspicious) логируем ВСЕГДА независимо от порога — именно это и есть сигнал
+    # античита, даже если сумма на старте игры маленькая.
+    try:
+        sync_delta = round((final_coins - prev_coins) * 100) / 100
+        if suspicious or abs(sync_delta) >= 10000:
+            elapsed_days = round(elapsed_ms / 86400000, 2)
+            sign = '+' if sync_delta >= 0 else ''
+            detail = f"sync: {sign}{sync_delta:,.0f} за {elapsed_days}д (потолок {coin_ceiling:,.0f})"
+            if suspicious:
+                detail += " ⚠️ ОБРЕЗАНО"
+            async with aiohttp.ClientSession() as session:
+                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                    "ts": now_ms,
+                    "coins_before": round(prev_coins * 100) / 100,
+                    "coins_after": final_coins,
+                    "n_actions": 1,
+                    "src": "sync",
+                    "details": [detail]
+                })
+    except Exception:
+        pass
+
     return web.json_response({
         'ok': True,
         'coins': final_coins,
@@ -6617,9 +6648,15 @@ async def actionlog_command(message: types.Message):
                 before = entry.get('coins_before', 0)
                 after = entry.get('coins_after', 0)
                 n = entry.get('n_actions', '?')
-                src = entry.get('src')  # 'lottery_ad'/'lottery_premium'/'lottery_star' — помечаем отдельно,
-                # чтобы честные призы лотереи не путались с подозрительными скачками при аудите
-                src_label = f" [{src}:{entry.get('prize')}]" if src else ""
+                src = entry.get('src')  # 'lottery_ad'/'lottery_premium'/'lottery_star'/'sync' — помечаем
+                # отдельно, чтобы честные призы лотереи и легитимный /sync-прирост не путались с
+                # подозрительными скачками при аудите. prize есть только у лотерейных записей —
+                # у 'sync' его нет, и раньше тут печаталось буквально "[sync:None]".
+                if src:
+                    _prize = entry.get('prize')
+                    src_label = f" [{src}:{_prize}]" if _prize is not None else f" [{src}]"
+                else:
+                    src_label = ""
                 # Помечаем подозрительные случаи: этот запрос начал считать НЕ от того
                 # баланса, на котором закончился предыдущий обработанный запрос — явный
                 # признак гонки (второй запрос не увидел результат первого).
