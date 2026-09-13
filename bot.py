@@ -526,9 +526,15 @@ async def create_invoice(request):
             user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
             username = str(data.get('username', '')).strip()
             loc_mult = await get_location_mult(user_id)
-            max_withdraw = 50000 if loc_mult == 2 else 50000 * loc_mult * loc_mult  # Река —
-            # исключение, потолок оставлен как на Пруду по отдельной просьбе, остальные
+            # Пруд (loc_mult == 1) — отдельный пониженный потолок по просьбе. Река —
+            # исключение, потолок оставлен как на (старом) Пруду по отдельной просьбе, остальные
             # локации по формуле mult^2 (см. комментарий выше про Stars-за-GRAM).
+            if loc_mult == 1:
+                max_withdraw = 25000
+            elif loc_mult == 2:
+                max_withdraw = 50000
+            else:
+                max_withdraw = 50000 * loc_mult * loc_mult
             if coins < 1000 or coins > max_withdraw or not wallet:
                 return web.json_response({'error': f'сумма должна быть от 1,000 до {max_withdraw:,} монет'}, status=400, headers=CORS)
             # Проверяем реальный баланс в Firebase — не доверяем тому, что coins прислал клиент

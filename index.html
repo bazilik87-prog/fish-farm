@@ -768,8 +768,10 @@ function maxUnlockedMult() {
 }
 function maxWithdrawCap() {
   // Потолок растёт как mult^2 для честного Stars-за-GRAM на всех локациях, КРОМЕ
-  // Реки — там оставлен как на Пруду (50,000) по отдельной просьбе.
+  // Реки — там оставлен как на (старом) Пруду (50,000) по отдельной просьбе, и
+  // самого Пруда — там отдельный пониженный потолок (25,000) по отдельной просьбе.
   var m = maxUnlockedMult();
+  if (m === 1) return 25000;
   if (m === 2) return 50000;
   return 50000 * m * m;
 }
@@ -5467,7 +5469,7 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">⭐</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:1</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:1</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:1</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:1</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:1</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
@@ -5502,7 +5504,7 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Комиссия','Fee')+'</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:1</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:1</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:1</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:1</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:1</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
