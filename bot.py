@@ -230,6 +230,48 @@ PREMIUM_PRICE = 300  # ⭐/месяц
 REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
 
 SUPPORT_GROUP_ID = -5478312122
+# Раньше КАЖДАЯ отправка в эту группу была обёрнута в свой собственный тихий
+# try/except: pass — если бот терял доступ к группе (кикнут, утратил право писать,
+# права на группу передали другому аккаунту и т.п.), дубликаты заявок на выплату
+# просто перестают приходить, а в логах и в личке админа — ничего, полная тишина.
+# Подтверждённый случай: после передачи прав на группу другому аккаунту заявка на
+# выплату GRAM не продублировалась, и это заметили только вручную, сверяя ленту.
+# _support_group_broken — защита от повторного спама одним и тем же алертом на
+# каждую новую заявку, пока проблему не починили: первая неудача шлёт админу алерт
+# с точным текстом ошибки Telegram и взводит флаг, дальше молчит до первой успешной
+# отправки (которая сама сбрасывает флаг) или до ручной проверки /checkgroup.
+_support_group_broken = False
+
+
+async def notify_support_group(text):
+    """
+    Единая точка дублирования в группу поддержки — используй её вместо прямого
+    bot.send_message(SUPPORT_GROUP_ID, ...), чтобы сбой отправки никогда больше не
+    пропадал молча (см. комментарий у SUPPORT_GROUP_ID выше).
+    """
+    global _support_group_broken
+    try:
+        await bot.send_message(SUPPORT_GROUP_ID, text)
+        if _support_group_broken:
+            # Снова заработало — сбрасываем флаг, чтобы СЛЕДУЮЩИЙ сбой (если будет)
+            # не потерялся из-за того, что "мы же уже предупреждали один раз".
+            _support_group_broken = False
+    except Exception as e:
+        if ADMIN_ID and not _support_group_broken:
+            _support_group_broken = True
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"⚠️ Не удалось продублировать сообщение в группу поддержки "
+                    f"(ID {SUPPORT_GROUP_ID}):\n{type(e).__name__}: {e}\n\n"
+                    f"Похоже, бот потерял доступ к группе (кикнут, нет прав на отправку "
+                    f"сообщений, группа мигрировала в supergroup с новым ID и т.п.) — "
+                    f"проверь командой /checkgroup. Дальше это же сообщение повторно "
+                    f"не пришлю, пока не починится или не проверишь /checkgroup.\n\n"
+                    f"Текст, который не удалось отправить в группу:\n{text}"
+                )
+            except Exception:
+                pass  # не получилось написать даже админу — дальше эскалировать некуда
 
 
 async def is_premium(user_id):
@@ -1462,11 +1504,7 @@ async def _expire_matching_window(session, base, tournament_id):
                         await bot.send_message(ADMIN_ID, text)
                     except Exception:
                         pass
-                if SUPPORT_GROUP_ID:
-                    try:
-                        await bot.send_message(SUPPORT_GROUP_ID, text)
-                    except Exception:
-                        pass
+                await notify_support_group(text)
             return tdata
     return None
 
@@ -1682,11 +1720,7 @@ async def _settle_tournament(session, base, tournament_id):
                     await bot.send_message(ADMIN_ID, text)
                 except Exception:
                     pass
-            if SUPPORT_GROUP_ID:
-                try:
-                    await bot.send_message(SUPPORT_GROUP_ID, text)
-                except Exception:
-                    pass
+            await notify_support_group(text)
             try:
                 await _broadcast_tournament_victory(session, base, winner_name, payout, len(winner_participants))
             except Exception:
@@ -1727,11 +1761,7 @@ async def _expire_open_tournament(session, base, tournament_id):
                     await bot.send_message(ADMIN_ID, text)
                 except Exception:
                     pass
-            if SUPPORT_GROUP_ID:
-                try:
-                    await bot.send_message(SUPPORT_GROUP_ID, text)
-                except Exception:
-                    pass
+            await notify_support_group(text)
             return tdata
     return None
 
@@ -4838,13 +4868,9 @@ async def broadcast_jackpot_win(username, amount):
             )
         except Exception:
             pass
-    try:
-        await bot.send_message(
-            SUPPORT_GROUP_ID,
-            f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nТребует выплаты звёздами!"
-        )
-    except Exception:
-        pass
+    await notify_support_group(
+        f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nТребует выплаты звёздами!"
+    )
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -6213,6 +6239,7 @@ async def comm_command(message: types.Message):
         "/playerinfo @username — развёрнутая статистика игрока\n"
         "/actionlog @username [ДД.MM] — журнал действий игрока (по МСК-дате, опционально)\n"
         "/maintenance on|off — включить/выключить технические работы\n"
+        "/checkgroup — проверить, видит ли бот группу поддержки и может ли туда писать (дубли выплат/джекпота/возвратов)\n"
         "/premium @username [дни] — проверить/выдать/отозвать Premium\n"
         "/breakref @username — разорвать реферальную связь (для круговых цепочек)\n"
         "/breakref_all @username — разорвать ВСЕ реферальные связи этого реферера разом\n"
@@ -6677,6 +6704,66 @@ async def actionlog_command(message: types.Message):
                 await message.answer(prefix + "\n".join(chunk))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('checkgroup'))
+async def checkgroup_command(message: types.Message):
+    """
+    Диагностика доступа бота к группе поддержки (SUPPORT_GROUP_ID) — специально на случай
+    вроде недавней передачи прав на группу другому аккаунту, после которой дубли заявок на
+    выплату (GRAM/джекпот/возвраты за турниры) могли молча перестать приходить, потому что
+    каждая такая отправка раньше была обёрнута в свой тихий try/except (см. notify_support_group
+    и комментарий у SUPPORT_GROUP_ID). Проверяет три вещи по очереди: виден ли сам чат,
+    какой у бота там статус/права, и проходит ли РЕАЛЬНАЯ отправка сообщения — вместо того,
+    чтобы гадать по одному логу.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    global _support_group_broken
+    lines = [f"🔍 Диагностика группы поддержки (ID {SUPPORT_GROUP_ID}):\n"]
+
+    try:
+        chat = await bot.get_chat(SUPPORT_GROUP_ID)
+        lines.append(f"✅ Чат найден: «{chat.title}» (тип: {chat.type})")
+    except Exception as e:
+        lines.append(f"❌ Чат НЕ найден по этому ID: {type(e).__name__}: {e}")
+        lines.append(
+            "\nПохоже, у бота вообще нет доступа к этому chat_id — либо его кикнули из "
+            "группы, либо группа поменяла ID (например, мигрировала в supergroup — это "
+            "отдельный от передачи прав сценарий, но тоже даёт новый chat_id). В этом "
+            "случае SUPPORT_GROUP_ID в коде нужно обновить на актуальный — узнать новый ID "
+            "можно, добавив бота в группу заново и прочитав chat_id из любого сообщения там."
+        )
+        await message.answer("\n".join(lines))
+        return
+
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(SUPPORT_GROUP_ID, me.id)
+        status = member.status
+        lines.append(f"👤 Статус бота в группе: {status}")
+        if status in ('left', 'kicked'):
+            lines.append("❌ Бот больше не состоит в группе (вышел или его кикнули).")
+        elif status == 'administrator' and getattr(member, 'can_post_messages', True) is False:
+            lines.append("❌ Бот администратор, но право «Отправлять сообщения» у него отключено.")
+        elif status == 'restricted' and not getattr(member, 'can_send_messages', True):
+            lines.append("❌ Бот ограничен в правах — отправка сообщений запрещена.")
+        else:
+            lines.append("✅ Статус выглядит рабочим.")
+    except Exception as e:
+        lines.append(f"⚠️ Не удалось проверить права бота в группе: {type(e).__name__}: {e}")
+
+    try:
+        await bot.send_message(
+            SUPPORT_GROUP_ID,
+            "🔧 Тестовое сообщение от /checkgroup — если ты видишь это в группе, дубли выплат снова доходят."
+        )
+        lines.append("✅ Тестовое сообщение отправлено — проверь, что оно реально появилось в группе.")
+        _support_group_broken = False
+    except Exception as e:
+        lines.append(f"❌ Отправка тестового сообщения ПРОВАЛИЛАСЬ: {type(e).__name__}: {e}")
+
+    await message.answer("\n".join(lines))
 
 
 @dp.message(Command('maintenance'))
@@ -8661,13 +8748,9 @@ async def successful_payment(message: types.Message):
                 )
             except Exception:
                 pass
-            try:
-                await bot.send_message(
-                    SUPPORT_GROUP_ID,
-                    f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
-                )
-            except Exception:
-                pass
+            await notify_support_group(
+                f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
+            )
 
         # Реферальный бонус: 10% от суммы вывода — начисляем на сервере, после того как
         # монеты реально списаны с проверенного баланса (а не по слову клиента).
