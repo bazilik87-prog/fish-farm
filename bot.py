@@ -92,7 +92,13 @@ async def _cache_player_lang(session, base, pid, telegram_language_code):
     записи не должно ронять основной запрос, вызывающий код оборачивает в try/except.
     """
     lang = 'ru' if telegram_language_code == 'ru' else 'en'
-    await session.patch(f"{base}/saves/{pid}/langCode.json{FB_AUTH}", json=lang)
+    # PATCH на РОДИТЕЛЬСКИЙ узел с объектом {langCode: ...} — как и все остальные PATCH
+    # в этом файле (см. {'clanId': ...} и т.п.). PATCH прямо на лист (saves/{pid}/langCode.json)
+    # с голым скаляром в теле Firebase REST не гарантированно поддерживает как "update
+    # children" — вероятный молчаливый баг: не кидает исключение (try/except у вызывающего
+    # кода ловил бы только сетевые ошибки), но и не записывает, из-за чего _player_lang()
+    # всегда возвращал дефолтный 'en', даже у русскоязычных игроков.
+    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={'langCode': lang})
 
 
 async def _player_lang(session, base, pid):
@@ -240,6 +246,13 @@ async def is_premium(user_id):
 
 
 LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
+# Сам пул джекпота растёт и сбрасывается ТОЧНО как раньше (стартует/сбрасывается на 50,
+# диапазон 50-1000 — см. все места с литералом 50 рядом с jackpot). JACKPOT_WIN_THRESHOLD —
+# НЕ пол пула, а порог ВЫИГРЫШНОСТИ: пока накопленный джекпот меньше этой суммы, приз
+# 'jackpot' просто не попадает в пул призов лотереи (см. pick_lottery_prize) — выиграть
+# его физически нельзя, хотя сама цифра на экране может быть и ниже. С 100 до 200 шанс
+# 0.1% (как и было), с 200+ — 1% (как и было) — эти веса не менялись.
+JACKPOT_WIN_THRESHOLD = 100
 DEPOSIT_MIN_AMOUNT = 50000
 DEPOSIT_RATES = {15: 0.08, 30: 0.12}  # срок в днях -> ставка ГОДОВЫХ (не за весь срок!)
 DEPOSIT_YEAR_DAYS = 365
@@ -3039,7 +3052,11 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True):
         {'kind': 'truck_ticket', 'amount': 1, 'label': '🚛 Билет на аренду грузовика (12ч)', 'weight': 3},
         {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 30},
     ]
-    if include_jackpot:
+    # Пока накопленный джекпот меньше порога — его вообще не добавляем в пул призов,
+    # то есть выиграть его физически нельзя (вес 0 и "weight: 0.0001" дали бы то же самое,
+    # но явное условие понятнее). Выше порога — веса ТЕ ЖЕ, что были всегда: 0.1% от 100
+    # до 200, 1% от 200 и выше (проверено: 0.16016/(160+0.16016)≈0.001, 1.616162/(160+1.616162)≈0.01).
+    if include_jackpot and jackpot >= JACKPOT_WIN_THRESHOLD:
         prizes.append({'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
                         'weight': 1.616162 if jackpot >= 200 else 0.16016})
     total = sum(p['weight'] for p in prizes)
@@ -4853,7 +4870,10 @@ async def jackpot_broadcast(request):
     except Exception:
         current_jackpot = None
     current_jackpot = current_jackpot or 50
-    if not isinstance(amount, (int, float)) or amount < 50 or abs(amount - current_jackpot) > 1:
+    # Порог тут — JACKPOT_WIN_THRESHOLD (100), не 50: пул может лежать и ниже 100, но
+    # РЕАЛЬНЫЙ выигрыш (который сюда приходит для ретрансляции) физически не может быть
+    # меньше порога выигрышности — см. pick_lottery_prize.
+    if not isinstance(amount, (int, float)) or amount < JACKPOT_WIN_THRESHOLD or abs(amount - current_jackpot) > 1:
         return web.json_response({'error': 'сумма не совпадает с текущим джекпотом — используй /lottery_spin'}, status=400, headers=CORS)
     try:
         async with aiohttp.ClientSession() as session:
@@ -6164,6 +6184,7 @@ async def comm_command(message: types.Message):
         "/tempban 111 @username [дней] — временный бан на N дней (по умолч. 7), ID и/или @username, прогресс не трогает, разбан сам по истечении\n"
         "/unban 123456789 — досрочно снять бан (постоянный или временный), ID или @username\n"
         "/banlist — список всех активных банов (постоянные + временные с датой окончания)\n"
+        "/langstats — сколько игроков на ru/en (по кэшу языка Telegram-клиента) + список англоязычных\n"
         "/deplist — список всех активных банковских вкладов по игрокам (скоро закроются — вверху)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
@@ -7185,6 +7206,68 @@ async def banlist_command(message: types.Message):
 
         text = "\n".join(lines)
         # На случай очень длинного списка — режем по 4000 символов, как в /actionlog
+        for i in range(0, len(text), 4000):
+            await message.answer(text[i:i+4000])
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('langstats'))
+async def langstats_command(message: types.Message):
+    """
+    Счётчик языка по кэшу saves/{pid}/langCode (см. _cache_player_lang/_player_lang) —
+    это СЫРОЙ Telegram language_code игрока на момент, когда сервер его последний раз
+    видел (сейчас кэш обновляется через /clan_status), а НЕ ручной переключатель языка в
+    самой игре (setLanguage() в index.html) — тот живёт только в localStorage на устройстве
+    игрока и на сервер вообще не передаётся, увидеть его отсюда нельзя. "Не закэшировано"
+    не значит "русский" — значит просто ещё не видели апдейт от этого игрока с момента,
+    как кэш появился в коде.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
+                saves_data = await resp.json()
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb_data = await resp.json()
+        by_uid = {}
+        if isinstance(lb_data, dict):
+            for v in lb_data.values():
+                if isinstance(v, dict) and v.get('userId'):
+                    by_uid[str(v['userId'])] = v.get('username')
+
+        ru_uids, en_uids, unknown_count = [], [], 0
+        if isinstance(saves_data, dict):
+            for pid, sv in saves_data.items():
+                if not isinstance(sv, dict):
+                    continue
+                uid = pid[3:] if pid.startswith('tg_') else pid
+                lang = sv.get('langCode')
+                if lang == 'ru':
+                    ru_uids.append(uid)
+                elif lang == 'en':
+                    en_uids.append(uid)
+                else:
+                    unknown_count += 1
+
+        total = len(ru_uids) + len(en_uids) + unknown_count
+        lines = [
+            "🌐 Язык клиента Telegram (по кэшу langCode):",
+            f"🇷🇺 ru: {len(ru_uids)}",
+            f"🇬🇧 en: {len(en_uids)}",
+            f"❔ ещё не закэшировано (давно не заходили с момента добавления кэша): {unknown_count}",
+            f"Всего аккаунтов: {total}\n",
+        ]
+        if en_uids:
+            lines.append("🇬🇧 Англоязычные:")
+            for uid in en_uids:
+                uname = by_uid.get(str(uid))
+                lines.append(f"  {'@'+uname if uname else 'ID:'+str(uid)} (ID:{uid})")
+
+        text = "\n".join(lines)
         for i in range(0, len(text), 4000):
             await message.answer(text[i:i+4000])
     except Exception as e:
