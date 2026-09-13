@@ -14,6 +14,7 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo, LabeledPrice, PreCheckoutQuery
 )
+from aiogram.exceptions import TelegramMigrateToChat
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
@@ -232,10 +233,20 @@ REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером иг
 SUPPORT_GROUP_ID = -5478312122
 # Раньше КАЖДАЯ отправка в эту группу была обёрнута в свой собственный тихий
 # try/except: pass — если бот терял доступ к группе (кикнут, утратил право писать,
-# права на группу передали другому аккаунту и т.п.), дубликаты заявок на выплату
-# просто перестают приходить, а в логах и в личке админа — ничего, полная тишина.
-# Подтверждённый случай: после передачи прав на группу другому аккаунту заявка на
-# выплату GRAM не продублировалась, и это заметили только вручную, сверяя ленту.
+# группа мигрировала в supergroup и т.п.), дубликаты заявок на выплату просто
+# перестают приходить, а в логах и в личке админа — ничего, полная тишина.
+# Подтверждённый случай (13.09): после передачи прав на группу другому аккаунту
+# группа «Выплаты 💵» технически мигрировала из обычной группы в supergroup — Telegram
+# в этот момент НАВСЕГДА меняет chat_id (это у него общее свойство миграции, не
+# специфика передачи прав), старый ID перестаёт существовать как чат вообще, и
+# bot.send_message на него падает с TelegramMigrateToChat, а не просто "нет прав".
+# _support_group_chat_id — актуальный chat_id группы В ПАМЯТИ ЭТОГО ПРОЦЕССА.
+# При миграции notify_support_group() сам переключается на новый ID и тут же
+# пересылает туда же сообщение — дубли снова идут без редеплоя. Но это лечение
+# живёт только до следующего перезапуска бота (не записано никуда на диск) — новый
+# ID обязательно нужно перенести в саму константу SUPPORT_GROUP_ID и задеплоить,
+# иначе при следующем старте бот снова начнёт с уже недействительного старого ID.
+_support_group_chat_id = SUPPORT_GROUP_ID
 # _support_group_broken — защита от повторного спама одним и тем же алертом на
 # каждую новую заявку, пока проблему не починили: первая неудача шлёт админу алерт
 # с точным текстом ошибки Telegram и взводит флаг, дальше молчит до первой успешной
@@ -247,15 +258,43 @@ async def notify_support_group(text):
     """
     Единая точка дублирования в группу поддержки — используй её вместо прямого
     bot.send_message(SUPPORT_GROUP_ID, ...), чтобы сбой отправки никогда больше не
-    пропадал молча (см. комментарий у SUPPORT_GROUP_ID выше).
+    пропадал молча, и чтобы миграция группы в supergroup лечилась на лету (см.
+    комментарий у SUPPORT_GROUP_ID выше).
     """
-    global _support_group_broken
+    global _support_group_broken, _support_group_chat_id
     try:
-        await bot.send_message(SUPPORT_GROUP_ID, text)
+        await bot.send_message(_support_group_chat_id, text)
         if _support_group_broken:
             # Снова заработало — сбрасываем флаг, чтобы СЛЕДУЮЩИЙ сбой (если будет)
             # не потерялся из-за того, что "мы же уже предупреждали один раз".
             _support_group_broken = False
+    except TelegramMigrateToChat as e:
+        old_id = _support_group_chat_id
+        new_id = e.migrate_to_chat_id
+        _support_group_chat_id = new_id  # дальше в этом процессе шлём сразу на новый ID
+        try:
+            await bot.send_message(new_id, text)
+            healed = True
+        except Exception:
+            healed = False
+        if ADMIN_ID and not _support_group_broken:
+            _support_group_broken = True
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"⚠️ Группа поддержки мигрировала из обычной группы в supergroup: "
+                    f"{old_id} → {new_id}.\n\n"
+                    + (f"Сообщение переотправлено на новый ID — дубли снова идут, но "
+                       f"ТОЛЬКО до следующего перезапуска бота (подмена есть только в "
+                       f"памяти процесса)." if healed else
+                       f"Попытка отправить на новый ID ТОЖЕ провалилась — проверь права "
+                       f"бота в новой супергруппе отдельно, возможно его там больше нет.")
+                    + f"\n\n❗️Обнови константу SUPPORT_GROUP_ID в коде на {new_id} и "
+                    f"задеплой — иначе при следующем перезапуске бот снова начнёт со "
+                    f"старого несуществующего ID.\n\nТекст сообщения:\n{text}"
+                )
+            except Exception:
+                pass
     except Exception as e:
         if ADMIN_ID and not _support_group_broken:
             _support_group_broken = True
@@ -263,12 +302,11 @@ async def notify_support_group(text):
                 await bot.send_message(
                     ADMIN_ID,
                     f"⚠️ Не удалось продублировать сообщение в группу поддержки "
-                    f"(ID {SUPPORT_GROUP_ID}):\n{type(e).__name__}: {e}\n\n"
+                    f"(ID {_support_group_chat_id}):\n{type(e).__name__}: {e}\n\n"
                     f"Похоже, бот потерял доступ к группе (кикнут, нет прав на отправку "
-                    f"сообщений, группа мигрировала в supergroup с новым ID и т.п.) — "
-                    f"проверь командой /checkgroup. Дальше это же сообщение повторно "
-                    f"не пришлю, пока не починится или не проверишь /checkgroup.\n\n"
-                    f"Текст, который не удалось отправить в группу:\n{text}"
+                    f"сообщений и т.п.) — проверь командой /checkgroup. Дальше это же "
+                    f"сообщение повторно не пришлю, пока не починится или не проверишь "
+                    f"/checkgroup.\n\nТекст, который не удалось отправить в группу:\n{text}"
                 )
             except Exception:
                 pass  # не получилось написать даже админу — дальше эскалировать некуда
@@ -6709,28 +6747,30 @@ async def actionlog_command(message: types.Message):
 @dp.message(Command('checkgroup'))
 async def checkgroup_command(message: types.Message):
     """
-    Диагностика доступа бота к группе поддержки (SUPPORT_GROUP_ID) — специально на случай
-    вроде недавней передачи прав на группу другому аккаунту, после которой дубли заявок на
-    выплату (GRAM/джекпот/возвраты за турниры) могли молча перестать приходить, потому что
-    каждая такая отправка раньше была обёрнута в свой тихий try/except (см. notify_support_group
+    Диагностика доступа бота к группе поддержки — специально на случай вроде недавней
+    передачи прав на группу другому аккаунту, после которой дубли заявок на выплату
+    (GRAM/джекпот/возвраты за турниры) могли молча перестать приходить, потому что каждая
+    такая отправка раньше была обёрнута в свой тихий try/except (см. notify_support_group
     и комментарий у SUPPORT_GROUP_ID). Проверяет три вещи по очереди: виден ли сам чат,
     какой у бота там статус/права, и проходит ли РЕАЛЬНАЯ отправка сообщения — вместо того,
-    чтобы гадать по одному логу.
+    чтобы гадать по одному логу. Использует _support_group_chat_id (актуальный ID в памяти
+    процесса, а не всегда исходную константу) — после автолечения миграции в supergroup
+    проверяет уже новый ID, а не всегда бьётся в старый несуществующий чат.
     """
     if message.from_user.id != ADMIN_ID:
         return
-    global _support_group_broken
-    lines = [f"🔍 Диагностика группы поддержки (ID {SUPPORT_GROUP_ID}):\n"]
+    global _support_group_broken, _support_group_chat_id
+    check_id = _support_group_chat_id
+    lines = [f"🔍 Диагностика группы поддержки (ID {check_id}):\n"]
 
     try:
-        chat = await bot.get_chat(SUPPORT_GROUP_ID)
+        chat = await bot.get_chat(check_id)
         lines.append(f"✅ Чат найден: «{chat.title}» (тип: {chat.type})")
     except Exception as e:
         lines.append(f"❌ Чат НЕ найден по этому ID: {type(e).__name__}: {e}")
         lines.append(
             "\nПохоже, у бота вообще нет доступа к этому chat_id — либо его кикнули из "
-            "группы, либо группа поменяла ID (например, мигрировала в supergroup — это "
-            "отдельный от передачи прав сценарий, но тоже даёт новый chat_id). В этом "
+            "группы, либо группа поменяла ID (например, мигрировала в supergroup). В этом "
             "случае SUPPORT_GROUP_ID в коде нужно обновить на актуальный — узнать новый ID "
             "можно, добавив бота в группу заново и прочитав chat_id из любого сообщения там."
         )
@@ -6739,7 +6779,7 @@ async def checkgroup_command(message: types.Message):
 
     try:
         me = await bot.get_me()
-        member = await bot.get_chat_member(SUPPORT_GROUP_ID, me.id)
+        member = await bot.get_chat_member(check_id, me.id)
         status = member.status
         lines.append(f"👤 Статус бота в группе: {status}")
         if status in ('left', 'kicked'):
@@ -6753,13 +6793,26 @@ async def checkgroup_command(message: types.Message):
     except Exception as e:
         lines.append(f"⚠️ Не удалось проверить права бота в группе: {type(e).__name__}: {e}")
 
+    test_text = "🔧 Тестовое сообщение от /checkgroup — если ты видишь это в группе, дубли выплат снова доходят."
     try:
-        await bot.send_message(
-            SUPPORT_GROUP_ID,
-            "🔧 Тестовое сообщение от /checkgroup — если ты видишь это в группе, дубли выплат снова доходят."
-        )
+        await bot.send_message(check_id, test_text)
         lines.append("✅ Тестовое сообщение отправлено — проверь, что оно реально появилось в группе.")
         _support_group_broken = False
+    except TelegramMigrateToChat as e:
+        new_id = e.migrate_to_chat_id
+        lines.append(f"❌ Группа мигрировала в supergroup: {check_id} → {new_id}")
+        _support_group_chat_id = new_id  # лечим на лету для всех следующих вызовов в этом процессе
+        try:
+            await bot.send_message(new_id, test_text)
+            lines.append(f"✅ Тестовое сообщение отправлено на НОВЫЙ ID ({new_id}) — проверь группу.")
+            _support_group_broken = False
+        except Exception as e2:
+            lines.append(f"❌ Отправка на новый ID тоже провалилась: {type(e2).__name__}: {e2}")
+        lines.append(
+            f"\n❗️Это временное лечение ТОЛЬКО в памяти процесса — переживёт дальнейшую работу "
+            f"бота, но не переживёт перезапуск. Обнови константу в коде: "
+            f"SUPPORT_GROUP_ID = {new_id} — и задеплой, чтобы не слетело снова."
+        )
     except Exception as e:
         lines.append(f"❌ Отправка тестового сообщения ПРОВАЛИЛАСЬ: {type(e).__name__}: {e}")
 
