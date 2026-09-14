@@ -1275,11 +1275,19 @@ TOURNAMENT_TAUNTS = [
 
 async def _notify_new_open_tournament(session, base, t):
     """
-    Турнир опубликован (funding -> open) — «клич» игрокам, состоящим в ЛЮБОМ клане,
+    Турнир опубликован (funding -> open) — «клич» ВООБЩЕ ВСЕМ зарегистрированным игрокам,
     КРОМЕ клана-инициатора: провокационное уведомление в духе «дайте им отпор», чтобы
-    игрок открыл вкладку «Клан», увидел турнир в общем списке и, может, принял вызов.
+    игрок открыл вкладку «Клан», увидел турнир в общем списке и, может, принял вызов —
+    а для тех, кто ещё не в клане (или это вообще не тестер CLAN_TESTERS), это заодно и
+    тизер самой клановой системы: пусть видят, что где-то там уже идёт битва за звёзды.
     Участников клана-инициатора не трогаем — они уже получили другое уведомление
     («ваш капитан создал турнир, скинься») в момент оплаты первого взноса.
+    Раньше рассылалось только участникам ДРУГИХ кланов (через /clans.json) — пока клановая
+    фича доступна единицам тестеров, «другие кланы» почти пусты, и клич до всех остальных
+    игроков просто не доходил (см. разбор с админом — то самое «уведомление приходит
+    только тем, кто в клане»). Теперь сначала обходим клановых игроков (как раньше — они
+    могут сразу принять вызов), а следом добираем ВСЕХ остальных из leaderboard, кого ещё
+    не задели — ровно та же схема рассылки, что и в /broadcast.
     Best-effort: падение здесь не должно мешать самой публикации турнира — вызывающий
     код это гарантирует (см. _fixate_tournament).
     """
@@ -1288,15 +1296,31 @@ async def _notify_new_open_tournament(session, base, t):
     init_clan_name = t.get('initiatorClanName', '?')
     amount = t.get('amountPerPerson', 0)
     taunt = random.choice(TOURNAMENT_TAUNTS)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+
+    async def _send_taunt(pid_m, uid):
+        lang = await _player_lang(session, base, pid_m)
+        text = taunt[lang].format(clan=init_clan_name, amount=amount)
+        try:
+            await bot.send_message(uid, text, reply_markup=keyboard)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+    # Сначала — участники ДРУГИХ кланов (кроме инициатора). already_notified защищает
+    # второй проход по leaderboard от повторной отправки этим же людям.
+    already_notified = set()
+    init_clan_members = set()
     try:
         async with session.get(f"{base}/clans.json{FB_AUTH}") as resp:
             all_clans = await resp.json()
     except Exception:
-        return
+        all_clans = None
     all_clans = all_clans or {}
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-    ]])
+    if isinstance(all_clans.get(init_clan_id), dict):
+        init_clan_members = set((all_clans[init_clan_id].get('members') or {}).keys())
     for cid, c in all_clans.items():
         if cid == init_clan_id or not isinstance(c, dict):
             continue
@@ -1307,13 +1331,26 @@ async def _notify_new_open_tournament(session, base, t):
             uid = m.get('userId')
             if not uid:
                 continue
-            lang = await _player_lang(session, base, pid_m)
-            text = taunt[lang].format(clan=init_clan_name, amount=amount)
-            try:
-                await bot.send_message(uid, text, reply_markup=keyboard)
-            except Exception:
-                pass
-            await asyncio.sleep(0.05)
+            already_notified.add(pid_m)
+            await _send_taunt(pid_m, uid)
+
+    # Теперь добираем ВСЕХ остальных зарегистрированных игроков (включая тех, кто вообще
+    # не в клане/не тестер) — та же логика прохода по leaderboard.json, что в /broadcast.
+    try:
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            all_players = await resp.json()
+    except Exception:
+        return
+    all_players = all_players or {}
+    for pid_m, v in all_players.items():
+        if pid_m in already_notified or pid_m in init_clan_members:
+            continue
+        if not isinstance(v, dict):
+            continue
+        uid = v.get('userId')
+        if not uid:
+            continue
+        await _send_taunt(pid_m, uid)
 
 
 async def _fixate_tournament(session, base, tournament_id):
