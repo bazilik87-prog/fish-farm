@@ -5289,6 +5289,75 @@ async def addcoins_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('addenergy'))
+async def addenergy_command(message: types.Message):
+    """
+    Ручная компенсация энергии — в первую очередь для случаев, когда оплата Stars за
+    заполнение энергии (boost_id == 'energyFull' в successful_payment) прошла, а энергия
+    по какой-то причине не была выдана (реальный случай: игрок ID 829362447, 3 оплаты
+    подряд — до фикса successful_payment такие сбои глушились молча, без всякого следа).
+    Пишет energy тем же путём, что и сама покупка — напрямую в saves, до максимума
+    (100 обычным игрокам, 150 с Premium).
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 2:
+        await message.answer(
+            "Использование:\n<code>/addenergy @username</code> или <code>/addenergy 123456789</code>\n\n"
+            "Заполняет энергию игрока до максимума (100 или 150 с Premium).",
+            parse_mode="HTML"
+        )
+        return
+    arg = text[1].lstrip('@')
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        user_id = None
+        if arg.isdigit():
+            user_id = arg
+        else:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    data = await resp.json()
+            if data:
+                for v in data.values():
+                    if str(v.get('username', '')).lower() == arg.lower():
+                        user_id = str(v.get('userId'))
+                        break
+
+        if not user_id:
+            await message.answer(f"❌ Игрок {arg} не найден (ищем по username в leaderboard — если это ID, пришли числом).")
+            return
+
+        pid = f"tg_{user_id}"
+        max_energy = 150 if await is_premium(user_id) else 100
+        async with aiohttp.ClientSession() as session:
+            presp = await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                "energy": max_energy,
+                "lastEnergyUpdate": int(time.time() * 1000)
+            })
+            if presp.status not in (200, 204):
+                await message.answer(f"❌ Не удалось записать: {presp.status} {await presp.text()}")
+                return
+
+        try:
+            await bot.send_message(
+                int(user_id),
+                "⚡ <b>Администратор восполнил тебе энергию до максимума!</b>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+                ]])
+            )
+        except Exception:
+            pass
+
+        await message.answer(f"✅ ID {user_id}: энергия заполнена до {max_energy}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('referrals'))
 async def referrals_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -6357,6 +6426,7 @@ async def comm_command(message: types.Message):
         "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
         "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/addenergy @username — вручную заполнить энергию до максимума (компенсация за не выданную оплаченную покупку)\n"
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
         "/actionlog @username [ДД.MM] — журнал действий игрока (по МСК-дате, опционально)\n"
@@ -6641,6 +6711,22 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"💎 Premium: активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
         else:
             lines.append("💎 Premium: не активен")
+
+        # Энергия — раньше не показывалась здесь вообще, хотя sv её и так уже содержит.
+        # Из-за этого расследование жалоб вида "оплатил заполнение энергии, не сработало"
+        # (см. ID 829362447) приходилось вести вслепую, не видя текущего числа. Считаем
+        # с тем же реgenом, что и сервер в /actions и compute_earning_ceiling.
+        max_energy = 150 if is_prem else 100
+        raw_energy = sv.get('energy')
+        raw_energy = max_energy if raw_energy is None else float(raw_energy)
+        last_energy_update = sv.get('lastEnergyUpdate') or 0
+        if last_energy_update:
+            regen_sec = max(0, (now_ms - last_energy_update) / 1000)
+            current_energy = min(max_energy, raw_energy + regen_sec / ENERGY_REGEN_SEC)
+            upd_dt = datetime.fromtimestamp(last_energy_update / 1000, tz=timezone(timedelta(hours=3)))
+            lines.append(f"⚡ Энергия: {current_energy:.1f}/{max_energy} (сохранено {raw_energy:.1f}, обновлено {upd_dt.strftime('%d.%m %H:%M')} МСК)")
+        else:
+            lines.append(f"⚡ Энергия: {raw_energy:.1f}/{max_energy} (нет времени обновления)")
 
         if ban_val is True:
             lines.append("🚫 Бан: НАВСЕГДА")

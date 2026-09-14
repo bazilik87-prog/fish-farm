@@ -3357,6 +3357,16 @@ function activateBoost(id, growJackpot) {
   if (id==='energyFull') {
     state.energy = getEnergyMax();
     state.lastEnergyUpdate = now;
+    // Короткая блокировка тапов сразу после покупки. Оплата за Stars долетает до СЕРВЕРА
+    // (successful_payment в bot.py, который и пишет реальную энергию в Firebase) чуть позже,
+    // чем клиент узнаёт об оплате через колбэк openInvoice — это две независимые доставки
+    // от Telegram. Если тапать именно в эту паузу, сервер ещё видит старую низкую энергию
+    // и честно отклоняет улов, хотя оплата прошла — притом что клиент уже нарисовал полную
+    // шкалу. При частом тапе (турнир, клан) это может задеть сразу пачку тапов, ушедших в
+    // одном батче /actions, и выглядеть так, будто покупка вообще не сработала (см. разбор
+    // ID 829362447 — тапал без остановки в последние минуты кланового турнира). 1.5с с
+    // запасом перекрывают типичное время доставки вебхука оплаты.
+    window._energyPurchaseLockUntil = now + 1500;
     showNotif(t('⚡ Энергия заполнена!','⚡ Energy filled!'));
   }
   if (id==='doubleTap')  state.boosts.doubleTap  = now + 3600000;
@@ -5679,6 +5689,14 @@ function showBannedOverlay(bannedUntil) {
 function tapOcean(e) {
   e.preventDefault();
   var now=Date.now();
+  // Сразу после покупки заполнения энергии за Stars — короткое окно, пока оплата ещё не
+  // долетела до сервера (см. activateBoost). Не отправляем тап на сервер в эту паузу —
+  // без этой блокировки сервер мог бы отклонить улов по старой энергии, хотя на экране
+  // уже полная шкала. Не молчим — короткий тост, чтобы не выглядело зависанием.
+  if (window._energyPurchaseLockUntil && now < window._energyPurchaseLockUntil) {
+    showNotif(t('⏳ Секунду, обрабатываем оплату энергии...','⏳ One sec, processing your energy purchase...'));
+    return;
+  }
   if (now-lastTapTime<200) return;
   lastTapTime=now; tapTimes.push(now); updateScare();
   var touch=e.touches&&e.touches[0]?e.touches[0]:e;
