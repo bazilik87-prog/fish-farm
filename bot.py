@@ -4940,6 +4940,15 @@ async def sync_state(request):
             detail = f"sync: {sign}{sync_delta:,.0f} за {elapsed_days}д (потолок {coin_ceiling:,.0f})"
             if suspicious:
                 detail += " ⚠️ ОБРЕЗАНО"
+            # Раньше detail описывал только coins — если clamp сработал на caught/totalEarned
+            # (см. фикс "исчезающей рыбы" в турнирах), это никак не было видно в /actionlog:
+            # запись говорила "ОБРЕЗАНО", а числа показывали coins, которые вообще не трогали.
+            # Добавляем отдельную строку именно для этого случая — это и есть тот сигнал,
+            # по которому можно найти игроков с рассинхроном между устройствами.
+            if catch_delta < 0:
+                detail += f" | caught: клиент прислал {req_caught:,} (было {prev_caught:,}, -{prev_caught - req_caught:,}) — оставлено {prev_caught:,}"
+            if earned_delta < 0:
+                detail += f" | totalEarned: клиент прислал {req_total_earned:,.0f} (было {prev_total_earned:,.0f}) — оставлено {prev_total_earned:,.0f}"
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
                     "ts": now_ms,
@@ -8265,6 +8274,30 @@ async def pushcomeback_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+async def _alert_payment_fulfillment_failed(user_id, label, detail=''):
+    """
+    Оплата Stars прошла на стороне Telegram (звёзды уже списаны) — а мы не смогли выдать
+    то, за что заплатили: сбой сети, ошибка записи в Firebase и т.п. Раньше КАЖДАЯ ветка
+    successful_payment глушила такую ошибку голым `except Exception: pass` — платёж
+    проходил, а игрок оставался ни с чем, без единого следа в логах, откуда админ мог бы
+    вообще узнать, что кому-то не дозачислили оплаченное (реальный случай: игрок оплатил
+    заполнение энергии, деньги списались, энергия не пополнилась — и без этого уведомления
+    узнать о сбое можно было только если сам игрок пожалуется). Теперь при сбое любой из
+    веток сразу шлём админу ID игрока и что именно не выдалось, чтобы доначислить вручную.
+    Best-effort — сбой самого уведомления не должен маскировать/поднимать исключение выше.
+    """
+    if not ADMIN_ID:
+        return
+    try:
+        text = f"🚨 Оплата Stars прошла, но начисление НЕ удалось!\n👤 ID: {user_id}\n📦 {label}"
+        if detail:
+            text += f"\n⚠️ {detail}"
+        text += "\n\nНужно начислить/выдать вручную."
+        await bot.send_message(ADMIN_ID, text)
+    except Exception:
+        pass
+
+
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
     await query.answer(ok=True)
@@ -8326,26 +8359,42 @@ async def successful_payment(message: types.Message):
                 # pending_boosts/lottery_result теперь пишется ВНУТРИ apply_lottery_prize,
                 # сразу после начисления в saves — не здесь и не после (см. комментарий там).
                 await apply_lottery_prize(pid, prize, mult, True, username, 'star')
-            except Exception:
-                pass
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
         elif boost_id == 'energyFull':
             # Заполнение энергии за Stars — раньше клиент только показывал полную шкалу
             # у себя локально, а сервер (который теперь решает энергию для /actions)
             # об этом не узнавал: через пару тапов после покупки сервер видел старое
             # низкое значение и начинал отклонять уловы. Пишем реальную энергию сюда же.
-            try:
-                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-                max_energy = 150 if await is_premium(user_id) else 100
-                import time
-                async with aiohttp.ClientSession() as session:
-                    await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                        "energy": max_energy,
-                        "lastEnergyUpdate": int(time.time() * 1000)
-                    })
-                    url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
-                    await session.put(url, json=int(time.time() * 1000))
-            except Exception:
-                pass
+            # Подтверждённый случай: игрок оплатил, звёзды списались, энергия не
+            # пополнилась — а из-за голого except:pass ниже об этом никто не узнал, пока
+            # игрок сам не пожаловался. Теперь: 3 попытки записи с паузой (транзиентный
+            # сетевой сбой не должен стоить игроку оплаченной покупки) и явный алерт
+            # админу, если так и не удалось — чтобы можно было доначислить вручную.
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            max_energy = 150 if await is_premium(user_id) else 100
+            import time
+            done = False
+            last_err = None
+            for attempt in range(3):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        presp = await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
+                            "energy": max_energy,
+                            "lastEnergyUpdate": int(time.time() * 1000)
+                        })
+                        if presp.status not in (200, 204):
+                            raise RuntimeError(f"saves PATCH failed: {presp.status} {await presp.text()}")
+                        url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
+                        await session.put(url, json=int(time.time() * 1000))
+                    done = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    if attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+            if not done:
+                await _alert_payment_fulfillment_failed(user_id, label, f"energy PATCH не прошёл после 3 попыток: {last_err}")
         elif boost_id.startswith('weather_'):
             # Платная смена погоды — раньше плательщик сам писал weather.set() у себя
             # в клиенте с СВОИМ Date.now(). Теперь пишет сервер, серверным временем —
@@ -8359,16 +8408,16 @@ async def successful_payment(message: types.Message):
                     await session.put(f"{base}/weather.json{FB_AUTH}", json={'id': weather_id, 'endsAt': ends_at})
                     url = f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
                     await session.put(url, json=ends_at)
-            except Exception:
-                pass
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
         else:
             try:
                 url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}"
                 import time
                 async with aiohttp.ClientSession() as session:
                     await session.put(url, json=int(time.time() * 1000))
-            except Exception:
-                pass
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
 
     elif payload.startswith('rb:'):
         # Биржа рефералов — покупатель оплатил, привязываем реферальную связь.
