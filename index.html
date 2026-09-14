@@ -5386,7 +5386,7 @@ function renderSettings() {
     +'</div>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">📊 '+t('Статистика','Statistics')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:2">'
-    +t('Монет: ','Coins: ')+fmt(state.coins)+t('<br>Живых рыб: ','<br>Live fish: ')+state.liveFish.length+t('<br>За тап: ','<br>Per tap: ')+state.tapPower.toFixed(1)+t('<br>Авто/мин: ','<br>Auto/min: ')+state.autoPerMin+t('<br>Локация: ','<br>Location: ')+li.emoji+' '+locName(li.id)+t('<br>Настроение: ','<br>Mood: ')+mood+'</div></div>'
+    +t('Монет: ','Coins: ')+fmt(state.coins)+t('<br>Живых рыб: ','<br>Live fish: ')+state.liveFish.length+t('<br>За тап: ','<br>Per tap: ')+state.tapPower.toFixed(1)+t('<br>Авто/мин: ','<br>Auto/min: ')+state.autoPerMin+t('<br>Локация: ','<br>Location: ')+li.emoji+' '+locName(li.id)+t('<br>Настроение: ','<br>Mood: ')+mood+'<br>🟢 '+t('Онлайн: ','Online: ')+'<span id="onlineCountVal">…</span></div></div>'
     +'<div class="card">'
     +'<div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🌐 Язык / Language</div>'
     +'<div style="display:flex;gap:8px">'
@@ -5397,6 +5397,13 @@ function renderSettings() {
     +'<div class="card" style="background:#3d0f0f"><div style="font-size:14px;font-weight:600;color:#ff6b6b;margin-bottom:6px">'+t('Сброс прогресса','Reset progress')+'</div>'
     +'<div style="font-size:12px;color:#ff9999;margin-bottom:12px">'+t('Весь прогресс будет удалён безвозвратно','All progress will be permanently deleted')+'</div>'
     +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 '+t('Сбросить прогресс','Reset progress')+'</button></div>';
+  loadOnlineCount();
+}
+function loadOnlineCount() {
+  fetch(BOT_API_URL+'/online_count').then(function(r){ return r.json(); }).then(function(data){
+    var el = document.getElementById('onlineCountVal');
+    if (el && data && typeof data.online === 'number') el.textContent = data.online;
+  }).catch(function(){});
 }
 
 function showInstructions() {

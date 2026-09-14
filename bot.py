@@ -927,6 +927,32 @@ async def health(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+ONLINE_WINDOW_MS = 5 * 60 * 1000  # окно "онлайн" — 5 минут с последнего /actions (leaderboard.ts)
+
+
+async def online_count(request):
+    """
+    Считает игроков онлайн по leaderboard/*/ts — это поле уже пишет сервер на каждый
+    /actions (см. patch leaderboard/{pid} чуть выше по файлу), отдельного presence-узла
+    заводить не нужно. Отдаём только число, не список игроков — публичный эндпоинт,
+    без CORS-рисков утечки чьих-то данных.
+    """
+    if request.method == 'OPTIONS':
+        return web.json_response({}, headers=CORS)
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                players = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    players = players or {}
+    count = sum(1 for v in players.values() if isinstance(v, dict) and (now_ms - (v.get('ts') or 0)) <= ONLINE_WINDOW_MS)
+    return web.json_response({'ok': True, 'online': count}, headers=CORS)
+
+
 async def referral_market_list(request):
     """
     Биржа рефералов — список игроков, зашедших БЕЗ реферальной ссылки (значит их ещё
@@ -9187,6 +9213,8 @@ async def main():
     app.router.add_post('/clan_tournaments_open', clan_tournaments_open)
     app.router.add_options('/clan_tournaments_open', clan_tournaments_open)
     app.router.add_get('/health', health)
+    app.router.add_get('/online_count', online_count)
+    app.router.add_options('/online_count', online_count)
     app.router.add_get('/api/check', partner_check)
 
     if PUBLIC_URL:
