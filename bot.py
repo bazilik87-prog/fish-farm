@@ -3389,6 +3389,18 @@ async def reset_progress(request):
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
+    # Тот же фикс, что и для лотерейных призов "рыба" (см. apply_lottery_prize/lottery_spin):
+    # saves/{pid}/caught обнулили, но leaderboard/{pid}/caught — отдельная копия, которую
+    # читает живой счёт клановых турниров — сама по себе не пересчитывается. Без этого
+    # patch'а игрок, сбросивший прогресс, ходил бы с "призрачным" высоким caught в
+    # лидерборде/турнирах до своего следующего /actions. Best-effort — сам сброс уже
+    # прошёл успешно, сбой здесь не должен превращаться в ошибку для игрока.
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': 0, 'coins': 0, 'totalEarned': 0})
+    except Exception:
+        pass
+
     return web.json_response({'ok': True}, headers=CORS)
 
 
@@ -4855,6 +4867,30 @@ async def sync_state(request):
     # это всегда разрешено, потолок касается только РОСТА баланса.
     if coin_delta < 0:
         final_coins = req_coins
+
+    # caught и totalEarned — лайфтайм-счётчики: рыба, пойманная за всю игру, и звёзды,
+    # заработанные за всю игру, обратно не уменьшаются (в отличие от coins, которые
+    # тратятся). До этой проверки отрицательный catch_delta/earned_delta ничем не
+    # отличался от положительного — сервер писал МЕНЬШЕЕ значение, если клиент его
+    # прислал. А клиент может прислать меньшее значение не только при читерстве:
+    # второе открытое устройство/вкладка с устаревшим локальным состоянием, или
+    # перезагрузка страницы до того, как свежее значение из Firebase подтянулось в
+    # локальную переменную — оба случая шлют в /sync "вчерашний" caught. Раньше это
+    # тихо записывалось в saves/{pid}/caught, а на следующем /actions ЭТО меньшее
+    # значение (плюс новый улов) уезжало в leaderboard/{pid}/caught — откуда живой
+    # счёт клановых турниров (_tournament_live_catches = leaderboard.caught минус
+    # снэпшот на старте) читает данные. Итог — участник турнира видел, как его счёт
+    # визуально падает, будто пойманная рыба исчезла, хотя на самом деле сервер просто
+    # принял устаревшее число от одного из его устройств. Теперь уменьшение полностью
+    # игнорируем, оставляя прежнее подтверждённое значение, и помечаем suspicious —
+    # чтобы такие случаи (реальный рассинхрон между устройствами, не только чит-попытки)
+    # были видны в /actionlog так же, как обрезка по потолку.
+    if catch_delta < 0:
+        suspicious = True
+        final_caught = prev_caught
+    if earned_delta < 0:
+        suspicious = True
+        final_total_earned = prev_total_earned
 
     max_energy = 150 if is_prem else 100
     final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
