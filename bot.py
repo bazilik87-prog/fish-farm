@@ -9291,6 +9291,76 @@ async def successful_payment(message: types.Message):
             pass
 
 
+@dp.message(Command('cleanup_inactive'))
+async def cleanup_inactive_command(message: types.Message):
+    """
+    Ручной запуск для проверки перед тем, как доверять автоматике.
+    /cleanup_inactive — dry-run, только список кандидатов, ничего не удаляет.
+    /cleanup_inactive confirm — реально удаляет прямо сейчас, не дожидаясь суточного цикла.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    dry_run = not (len(args) > 1 and args[1].lower() == 'confirm')
+    try:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        now_ms = int(time_module.time() * 1000)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
+                all_saves = await resp.json()
+            all_saves = all_saves or {}
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                all_lb = await resp.json()
+            all_lb = all_lb or {}
+
+            candidates = []
+            for pid, sv in all_saves.items():
+                if not isinstance(sv, dict):
+                    continue
+                uid = pid[3:] if pid.startswith('tg_') else pid
+                if uid in INACTIVITY_EXCLUDED_IDS:
+                    continue
+                last_seen = sv.get('lastSeen')
+                if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
+                    continue
+                days = round((now_ms - last_seen) / 86400000, 1)
+                name = (all_lb.get(pid) or {}).get('username') or uid
+                candidates.append((pid, uid, name, days, float(sv.get('coins', 0) or 0)))
+
+            if not candidates:
+                await message.answer("Кандидатов на удаление (60+ дней неактивности) не найдено.")
+                return
+
+            if dry_run:
+                lines = [f"🔍 Dry-run: {len(candidates)} кандидат(ов) на удаление (60+ дней):\n"]
+                for pid, uid, name, days, coins in candidates[:40]:
+                    lines.append(f"@{name} (ID:{uid}) — {days}д, баланс 🪙{coins:,.0f}")
+                if len(candidates) > 40:
+                    lines.append(f"...и ещё {len(candidates) - 40}")
+                lines.append("\nЧтобы удалить по-настоящему: /cleanup_inactive confirm")
+                await message.answer("\n".join(lines))
+            else:
+                deleted = 0
+                total_coins = 0.0
+                total_escrow = 0.0
+                for pid, uid, name, days, coins in candidates:
+                    try:
+                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
+                        deleted += 1
+                        total_coins += report.get('coins', 0.0)
+                        total_escrow += report.get('escrow', 0.0)
+                    except Exception as e:
+                        print(f"Ошибка ручного удаления {pid}: {e}")
+                    await asyncio.sleep(0.05)
+                await message.answer(
+                    f"✅ Удалено {deleted} игрок(ов).\n"
+                    f"Суммарно списано: 🪙{total_coins:,.0f} монет, 📦{total_escrow:,.0f} в эскроу."
+                )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message()
 async def any_message(message: types.Message):
     if message.chat.type != 'private':
@@ -9443,76 +9513,6 @@ async def inactive_cleanup_loop():
         except Exception as e:
             print(f"Ошибка автоочистки неактивных: {e}")
         await asyncio.sleep(24 * 3600)  # раз в сутки
-
-
-@dp.message(Command('cleanup_inactive'))
-async def cleanup_inactive_command(message: types.Message):
-    """
-    Ручной запуск для проверки перед тем, как доверять автоматике.
-    /cleanup_inactive — dry-run, только список кандидатов, ничего не удаляет.
-    /cleanup_inactive confirm — реально удаляет прямо сейчас, не дожидаясь суточного цикла.
-    """
-    if message.from_user.id != ADMIN_ID:
-        return
-    args = message.text.strip().split()
-    dry_run = not (len(args) > 1 and args[1].lower() == 'confirm')
-    try:
-        import aiohttp
-        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-        now_ms = int(time_module.time() * 1000)
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
-                all_saves = await resp.json()
-            all_saves = all_saves or {}
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                all_lb = await resp.json()
-            all_lb = all_lb or {}
-
-            candidates = []
-            for pid, sv in all_saves.items():
-                if not isinstance(sv, dict):
-                    continue
-                uid = pid[3:] if pid.startswith('tg_') else pid
-                if uid in INACTIVITY_EXCLUDED_IDS:
-                    continue
-                last_seen = sv.get('lastSeen')
-                if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
-                    continue
-                days = round((now_ms - last_seen) / 86400000, 1)
-                name = (all_lb.get(pid) or {}).get('username') or uid
-                candidates.append((pid, uid, name, days, float(sv.get('coins', 0) or 0)))
-
-            if not candidates:
-                await message.answer("Кандидатов на удаление (60+ дней неактивности) не найдено.")
-                return
-
-            if dry_run:
-                lines = [f"🔍 Dry-run: {len(candidates)} кандидат(ов) на удаление (60+ дней):\n"]
-                for pid, uid, name, days, coins in candidates[:40]:
-                    lines.append(f"@{name} (ID:{uid}) — {days}д, баланс 🪙{coins:,.0f}")
-                if len(candidates) > 40:
-                    lines.append(f"...и ещё {len(candidates) - 40}")
-                lines.append("\nЧтобы удалить по-настоящему: /cleanup_inactive confirm")
-                await message.answer("\n".join(lines))
-            else:
-                deleted = 0
-                total_coins = 0.0
-                total_escrow = 0.0
-                for pid, uid, name, days, coins in candidates:
-                    try:
-                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
-                        deleted += 1
-                        total_coins += report.get('coins', 0.0)
-                        total_escrow += report.get('escrow', 0.0)
-                    except Exception as e:
-                        print(f"Ошибка ручного удаления {pid}: {e}")
-                    await asyncio.sleep(0.05)
-                await message.answer(
-                    f"✅ Удалено {deleted} игрок(ов).\n"
-                    f"Суммарно списано: 🪙{total_coins:,.0f} монет, 📦{total_escrow:,.0f} в эскроу."
-                )
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
 
 
 async def price_regeneration_loop():
