@@ -2165,6 +2165,7 @@ function renderKitchen() {
               +'<button class="btn" onclick="changePacks(\''+fn+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
               +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks+'</span> <span style="font-size:10px;color:#90caf9">'+t('пак.','pack.')+'</span></div>'
               +'<button class="btn" onclick="changePacks(\''+fn+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
+              +'<button class="btn" onclick="setMaxDryPacks(\''+fn+'\')" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
               +'<button class="btn '+(hasSalt?'btn-green':'')+'" onclick="startSalting(\''+fn+'\')" style="padding:5px 12px;font-size:12px" '+(hasSalt?'':'disabled')+'>'
               +(hasSalt?t('🧂 Засолить','🧂 Salt it'):'🧂 '+state.salt+'/'+saltNeeded)+'</button>'
               +'</div>'
@@ -2195,6 +2196,7 @@ function renderKitchen() {
               +'<button class="btn" onclick="changeFiletPacks(\''+fn2+'\',-1)" style="padding:5px 10px;font-size:16px">−</button>'
               +'<div style="text-align:center;min-width:50px"><span style="font-size:16px;font-weight:700;color:#FFD700">'+curPacks2+'</span> <span style="font-size:10px;color:#90caf9">'+t('пак.','pack.')+'</span></div>'
               +'<button class="btn" onclick="changeFiletPacks(\''+fn2+'\',1)" style="padding:5px 10px;font-size:16px">+</button>'
+              +'<button class="btn" onclick="setMaxFiletPacks(\''+fn2+'\')" style="padding:5px 10px;font-size:12px;font-weight:700">'+t('МАКС','MAX')+'</button>'
               +'<button class="btn '+(hasKnife?'btn-green':'')+'" onclick="startCutting(\''+fn2+'\')" style="padding:5px 12px;font-size:12px" '+(hasKnife?'':'disabled')+'>'
               +(hasKnife?t('🔪 Разделать','🔪 Cut it'):'🔪 '+(state.knife||0)+'/'+knifeNeeded)+'</button>'
               +'</div>'
@@ -2304,12 +2306,30 @@ function changePacks(name, delta) {
   renderKitchen();
 }
 
+function setMaxDryPacks(name) {
+  var grouped={};
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  var maxByFish = Math.floor((grouped[name]||0)/10);
+  var maxBySalt = state.salt||0;
+  dryPacks[name] = Math.max(1, Math.min(maxByFish, maxBySalt));
+  renderKitchen();
+}
+
 function changeFiletPacks(name, delta) {
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var max = Math.floor((grouped[name]||0)/10);
   if (!filetPacks[name]) filetPacks[name]=1;
   filetPacks[name] = Math.max(1, Math.min(max, filetPacks[name]+delta));
+  renderKitchen();
+}
+
+function setMaxFiletPacks(name) {
+  var grouped={};
+  for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
+  var maxByFish = Math.floor((grouped[name]||0)/10);
+  var maxByKnife = state.knife||0;
+  filetPacks[name] = Math.max(1, Math.min(maxByFish, maxByKnife));
   renderKitchen();
 }
 
