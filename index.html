@@ -3820,11 +3820,24 @@ function checkPremiumStatus() {
 }
 function checkTournament() {
   if (!firebaseDB) return;
-  firebaseDB.ref('tournament').once('value', function(snap) {
-    var t = snap.val();
-    if (!t) { tournamentData = {active:false, endsAt:0, baseline:{}}; }
-    else { tournamentData = {active: !!t.active, endsAt: t.endsAt||0, baseline: t.baseline||{}}; }
-    updateTournamentBanner();
+  // Раньше тут читался ВЕСЬ узел 'tournament' целиком — включая baseline (по записи на
+  // КАЖДОГО когда-либо зарегистрированного игрока), хотя баннеру нужны только active и
+  // endsAt. Этот baseline из глобального опроса нигде даже не используется — вкладка
+  // "Лидеры" делает свой отдельный независимый запрос tournament/baseline при открытии
+  // (см. renderLeaders). При тысячах игроков это были десятки/сотни КБ, скачиваемые
+  // заново каждую минуту КАЖДЫМ открытым клиентом вхолостую — основной источник трафика
+  // Firebase Downloads (разбор от 15.09: ₪107.63 за половину месяца, 3.6GB скачиваний).
+  // Firebase RTDB отдаёт только запрошенный путь, поэтому читаем active/endsAt отдельно,
+  // напрямую по вложенным путям — baseline в эти запросы вообще не попадает.
+  firebaseDB.ref('tournament/active').once('value', function(activeSnap) {
+    firebaseDB.ref('tournament/endsAt').once('value', function(endsSnap) {
+      tournamentData = {
+        active: !!activeSnap.val(),
+        endsAt: endsSnap.val() || 0,
+        baseline: tournamentData.baseline || {}
+      };
+      updateTournamentBanner();
+    });
   });
 }
 
