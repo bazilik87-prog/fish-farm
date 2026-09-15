@@ -260,6 +260,28 @@ if (tg) {
   });
 }
 
+// Предупреждение об официальном Telegram: если tg.initDataUnsafe.user.id недоступен —
+// getPlayerId() ниже упадёт в гостевой режим (случайный ID, прогресс не привязан к
+// аккаунту и потеряется при следующем заходе с другого устройства/клиента). Причина —
+// неофициальные форки клиента (Extragram и т.п.) или некоторые версии десктоп/веб
+// клиента не до конца поддерживают то, как мини-приложение узнаёт пользователя.
+// Предупреждаем ДО начала игры, а не постфактум, когда прогресс уже потерян.
+(function() {
+  var hasRealTgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id;
+  if (hasRealTgUser) return;
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;font-family:inherit';
+  overlay.innerHTML =
+    '<div style="background:#0f1f35;border:1px solid #f44336;border-radius:14px;padding:20px;max-width:420px;text-align:center">'
+    + '<div style="font-size:32px;margin-bottom:10px">⚠️</div>'
+    + '<div style="font-size:15px;font-weight:700;color:#f44336;margin-bottom:10px">' + t('Открой через официальный Telegram', 'Open via official Telegram') + '</div>'
+    + '<div style="font-size:13px;color:#90caf9;line-height:1.5;margin-bottom:16px">' + t('Это приложение (или версия Telegram) не передаёт нам твой настоящий аккаунт. Если продолжишь — прогресс не сохранится и слетит при следующем заходе. Зайди через официальное приложение Telegram на телефоне.', 'This app (or Telegram version) isn\'t sharing your real account with us. If you continue, your progress won\'t be saved and will reset next time. Please open the game from the official Telegram app on your phone.') + '</div>'
+    + '<button id="tg-warn-continue-btn" style="background:#1a3a5a;color:#90caf9;border:none;border-radius:8px;padding:10px 20px;font-size:12px;cursor:pointer">' + t('Всё равно продолжить', 'Continue anyway') + '</button>'
+    + '</div>';
+  document.body.appendChild(overlay);
+  document.getElementById('tg-warn-continue-btn').onclick = function() { overlay.remove(); };
+})();
+
 // ── Данные ────────────────────────────────────────────
 var LOCATIONS = [
   {id:'pond',    name:'Пруд',    emoji:'🌿',bg:'#1a3a2a',border:'#2d6a4f',bubble:'rgba(80,200,120,.15)',cost:0,       unlocked:true, tapMult:1 },
