@@ -249,6 +249,7 @@ if (tg) {
   tg.expand();
   if (tg.requestFullscreen) tg.requestFullscreen();
   if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+  if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
   // Активируем буст при возврате в игру после оплаты через бота
   tg.onEvent('invoiceClosed', function(data) {
     if (data && data.status === 'paid' && data.url) {
@@ -5379,7 +5380,7 @@ function renderSettings() {
     +renderPremiumCard()
     +'<div class="card" style="background:#0a2a1a">'
     +'<div style="font-size:14px;font-weight:600;color:#6ddc6d;margin-bottom:6px">👥 '+t('Пригласить друга','Invite a friend')+'</div>'
-    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Ты и друг получите по 🪙100 монет.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!','You and your friend get 🪙100 coins each.<br>When your friend buys rod level 2 — you get another 🪙1000!')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Ты и друг получите по 🪙100 монет, когда друг поймает первую рыбку.<br>Когда друг купит удочку ур.2 — ты получишь ещё 🪙1000!','You and your friend get 🪙100 coins each when your friend catches their first fish.<br>When your friend buys rod level 2 — you get another 🪙1000!')+'</div>'
     +'<button class="btn btn-full" onclick="copyRefLink()" style="background:#1a5c2a;margin-bottom:6px">🔗 '+t('Скопировать ссылку','Copy link')+'</button>'
     +'<button class="btn btn-full" onclick="shareRefLink()" style="background:#1a5c2a;margin-bottom:6px">📤 '+t('Поделиться','Share')+'</button>'
     +'<button class="btn btn-full" onclick="showMyFriends()" style="background:#0a3a1a">👥 '+t('Мои друзья','My friends')+'</button>'
@@ -5473,7 +5474,7 @@ function showInstructions() {
     +'<b style="color:#fff">'+t('🎁 Ежедневный бонус','🎁 Daily bonus')+'</b><br>'+t('Заходи каждый день: 10→25→50→100→200→400→1000 монет, умноженные на множитель твоей лучшей разлоченной локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Не забрал до 00:00 МСК следующего дня (72ч/3 дня для Premium) — серия сбрасывается!','Log in every day: 10→25→50→100→200→400→1000 coins, multiplied by your best unlocked location (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). Miss claiming by 00:00 MSK the next day (72h/3 days for Premium) — streak resets!')+'<br><br>'
     +'<b style="color:#fff">'+t('📋 Ежедневные квесты','📋 Daily quests')+'</b><br>'+t('Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.','5 new quests every day. Complete all 5 — get 🪙500 coins. Refresh at midnight.')+'<br><br>'
     +'<b style="color:#fff">'+t('👥 Реферальная программа','👥 Referral program')+'</b><br>'+t('Приглашай друзей по своей ссылке в ⚙️ Настройки → Пригласить друга.','Invite friends with your link in ⚙️ Settings → Invite a friend.')+'<br><br>'
-    +'🎁 <b style="color:#FFD700">'+t('Бонус при регистрации','Signup bonus')+'</b> — '+t('ты и друг получите по 🪙100 монет','you and your friend each get 🪙100 coins')+'<br>'
+    +'🎁 <b style="color:#FFD700">'+t('Бонус за первый улов','First-catch bonus')+'</b> — '+t('когда друг поймает первую рыбку — вы оба получите по 🪙100','when your friend catches their first fish — you both get 🪙100')+'<br>'
     +'🎁 <b style="color:#FFD700">'+t('Бонус за активность','Activity bonus')+'</b> — '+t('когда друг купит удочку ур.2 — ты получишь ещё 🪙1000','when your friend buys rod level 2 — you get another 🪙1000')+'<br>'
     +'💰 <b style="color:#FFD700">'+t('Постоянный бонус','Ongoing bonus')+'</b> — '+t('каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 10% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙50 прямо на баланс','every time your referral withdraws coins via the Bank, you automatically get 10% of their withdrawal amount! Example: a friend withdraws 500 coins → you get 🪙50 straight to your balance')+'<br><br>'
     +t('Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.','All referral bonuses arrive automatically when you enter the game and show up in the notification history as 👥 Referral bonus.')+'<br>'

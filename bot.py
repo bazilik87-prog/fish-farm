@@ -4003,6 +4003,79 @@ async def process_actions(request):
             total_earned += earned
             caught += 1
             unsold += 1
+            # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру —
+            # начисляется здесь, при ПЕРВОМ улове реферала в жизни, а не сразу по /start
+            # (см. комментарий в register_referral) — так фермы пустых аккаунтов больше
+            # не приносят профита без реальной игры.
+            if caught == 1:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
+                            referrer_id = await r1.json()
+                        if referrer_id:
+                            flag_url = f"{base}/referrals/first_catch_rewarded/{real_user_id}.json{FB_AUTH}"
+                            already_rewarded = False
+                            for flag_attempt in range(6):
+                                async with session.get(flag_url, headers={"X-Firebase-ETag": "true"}) as r2:
+                                    fetag = r2.headers.get("ETag")
+                                    already = await r2.json()
+                                if already:
+                                    already_rewarded = True
+                                    break
+                                fheaders = {"If-Match": fetag} if fetag else {}
+                                async with session.put(flag_url, json=True, headers=fheaders) as fput:
+                                    if fput.status == 412:
+                                        continue
+                                    break
+                            if not already_rewarded:
+                                # Самому рефералу — прямо в текущий запрос, он же сейчас
+                                # и есть real_user_id, отдельная запись не нужна.
+                                coins += 100
+                                total_earned += 100
+                                # Рефереру — отдельным ETag-защищённым обновлением его saves,
+                                # тем же способом, что и бонус за удочку ур.2.
+                                ref_save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
+                                new_ref_total_earned = None
+                                ref_merged = {}
+                                for coin_attempt in range(6):
+                                    async with session.get(ref_save_url, headers={"X-Firebase-ETag": "true"}) as r3:
+                                        cetag = r3.headers.get("ETag")
+                                        ref_sv = await r3.json()
+                                    ref_sv = ref_sv or {}
+                                    ref_merged = dict(ref_sv)
+                                    ref_merged['coins'] = round((float(ref_sv.get('coins', 0) or 0) + 100) * 100) / 100
+                                    new_ref_total_earned = round((float(ref_sv.get('totalEarned', 0) or 0) + 100) * 100) / 100
+                                    ref_merged['totalEarned'] = new_ref_total_earned
+                                    cheaders = {"If-Match": cetag} if cetag else {}
+                                    async with session.put(ref_save_url, json=ref_merged, headers=cheaders) as cput:
+                                        if cput.status == 412:
+                                            continue
+                                        break
+                                if new_ref_total_earned is not None:
+                                    try:
+                                        await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
+                                            "totalEarned": round(new_ref_total_earned),
+                                            "coins": round(float(ref_merged.get('coins', 0) or 0)),
+                                            "userId": int(referrer_id)
+                                        })
+                                    except Exception:
+                                        pass
+                                try:
+                                    async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
+                                        ref_lb = await r4.json()
+                                    ref_label = f"@{ref_lb.get('username')}" if ref_lb and ref_lb.get('username') else f"ID:{real_user_id}"
+                                except Exception:
+                                    ref_label = f"ID:{real_user_id}"
+                                try:
+                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал первую рыбку")
+                                except Exception:
+                                    pass
+                                try:
+                                    await bot.send_message(int(real_user_id), "🎁 Бонус за первый улов: +🪙100! Столько же получил тот, кто тебя пригласил")
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
 
         elif a_type == 'sell':
             # Продажа через доставку (транспорт/водитель) — деньги теперь начисляются НЕ сразу,
@@ -5225,13 +5298,12 @@ async def start(message: types.Message):
             await session.put(f"{base}/referrals/by/{referrer_id}/{user_id}.json{FB_AUTH}",
                               json=True)
 
-            # Начисляем +100 монет новому игроку
-            await session.put(f"{base}/pending_rewards/tg_{user_id}/ref_bonus.json{FB_AUTH}",
-                              json=100)
-
-            # Начисляем +100 монет рефереру
-            await session.put(f"{base}/pending_rewards/tg_{referrer_id}/ref_invite_{user_id}.json{FB_AUTH}",
-                              json=100)
+            # +100/+100 больше НЕ начисляются здесь сразу по /start — это и открывало
+            # дорогу фермам ботов (создал аккаунт, тапнул /start по ссылке — уже профит,
+            # без единого реального действия в игре). Награда теперь начисляется внутри
+            # process_actions при ПЕРВОМ реальном улове реферала (см. блок в ветке 'catch':
+            # ищи "первый улов в жизни" — там же и рефереру, и самому рефералу) — так
+            # различаем живого игрока от пустого аккаунта.
 
         # Уведомляем реферера
         ref_name = f"@{user.username}" if user.username else (user.first_name or 'Новый игрок')
@@ -5239,7 +5311,7 @@ async def start(message: types.Message):
             await bot.send_message(
                 int(referrer_id),
                 f"🎉 По твоей ссылке пришёл {ref_name}!\n\n"
-                f"🪙 +100 монет уже ждут тебя в игре!",
+                f"🪙 Как только он поймает первую рыбку — вы оба получите по 100 монет!",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
                 ]])
