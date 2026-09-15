@@ -6783,7 +6783,7 @@ async def playerinfo_command(message: types.Message):
             )
 
         daily_day = sv.get('dailyDay', 0)
-        daily_last = sv.get('dailyLast', 0)
+        daily_last = sv.get('dailyLastClaim', 0)
         if daily_last:
             days_ago = round((now_ms - daily_last) / 86400000, 1)
             lines.append(f"🎁 Стрик бонуса: день {daily_day} (последний раз {days_ago}д назад)")
