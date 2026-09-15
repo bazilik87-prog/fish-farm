@@ -3737,7 +3737,7 @@ async def lottery_spin(request):
     return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
 
 
-async def resolve_escrow_ops(session, base, pid, escrow_ops, legacy_a=0.0, legacy_b=0.0):
+async def resolve_escrow_ops(session, base, pid, escrow_ops, now_ms, legacy_a=0.0, legacy_b=0.0):
     """
     Разрешает операции с эскроу доставки (add/collect) через ОТДЕЛЬНЫЙ путь в Firebase
     (escrow/{pid}, а не saves/{pid}) с оптимистичной блокировкой по ETag.
@@ -3758,6 +3758,11 @@ async def resolve_escrow_ops(session, base, pid, escrow_ops, legacy_a=0.0, legac
     Если escrow/{pid} ещё не существует (первый вызов после деплоя этого фикса) —
     разово мигрируем старые значения из sv.deliveryEscrow/deliveryEscrow2, чтобы никто
     не потерял уже накопленные в старом месте деньги при переходе на новую схему.
+
+    aSince/bSince — метка "с какого момента в этом слоте лежат неполученные деньги".
+    Ставится при переходе слота из 0 в положительное значение, сбрасывается при collect.
+    Нужна ТОЛЬКО для sweep_stale_escrow (см. ниже) — самостоятельно на распределение
+    денег не влияет.
 
     Возвращает (credited, migrated) — начисленные монеты и флаг "миграция/запись
     подтверждённо прошла успешно" (вызывающий код должен обнулять старые sv-поля
@@ -3784,29 +3789,42 @@ async def resolve_escrow_ops(session, base, pid, escrow_ops, legacy_a=0.0, legac
 
         if cur is None:
             a, b = legacy_a, legacy_b  # первая миграция со старой схемы хранения
+            a_since = now_ms if a > 0 else 0
+            b_since = now_ms if b > 0 else 0
         else:
             a = float((cur or {}).get('a', 0) or 0)
             b = float((cur or {}).get('b', 0) or 0)
+            a_since = (cur or {}).get('aSince') or 0
+            b_since = (cur or {}).get('bSince') or 0
 
         credited = 0.0
         for op, is_b, *rest in escrow_ops:
             if op == 'add':
                 amount = rest[0]
                 if is_b:
+                    if b <= 0 and not b_since:
+                        b_since = now_ms
                     b += amount
                 else:
+                    if a <= 0 and not a_since:
+                        a_since = now_ms
                     a += amount
             elif op == 'collect':
                 if is_b:
                     credited += b
                     b = 0.0
+                    b_since = 0
                 else:
                     credited += a
                     a = 0.0
+                    a_since = 0
 
         headers = {"If-Match": etag} if etag else {}
         try:
-            async with session.put(url, json={"a": round(a * 100) / 100, "b": round(b * 100) / 100}, headers=headers) as put_resp:
+            async with session.put(url, json={
+                "a": round(a * 100) / 100, "b": round(b * 100) / 100,
+                "aSince": a_since, "bSince": b_since
+            }, headers=headers) as put_resp:
                 if put_resp.status == 412:
                     continue  # кто-то записал раньше нас — перечитываем и повторяем
                 return round(credited * 100) / 100, True
@@ -3814,6 +3832,68 @@ async def resolve_escrow_ops(session, base, pid, escrow_ops, legacy_a=0.0, legac
             return 0.0, False  # не смогли записать — безопаснее ничего не начислить и не мигрировать
 
     return 0.0, False  # исчерпали попытки — крайне маловероятно, но не начисляем вслепую
+
+
+ESCROW_SWEEP_MS = 3 * 3600 * 1000  # безопасный запас: максимальная физически возможная
+# доставка — гружёный грузовик с убитым транспортом (durability<25% → ×2 времени), это
+# 2400с×2=4800с ≈ 80 минут (см. TRANSPORTS/delivTime в index.html). Берём порог с более
+# чем двукратным запасом, чтобы никогда не смахнуть ещё реально едущую доставку.
+
+
+async def sweep_stale_escrow(session, base, pid, now_ms):
+    """
+    Подстраховка от "потерянной" доставки: если клиент по любой причине теряет свой
+    локальный state.delivery/delivery2 (баг загрузки, гонка при старте сессии, сброс
+    состояния) ДО того, как сработал таймер — он никогда сам не пришлёт collect_delivery,
+    и деньги в escrow/{pid} остаются подвешены навсегда, невидимо для игрока (жалоба
+    "доставка пропала" — реальный подтверждённый кейс, разбирали в чате). Раз в /sync
+    (дёргается регулярно, пока игра открыта) проверяем: если деньги лежат в слоте дольше
+    ESCROW_SWEEP_MS — сервер сам их зачисляет, не дожидаясь клиента. ETag-защищено так
+    же, как обычный collect в resolve_escrow_ops.
+    Возвращает (credited, swept_a, swept_b) — какие именно слоты были смахнуты, чтобы
+    вызывающий код мог обнулить на клиенте ТОЛЬКО их локальный таймер, не трогая второй
+    слот, если тот всё ещё честно в пути.
+    """
+    url = f"{base}/escrow/{pid}.json{FB_AUTH}"
+    for attempt in range(6):
+        try:
+            async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                etag = resp.headers.get("ETag")
+                cur = await resp.json()
+        except Exception:
+            return 0.0, False, False
+        if not cur:
+            return 0.0, False, False
+        a = float(cur.get('a', 0) or 0)
+        b = float(cur.get('b', 0) or 0)
+        a_since = cur.get('aSince') or 0
+        b_since = cur.get('bSince') or 0
+        credited = 0.0
+        swept_a = swept_b = False
+        if a > 0 and a_since and (now_ms - a_since) > ESCROW_SWEEP_MS:
+            credited += a
+            a = 0.0
+            a_since = 0
+            swept_a = True
+        if b > 0 and b_since and (now_ms - b_since) > ESCROW_SWEEP_MS:
+            credited += b
+            b = 0.0
+            b_since = 0
+            swept_b = True
+        if credited <= 0:
+            return 0.0, False, False
+        headers = {"If-Match": etag} if etag else {}
+        try:
+            async with session.put(url, json={
+                "a": round(a * 100) / 100, "b": round(b * 100) / 100,
+                "aSince": a_since, "bSince": b_since
+            }, headers=headers) as put_resp:
+                if put_resp.status == 412:
+                    continue  # кто-то (обычный collect) успел записать между чтением и записью — перечитываем
+                return round(credited * 100) / 100, swept_a, swept_b
+        except Exception:
+            return 0.0, False, False
+    return 0.0, False, False
 
 
 async def process_actions(request):
@@ -4602,7 +4682,7 @@ async def process_actions(request):
             # legacy_a/legacy_b используются только один раз, если escrow/{pid} ещё не
             # существует (миграция со старой схемы хранения прямо в sv).
             credited, migrated = await resolve_escrow_ops(
-                session, base, pid, escrow_ops,
+                session, base, pid, escrow_ops, now_ms,
                 legacy_a=float(sv.get('deliveryEscrow', 0) or 0),
                 legacy_b=float(sv.get('deliveryEscrow2', 0) or 0)
             )
@@ -4994,6 +5074,26 @@ async def sync_state(request):
     max_energy = 150 if is_prem else 100
     final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
 
+    # Подстраховка от "потерянной" доставки (см. sweep_stale_escrow) — если деньги в
+    # эскроу зависли дольше физически возможного времени доставки, забираем их сейчас,
+    # НЕ дожидаясь клиентского collect_delivery. Делаем это до общей проверки потолка —
+    # см. чуть ниже почему пишем это отдельным полем, а не через coin_delta.
+    swept = 0.0
+    swept_a = swept_b = False
+    try:
+        async with aiohttp.ClientSession() as sweep_session:
+            swept, swept_a, swept_b = await sweep_stale_escrow(sweep_session, base, pid, now_ms)
+    except Exception:
+        swept = 0.0
+    if swept > 0:
+        # Это подтверждённые, реально заработанные деньги (клиент их уже когда-то продал —
+        # см. 'sell' в process_actions), просто застрявшие. Добавляем НАПРЯМУЮ к уже
+        # посчитанным final_coins/final_total_earned, в обход потолка /sync — потолок
+        # существует для того, чтобы клиент не мог наврать про офлайн-доход, а не для
+        # денег, которые сервер сам подтвердил и сам же сейчас зачисляет.
+        final_coins = round((final_coins + swept) * 100) / 100
+        final_total_earned = round((final_total_earned + swept) * 100) / 100
+
     # Уведомление о срабатывании потолка /sync отключено по просьбе — слишком много шума.
     # Сама обрезка подозрительного прироста продолжает работать как прежде.
 
@@ -5033,12 +5133,14 @@ async def sync_state(request):
     # античита, даже если сумма на старте игры маленькая.
     try:
         sync_delta = round((final_coins - prev_coins) * 100) / 100
-        if suspicious or abs(sync_delta) >= 10000:
+        if suspicious or swept > 0 or abs(sync_delta) >= 10000:
             elapsed_days = round(elapsed_ms / 86400000, 2)
             sign = '+' if sync_delta >= 0 else ''
             detail = f"sync: {sign}{sync_delta:,.0f} за {elapsed_days}д (потолок {coin_ceiling:,.0f})"
             if suspicious:
                 detail += " ⚠️ ОБРЕЗАНО"
+            if swept > 0:
+                detail += f" | 📦 забрана зависшая доставка: +{swept:,.0f} (escrow lost>{ESCROW_SWEEP_MS//3600000}ч)"
             # Раньше detail описывал только coins — если clamp сработал на caught/totalEarned
             # (см. фикс "исчезающей рыбы" в турнирах), это никак не было видно в /actionlog:
             # запись говорила "ОБРЕЗАНО", а числа показывали coins, которые вообще не трогали.
@@ -5066,7 +5168,10 @@ async def sync_state(request):
         'caught': final_caught,
         'totalEarned': final_total_earned,
         'energy': final_energy,
-        'clamped': suspicious
+        'clamped': suspicious,
+        'swept': swept,
+        'sweptA': swept_a,
+        'sweptB': swept_b
     }, headers=CORS)
 
 
@@ -6866,6 +6971,29 @@ async def playerinfo_command(message: types.Message):
         quest_progress = sv.get('questProgress') or {}
         done = sum(1 for q in quests if quest_progress.get(q, 0) > 0)
         lines.append(f"📋 Квесты сегодня: {len(quests)} заданий в списке")
+
+        # Эскроу доставки — отдельный узел (escrow/{pid}), не входит в saves/{pid}, поэтому
+        # без явного запроса эта зависшая (или просто ожидающая) сумма невидима в /playerinfo.
+        try:
+            async with aiohttp.ClientSession() as esession:
+                async with esession.get(f"{base}/escrow/{pid}.json{FB_AUTH}") as eresp:
+                    escrow_data = await eresp.json()
+        except Exception:
+            escrow_data = None
+        if escrow_data:
+            e_a = float(escrow_data.get('a', 0) or 0)
+            e_b = float(escrow_data.get('b', 0) or 0)
+            if e_a > 0 or e_b > 0:
+                parts = []
+                if e_a > 0:
+                    a_since = escrow_data.get('aSince') or 0
+                    a_age = round((now_ms - a_since) / 3600000, 1) if a_since else '?'
+                    parts.append(f"обычная: 🪙{e_a:,.0f} (висит {a_age}ч)")
+                if e_b > 0:
+                    b_since = escrow_data.get('bSince') or 0
+                    b_age = round((now_ms - b_since) / 3600000, 1) if b_since else '?'
+                    parts.append(f"водитель: 🪙{e_b:,.0f} (висит {b_age}ч)")
+                lines.append(f"📦 Эскроу доставки: {' · '.join(parts)}")
 
         boosts = sv.get('boosts') or {}
         active_boosts = []

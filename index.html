@@ -1090,6 +1090,15 @@ function syncMoneyToServer() {
     state.caught = res.caught;
     state.totalEarned = res.totalEarned;
     state.energy = res.energy;
+    if (res.swept > 0) {
+      // Сервер сам забрал зависшую в эскроу доставку (клиент когда-то потерял свой
+      // локальный таймер и не прислал collect_delivery вовремя) — говорим игроку,
+      // а не молчим, иначе баланс просто "внезапно" вырастет без объяснений.
+      // Обнуляем ТОЛЬКО реально смахнутый слот — второй мог всё ещё честно ехать.
+      if (res.sweptA) state.delivery = null;
+      if (res.sweptB) state.delivery2 = null;
+      showNotif('📦 '+t('Забрали зависшую доставку: +','Recovered a stuck delivery: +')+'🪙'+fmt(res.swept));
+    }
     updateUI();
     localStorage.setItem(SAVE_KEY, JSON.stringify(Object.assign(
       JSON.parse(localStorage.getItem(SAVE_KEY) || '{}'),
