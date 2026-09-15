@@ -9303,7 +9303,219 @@ async def any_message(message: types.Message):
     await message.answer("Нажми кнопку чтобы играть 👇", reply_markup=keyboard)
 
 
-async def price_regeneration_loop():
+async def wipe_player_data(session, base, real_user_id, lb_entry=None):
+    """
+    Полное удаление данных игрока: прогресс, лидерборд, эскроу, реферальные записи,
+    ожидающие награды, лог действий. В отличие от /ban НЕ ставит banned/{uid} — это
+    осознанно: цель здесь "забыть неактивного", а не заблокировать вход, так что если
+    игрок вернётся через год — для игры это будет просто новый аккаунт.
+
+    lb_entry — если уже прочитан leaderboard/{pid} вызывающим кодом (чтобы не читать
+    дважды), можно передать сразу; иначе прочитаем сами.
+
+    Возвращает dict с тем, что было удалено (coins/escrow на момент удаления) — для
+    отчёта админу, не для использования в логике.
+    """
+    pid = f"tg_{real_user_id}"
+    uid = str(real_user_id)
+    report = {'coins': 0.0, 'escrow': 0.0, 'clan_removed': False}
+
+    if lb_entry is None:
+        try:
+            async with session.get(f"{base}/leaderboard/{pid}.json{FB_AUTH}") as resp:
+                lb_entry = await resp.json()
+        except Exception:
+            lb_entry = None
+
+    # Если игрок состоял в клане — выходим из состава ДО удаления его записи, иначе
+    # он останется висеть в clans/{id}/members навсегда как фантомный участник.
+    clan_id = (lb_entry or {}).get('clanId')
+    if clan_id:
+        try:
+            def _remove_member(members):
+                members.pop(pid, None)
+            await _mutate_clan_members(session, base, clan_id, _remove_member)
+            report['clan_removed'] = True
+        except Exception:
+            pass
+
+    # Баланс/эскроу — только для отчёта админу, на решение удалять или нет не влияет
+    # (осознанный выбор — без исключений).
+    try:
+        sv = None
+        async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+            sv = await resp.json()
+        if sv:
+            report['coins'] = float(sv.get('coins', 0) or 0)
+    except Exception:
+        pass
+    try:
+        async with session.get(f"{base}/escrow/{pid}.json{FB_AUTH}") as resp:
+            esc = await resp.json()
+        if esc:
+            report['escrow'] = float(esc.get('a', 0) or 0) + float(esc.get('b', 0) or 0)
+    except Exception:
+        pass
+
+    # Убираем из чужого списка рефералов (referrals/by/{referrer}/{uid}), если он сам
+    # был чьим-то рефералом.
+    try:
+        async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
+            referrer_id = await resp.json()
+        if referrer_id:
+            await session.delete(f"{base}/referrals/by/{referrer_id}/{uid}.json{FB_AUTH}")
+    except Exception:
+        pass
+
+    # Основные узлы
+    for path in (
+        f"leaderboard/{pid}", f"saves/{pid}", f"escrow/{pid}",
+        f"referrals/used/{uid}", f"referrals/first_catch_rewarded/{uid}",
+        f"pending_rewards/{pid}", f"action_logs/{pid}"
+    ):
+        try:
+            await session.delete(f"{base}/{path}.json{FB_AUTH}")
+        except Exception:
+            pass  # не роняем всю очистку из-за одного неудачного узла — доудалим при следующем проходе
+
+    return report
+
+
+INACTIVITY_LIMIT_MS = 60 * 24 * 3600 * 1000  # 60 дней
+# Свои же служебные аккаунты никогда не трогаем автоочисткой, даже если формально
+# "неактивны" по lastSeen — тестовый и админский, оба заведены задолго до этой фичи.
+INACTIVITY_EXCLUDED_IDS = {"7236477449", "145841941"}
+
+
+async def inactive_cleanup_loop():
+    """
+    Раз в сутки удаляет ВСЕХ игроков, не заходивших 60+ дней (по lastSeen — это поле
+    пишет только сервер, подделать нельзя). Без исключений по балансу/покупкам и без
+    предупреждения игроку — осознанное решение владельца проекта. Удаление необратимо,
+    архива не остаётся.
+    lastSeen отсутствует — не удаляем (недостаточно данных, чтобы быть уверенными,
+    что это действительно 60+ дней, а не просто старая запись без этого поля).
+    """
+    while True:
+        try:
+            import aiohttp
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            now_ms = int(time_module.time() * 1000)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
+                    all_saves = await resp.json()
+                all_saves = all_saves or {}
+
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    all_lb = await resp.json()
+                all_lb = all_lb or {}
+
+                deleted = 0
+                total_coins = 0.0
+                total_escrow = 0.0
+                for pid, sv in all_saves.items():
+                    if not isinstance(sv, dict):
+                        continue
+                    uid = pid[3:] if pid.startswith('tg_') else pid
+                    if uid in INACTIVITY_EXCLUDED_IDS:
+                        continue
+                    last_seen = sv.get('lastSeen')
+                    if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
+                        continue
+                    try:
+                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
+                        deleted += 1
+                        total_coins += report.get('coins', 0.0)
+                        total_escrow += report.get('escrow', 0.0)
+                    except Exception as e:
+                        print(f"Ошибка автоудаления {pid}: {e}")
+                    await asyncio.sleep(0.05)  # не долбим Firebase сплошным потоком запросов
+
+                if deleted and ADMIN_ID:
+                    try:
+                        await bot.send_message(
+                            ADMIN_ID,
+                            f"🗑 Автоочистка неактивных (60+ дней): удалено {deleted} игрок(ов).\n"
+                            f"Суммарно списано: 🪙{total_coins:,.0f} монет, 📦{total_escrow:,.0f} в эскроу."
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Ошибка автоочистки неактивных: {e}")
+        await asyncio.sleep(24 * 3600)  # раз в сутки
+
+
+@dp.message(Command('cleanup_inactive'))
+async def cleanup_inactive_command(message: types.Message):
+    """
+    Ручной запуск для проверки перед тем, как доверять автоматике.
+    /cleanup_inactive — dry-run, только список кандидатов, ничего не удаляет.
+    /cleanup_inactive confirm — реально удаляет прямо сейчас, не дожидаясь суточного цикла.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    dry_run = not (len(args) > 1 and args[1].lower() == 'confirm')
+    try:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        now_ms = int(time_module.time() * 1000)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
+                all_saves = await resp.json()
+            all_saves = all_saves or {}
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                all_lb = await resp.json()
+            all_lb = all_lb or {}
+
+            candidates = []
+            for pid, sv in all_saves.items():
+                if not isinstance(sv, dict):
+                    continue
+                uid = pid[3:] if pid.startswith('tg_') else pid
+                if uid in INACTIVITY_EXCLUDED_IDS:
+                    continue
+                last_seen = sv.get('lastSeen')
+                if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
+                    continue
+                days = round((now_ms - last_seen) / 86400000, 1)
+                name = (all_lb.get(pid) or {}).get('username') or uid
+                candidates.append((pid, uid, name, days, float(sv.get('coins', 0) or 0)))
+
+            if not candidates:
+                await message.answer("Кандидатов на удаление (60+ дней неактивности) не найдено.")
+                return
+
+            if dry_run:
+                lines = [f"🔍 Dry-run: {len(candidates)} кандидат(ов) на удаление (60+ дней):\n"]
+                for pid, uid, name, days, coins in candidates[:40]:
+                    lines.append(f"@{name} (ID:{uid}) — {days}д, баланс 🪙{coins:,.0f}")
+                if len(candidates) > 40:
+                    lines.append(f"...и ещё {len(candidates) - 40}")
+                lines.append("\nЧтобы удалить по-настоящему: /cleanup_inactive confirm")
+                await message.answer("\n".join(lines))
+            else:
+                deleted = 0
+                total_coins = 0.0
+                total_escrow = 0.0
+                for pid, uid, name, days, coins in candidates:
+                    try:
+                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
+                        deleted += 1
+                        total_coins += report.get('coins', 0.0)
+                        total_escrow += report.get('escrow', 0.0)
+                    except Exception as e:
+                        print(f"Ошибка ручного удаления {pid}: {e}")
+                    await asyncio.sleep(0.05)
+                await message.answer(
+                    f"✅ Удалено {deleted} игрок(ов).\n"
+                    f"Суммарно списано: 🪙{total_coins:,.0f} монет, 📦{total_escrow:,.0f} в эскроу."
+                )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+
     """
     Фоновая задача — обновляет глобальные цены рынка раз в 30 секунд НЕЗАВИСИМО от того,
     продаёт ли кто-то прямо сейчас. Раньше цены пересчитывались только "по требованию"
@@ -9461,6 +9673,7 @@ async def main():
         print("Бот запущен!")
         asyncio.create_task(price_regeneration_loop())
         asyncio.create_task(clan_tournament_loop())
+        asyncio.create_task(inactive_cleanup_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -9475,6 +9688,7 @@ async def main():
         print("Бот запущен! (PUBLIC_URL не задан — используется polling)")
         asyncio.create_task(price_regeneration_loop())
         asyncio.create_task(clan_tournament_loop())
+        asyncio.create_task(inactive_cleanup_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
