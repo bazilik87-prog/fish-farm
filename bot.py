@@ -9515,7 +9515,7 @@ async def cleanup_inactive_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
-
+async def price_regeneration_loop():
     """
     Фоновая задача — обновляет глобальные цены рынка раз в 30 секунд НЕЗАВИСИМО от того,
     продаёт ли кто-то прямо сейчас. Раньше цены пересчитывались только "по требованию"
