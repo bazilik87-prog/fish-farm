@@ -3796,6 +3796,16 @@ async def resolve_escrow_ops(session, base, pid, escrow_ops, now_ms, legacy_a=0.
             b = float((cur or {}).get('b', 0) or 0)
             a_since = (cur or {}).get('aSince') or 0
             b_since = (cur or {}).get('bSince') or 0
+            # Бэкфилл для записей, созданных ДО того, как это поле появилось в коде —
+            # без этого у них a_since/b_since так и остаются 0 навсегда, и
+            # sweep_stale_escrow никогда их не увидит (условие "a_since and ..." ложно
+            # при a_since=0). Подтверждённый случай: @firecathrine, 🪙144 висели без
+            # даты создания. Ставим "с этого момента" — консервативно (не считаем уже
+            # стухшим сразу), но зато с этого дня отсчёт наконец пойдёт.
+            if a > 0 and not a_since:
+                a_since = now_ms
+            if b > 0 and not b_since:
+                b_since = now_ms
 
         credited = 0.0
         for op, is_b, *rest in escrow_ops:
@@ -3870,12 +3880,24 @@ async def sweep_stale_escrow(session, base, pid, now_ms):
         b_since = cur.get('bSince') or 0
         credited = 0.0
         swept_a = swept_b = False
-        if a > 0 and a_since and (now_ms - a_since) > ESCROW_SWEEP_MS:
+        # Записи БЕЗ aSince/bSince — это по определению эскроу, созданный ДО деплоя этого
+        # поля (resolve_escrow_ops теперь всегда проставляет его на каждый 'add' с этого
+        # дня), то есть заведомо старше ESCROW_SWEEP_MS — не ждём ещё 3 часа "с нуля",
+        # сметаем сразу же. Подтверждённый случай: @firecathrine, 🪙144 без даты создания.
+        if a > 0 and not a_since:
+            credited += a
+            a = 0.0
+            swept_a = True
+        elif a > 0 and a_since and (now_ms - a_since) > ESCROW_SWEEP_MS:
             credited += a
             a = 0.0
             a_since = 0
             swept_a = True
-        if b > 0 and b_since and (now_ms - b_since) > ESCROW_SWEEP_MS:
+        if b > 0 and not b_since:
+            credited += b
+            b = 0.0
+            swept_b = True
+        elif b > 0 and b_since and (now_ms - b_since) > ESCROW_SWEEP_MS:
             credited += b
             b = 0.0
             b_since = 0
