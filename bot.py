@@ -5093,6 +5093,20 @@ async def sync_state(request):
         suspicious = True
         final_total_earned = prev_total_earned
 
+    # Тратя монеты, игрок НИКОГДА не задевает caught/totalEarned — апгрейд, депозит,
+    # доставка меняют только coins. Если в ОДНОМ запросе просели ВСЕ ТРИ поля сразу
+    # (coin_delta<0 одновременно с catch_delta<0 и earned_delta<0) — это не трата, а
+    # клиент прислал целиком мусорный/пустой снимок состояния (гонка при старте до
+    # того, как реальные данные подгрузились из Firebase, вторая вкладка со старым
+    # state и т.п.). caught/totalEarned для такого случая уже защищены проверками
+    # выше — доверять coins из ТОГО ЖЕ запроса так же нельзя, иначе именно это
+    # "разрешение на трату" тихо обнуляет весь баланс. Подтверждённый случай: ID
+    # 1714272195, 15.09, coins 54,822→169 (спасло только совпадение с эскроу-свипом,
+    # без него ушло бы в 0), caught и totalEarned обнулились в том же запросе.
+    if coin_delta < 0 and catch_delta < 0 and earned_delta < 0:
+        suspicious = True
+        final_coins = round(prev_coins * 100) / 100
+
     max_energy = 150 if is_prem else 100
     final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
 
