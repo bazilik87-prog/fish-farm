@@ -4035,6 +4035,7 @@ async def process_actions(request):
 
     prices_cache = None
     rejected = 0
+    rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
     claim_result = None
     salt_delta = 0
     knife_delta = 0
@@ -4096,6 +4097,11 @@ async def process_actions(request):
         if a_type == 'catch':
             if energy < 1/3:
                 rejected += 1
+                rejected_energy += 1  # отдельно от rejected — чтобы клиент не пугал
+                # игрока формулировкой "инвентарь устарел", когда причина просто в том,
+                # что он тапал быстрее, чем успевала кончиться энергия (см. showNotif
+                # в index.html — теперь показывает точную причину, если ВСЕ отклонения
+                # в батче объясняются нехваткой энергии).
                 continue
             energy -= 1/3
             lv = upg_levels.get(loc, {}) if isinstance(upg_levels.get(loc), dict) else {}
@@ -4966,6 +4972,7 @@ async def process_actions(request):
         'dailyDay': response_daily_day,
         'dailyLastClaim': response_daily_last_claim,
         'rejected': rejected,
+        'rejectedEnergy': rejected_energy,
         'claimed': claim_result
     }, headers=CORS)
 
