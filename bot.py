@@ -9346,7 +9346,7 @@ async def cleanup_inactive_command(message: types.Message):
                 total_escrow = 0.0
                 for pid, uid, name, days, coins in candidates:
                     try:
-                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
+                        report = await wipe_player_data(session, base, pid, lb_entry=all_lb.get(pid))
                         deleted += 1
                         total_coins += report.get('coins', 0.0)
                         total_escrow += report.get('escrow', 0.0)
@@ -9373,12 +9373,23 @@ async def any_message(message: types.Message):
     await message.answer("Нажми кнопку чтобы играть 👇", reply_markup=keyboard)
 
 
-async def wipe_player_data(session, base, real_user_id, lb_entry=None):
+async def wipe_player_data(session, base, pid, lb_entry=None):
     """
     Полное удаление данных игрока: прогресс, лидерборд, эскроу, реферальные записи,
     ожидающие награды, лог действий. В отличие от /ban НЕ ставит banned/{uid} — это
     осознанно: цель здесь "забыть неактивного", а не заблокировать вход, так что если
     игрок вернётся через год — для игры это будет просто новый аккаунт.
+
+    pid — уже готовый ПОЛНЫЙ ключ узла (например "tg_123456789" для реального
+    Telegram-игрока или "p_xxx_xxx" для гостевой сессии без Telegram — см. getPlayerId()
+    в index.html, там же и это генерируется). Раньше функция сама собирала pid как
+    f"tg_{id}", из-за чего гостевые "p_"-записи никогда не находились и не удалялись —
+    обращались к несуществующему "tg_p_xxx" вместо настоящего "p_xxx".
+
+    Реферальная система существует только для настоящих Telegram-игроков (гость без
+    Telegram не может пройти через /start по ссылке и не может получать деньги через
+    /actions без валидного initData) — поэтому шаги с referrals/* пропускаем для
+    "p_"-гостей, там для них всё равно ничего нет.
 
     lb_entry — если уже прочитан leaderboard/{pid} вызывающим кодом (чтобы не читать
     дважды), можно передать сразу; иначе прочитаем сами.
@@ -9386,8 +9397,8 @@ async def wipe_player_data(session, base, real_user_id, lb_entry=None):
     Возвращает dict с тем, что было удалено (coins/escrow на момент удаления) — для
     отчёта админу, не для использования в логике.
     """
-    pid = f"tg_{real_user_id}"
-    uid = str(real_user_id)
+    is_tg_player = pid.startswith('tg_')
+    uid = pid[3:] if is_tg_player else None
     report = {'coins': 0.0, 'escrow': 0.0, 'clan_removed': False}
 
     if lb_entry is None:
@@ -9427,22 +9438,22 @@ async def wipe_player_data(session, base, real_user_id, lb_entry=None):
     except Exception:
         pass
 
-    # Убираем из чужого списка рефералов (referrals/by/{referrer}/{uid}), если он сам
-    # был чьим-то рефералом.
-    try:
-        async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
-            referrer_id = await resp.json()
-        if referrer_id:
-            await session.delete(f"{base}/referrals/by/{referrer_id}/{uid}.json{FB_AUTH}")
-    except Exception:
-        pass
+    # Реферальные записи — только для настоящих Telegram-игроков (uid — их числовой
+    # Telegram ID; у "p_"-гостей referrals/* просто не существует, идти туда незачем).
+    if is_tg_player:
+        try:
+            async with session.get(f"{base}/referrals/used/{uid}.json{FB_AUTH}") as resp:
+                referrer_id = await resp.json()
+            if referrer_id:
+                await session.delete(f"{base}/referrals/by/{referrer_id}/{uid}.json{FB_AUTH}")
+        except Exception:
+            pass
 
-    # Основные узлы
-    for path in (
-        f"leaderboard/{pid}", f"saves/{pid}", f"escrow/{pid}",
-        f"referrals/used/{uid}", f"referrals/first_catch_rewarded/{uid}",
-        f"pending_rewards/{pid}", f"action_logs/{pid}"
-    ):
+    paths_to_delete = [f"leaderboard/{pid}", f"saves/{pid}", f"escrow/{pid}", f"pending_rewards/{pid}", f"action_logs/{pid}"]
+    if is_tg_player:
+        paths_to_delete += [f"referrals/used/{uid}", f"referrals/first_catch_rewarded/{uid}"]
+
+    for path in paths_to_delete:
         try:
             await session.delete(f"{base}/{path}.json{FB_AUTH}")
         except Exception:
@@ -9493,7 +9504,7 @@ async def inactive_cleanup_loop():
                     if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
                         continue
                     try:
-                        report = await wipe_player_data(session, base, uid, lb_entry=all_lb.get(pid))
+                        report = await wipe_player_data(session, base, pid, lb_entry=all_lb.get(pid))
                         deleted += 1
                         total_coins += report.get('coins', 0.0)
                         total_escrow += report.get('escrow', 0.0)
