@@ -4001,6 +4001,7 @@ async def process_actions(request):
     coins = float(sv.get('coins', 0) or 0)
     caught = int(sv.get('caught', 0) or 0)
     total_earned = float(sv.get('totalEarned', 0) or 0)
+    spent_accum = 0.0  # сумма реальных трат за этот запрос — см. /sync и защиту earned_delta ниже
     upg_levels = sv.get('upgLevels') or {}
     if not isinstance(upg_levels, dict):
         upg_levels = {}
@@ -4123,6 +4124,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins -= unlock_cost
+            spent_accum += unlock_cost
             ulocs.append(target_loc)
             ulocs_changed = True
             continue
@@ -4475,6 +4477,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins -= cost
+            spent_accum += cost
 
         elif a_type == 'grant_salt':
             try:
@@ -4511,6 +4514,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins -= cost
+            spent_accum += cost
             unlocked_transports.append(tr_id)
             current_transport = tr_id
             transport_changed = True
@@ -4540,6 +4544,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins -= repair_cost
+            spent_accum += repair_cost
             durability[tr_id] = 100
             transport_changed = True
 
@@ -4579,6 +4584,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins = round((coins - amount) * 100) / 100
+            spent_accum += amount
             deposits.append({
                 'id': f"dep_{now_ms}_{len(deposits)}",
                 'amount': round(amount * 100) / 100,
@@ -4623,6 +4629,7 @@ async def process_actions(request):
                 rejected += 1
                 continue
             coins -= cost
+            spent_accum += cost
             lv[upg_id] = cur_level + 1
             # Реферальная награда: реферер получает 1000 монет, когда его реферал впервые
             # прокачал удочку до ур.2 — начисляется здесь же на сервере, не клиентом.
@@ -4812,6 +4819,7 @@ async def process_actions(request):
                 caught = (float(fresh_sv.get('caught', 0) or 0)) + caught_delta
                 total_earned = round((float(fresh_sv.get('totalEarned', 0) or 0) + total_earned_delta) * 100) / 100
                 unsold = max(0, round((float(fresh_sv.get('unsoldCaught', 0) or 0) + unsold_delta) * 100) / 100)
+                spent_since_sync = round((float(fresh_sv.get('spentSinceSync', 0) or 0) + spent_accum) * 100) / 100
                 fresh_last_energy_update = fresh_sv.get('lastEnergyUpdate') or now_ms
                 fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
@@ -4925,6 +4933,7 @@ async def process_actions(request):
                     "caught": caught,
                     "totalEarned": total_earned,
                     "unsoldCaught": unsold,
+                    "spentSinceSync": spent_since_sync,
                     "energy": round(energy * 100) / 100,
                     "lastEnergyUpdate": now_ms,
                     "lastSeen": now_ms,
@@ -5101,6 +5110,27 @@ async def sync_state(request):
             coin_delta = backed_delta
             final_coins = round((prev_coins + coin_delta) * 100) / 100
 
+    # Симметричная дыра в обратную сторону: totalEarned мог расти на любую сумму вплоть
+    # до общего потолка, вообще НЕ будучи подкреплён ростом coins — единственная проверка
+    # была "не больше потолка", а потолок специально щедрый (включает потенциал активной
+    # игры на весь elapsed, а не только пассивный офлайн-доход). Подтверждённый случай:
+    # игрок с очень скромным снаряжением поднял +324,844 totalEarned за 5.5ч турнира,
+    # при этом coins почти не изменился — баланс выглядел чисто, а прирост в турнирном
+    # зачёте (который считает именно totalEarned) был полностью сфабрикован через /sync.
+    # Зеркалить "в лоб" (обрезать earned_delta до coin_delta) нельзя — честный активный
+    # игрок вполне может заработать и тут же потратить в ту же сессию (апгрейды/вклад),
+    # тогда totalEarned легитимно растёт быстрее coins. Поэтому earned_delta должен быть
+    # подкреплён coin_delta ПЛЮС тем, что реально подтверждённо потрачено через /actions
+    # с прошлого /sync (spentSinceSync — копится в process_actions на каждом coins -= …,
+    # см. spent_accum) — это и есть честная бухгалтерия: totalEarned = coins + потрачено.
+    spent_since_sync = float(prev.get('spentSinceSync', 0) or 0)
+    if earned_delta > 0:
+        earned_backed_delta = max(0.0, coin_delta) + spent_since_sync
+        if earned_delta > earned_backed_delta + 0.01:
+            suspicious = True
+            earned_delta = earned_backed_delta
+            final_total_earned = round((prev_total_earned + earned_delta) * 100) / 100
+
     if coin_delta > coin_ceiling:
         suspicious = True
         final_coins = round((prev_coins + coin_ceiling) * 100) / 100
@@ -5197,7 +5227,9 @@ async def sync_state(request):
                 "caught": final_caught,
                 "totalEarned": final_total_earned,
                 "energy": final_energy,
-                "lastEnergyUpdate": now_ms
+                "lastEnergyUpdate": now_ms,
+                "spentSinceSync": 0  # "использовано" в проверке earned_delta выше — обнуляем,
+                # иначе те же траты будут засчитываться повторно на каждом следующем /sync
             })
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
@@ -5570,6 +5602,75 @@ async def addcoins_command(message: types.Message):
 
         await message.answer(f"✅ @{username} (ID: {user_id}) получит 🪙{amount} монет при следующем входе в игру")
 
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('resettournamentplayer'))
+async def reset_tournament_player_command(message: types.Message):
+    """
+    Обнуляет прирост ОДНОГО игрока в текущем турнире недели, не трогая его баланс,
+    totalEarned или бан — просто поднимает его личный tournament/baseline/{pid} до
+    актуального totalEarned, так что его дельта в турнирном зачёте с этого момента
+    становится 0. Дальнейший честный прогресс в турнире продолжит засчитываться —
+    это не исключение из турнира навсегда, а именно обнуление уже накрученного.
+    Использовать при подтверждённой находке жульничества в конкретном заходе (см.
+    защиту earned_delta в /sync — реальный случай: ID 5460036614, +324,844 totalEarned
+    за 5.5ч при снаряжении, не позволяющем такой доход органически).
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 2:
+        await message.answer(
+            "Использование:\n<code>/resettournamentplayer @username</code> или <code>/resettournamentplayer ID</code>",
+            parse_mode="HTML"
+        )
+        return
+    arg = text[1].lstrip('@')
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                lb = await resp.json()
+
+            uid = None
+            if arg.isdigit():
+                uid = arg
+            elif lb:
+                username = arg.lower()
+                for v in lb.values():
+                    if str(v.get('username', '')).lower() == username:
+                        uid = str(v.get('userId'))
+                        break
+            if not uid:
+                await message.answer(f"❌ Игрок @{arg} не найден в лидерборде. Попробуй по ID.")
+                return
+
+            pid = f"tg_{uid}"
+            async with session.get(f"{base}/saves/{pid}/totalEarned.json{FB_AUTH}") as resp:
+                current_total_earned = await resp.json()
+            current_total_earned = float(current_total_earned or 0)
+
+            async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
+                tourn = await resp.json()
+            if not tourn or not tourn.get('active'):
+                await message.answer("❌ Турнир недели сейчас не активен.")
+                return
+
+            old_baseline = (tourn.get('baseline') or {}).get(pid, 0)
+            await session.patch(f"{base}/tournament.json{FB_AUTH}", json={
+                f"baseline/{pid}": current_total_earned
+            })
+
+        removed_delta = round(current_total_earned - float(old_baseline or 0))
+        await message.answer(
+            f"✅ Обнулён прирост в турнире для ID {uid} (было baseline {old_baseline:,.0f}, "
+            f"стало {current_total_earned:,.0f}). Списано {removed_delta:,} монет турнирного зачёта.\n"
+            f"Баланс, totalEarned и бан игрока НЕ затронуты — только позиция в турнире."
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
