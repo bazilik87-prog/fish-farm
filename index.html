@@ -3711,7 +3711,17 @@ function checkPendingBoosts() {
       var elapsed = now - purchaseTime;
       activateBoostWithTime(boostId, elapsed);
     }
-    firebaseDB.ref('pending_boosts/' + pid).remove();
+    // Раньше удаляли сами через firebaseDB.ref(...).remove() — если Firebase Rules
+    // закрывают этот путь от прямой записи клиентом, удаление молча проваливалось, и та
+    // же запись применялась заново при каждом следующем входе (см. clear_pending_boosts
+    // в bot.py — у сервера есть полный доступ, Rules ему не помеха).
+    if (tg && tg.initData) {
+      fetch(BOT_API_URL + '/clear_pending_boosts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({init_data: tg.initData})
+      }).catch(function(){});
+    }
   });
 
   // Проверяем реферальные награды

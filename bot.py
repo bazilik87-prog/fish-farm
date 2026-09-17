@@ -1015,6 +1015,45 @@ async def referral_market_list(request):
     return web.json_response({'ok': True, 'players': result[:50], 'price': REFERRAL_MARKET_PRICE}, headers=CORS)
 
 
+async def clear_pending_boosts(request):
+    """
+    Удаляет pending_boosts/{pid} ПОСЛЕ того, как клиент их применил (см. checkPendingBoosts()
+    в index.html). Раньше клиент делал это сам через firebaseDB.ref(...).remove() напрямую —
+    если Firebase Rules закрывают этот путь от прямой записи клиентом (а он в списке
+    "таймеры бонусов", закрытых при последнем ужесточении Rules), .remove() молча
+    проваливается: узел остаётся в базе, и при КАЖДОМ следующем заходе в игру та же самая
+    старая запись читается и применяется заново — отсюда повторяющееся "Вся упаковка
+    завершена мгновенно!" при каждом входе. У сервера есть FB_AUTH (полный доступ), Rules
+    ему не помеха — поэтому удаление теперь делает он, а не клиент.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.delete(f"{base}/pending_boosts/{pid}.json{FB_AUTH}")
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def social_tasks_list(request):
     """
     Список активных «социальных» заданий (вступи в группу рекламодателя за монеты) —
@@ -9680,6 +9719,8 @@ async def main():
     app.router.add_options('/clan_tournaments_open', clan_tournaments_open)
     app.router.add_get('/health', health)
     app.router.add_get('/online_count', online_count)
+    app.router.add_post('/clear_pending_boosts', clear_pending_boosts)
+    app.router.add_options('/clear_pending_boosts', clear_pending_boosts)
     app.router.add_options('/online_count', online_count)
     app.router.add_get('/api/check', partner_check)
 
