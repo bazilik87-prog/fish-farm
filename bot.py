@@ -7213,8 +7213,25 @@ async def actionlog_command(message: types.Message):
             # набраться и 500+ записей, что легко превышает лимит. Вместо обрезки (раньше
             # теряли часть дня молча/с ошибкой) разбиваем на несколько сообщений подряд —
             # видно ВСЁ, просто несколькими сообщениями.
-            CHUNK_SIZE = 50
-            chunks = [all_lines[i:i + CHUNK_SIZE] for i in range(0, len(all_lines), CHUNK_SIZE)]
+            # ВАЖНО: резать по ЧИСЛУ строк (было — ровно 50) недостаточно — если у многих
+            # записей длинные "└ детали" (гранты/депозиты/апгрейды с описанием), даже 50
+            # коротких на вид строк всё равно может суммарно перевалить за 4096 символов.
+            # Подтверждённый случай: /actionlog @StarCash_support упал с "message is too
+            # long" при формально соблюдённом лимите в 50 строк. Режем по факту длины текста.
+            SAFE_CHUNK_CHARS = 3500  # с запасом от 4096 — под префикс/заголовок тоже нужно место
+            chunks = []
+            current = []
+            current_len = 0
+            for line in all_lines:
+                line_len = len(line) + 1  # +1 на перевод строки при склейке
+                if current and current_len + line_len > SAFE_CHUNK_CHARS:
+                    chunks.append(current)
+                    current = []
+                    current_len = 0
+                current.append(line)
+                current_len += line_len
+            if current:
+                chunks.append(current)
             for i, chunk in enumerate(chunks):
                 prefix = header if i == 0 else f"📜 (продолжение {i+1}/{len(chunks)})\n"
                 await message.answer(prefix + "\n".join(chunk))
