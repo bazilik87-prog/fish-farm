@@ -628,6 +628,20 @@ async def create_invoice(request):
             payload = f"ex:{user_id}:{coins}:{wallet}:{username}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'payload too long (кошелёк/имя слишком длинные)'}, status=400, headers=CORS)
+            # Пишем ДО оплаты — если после оплаты списание сорвётся (сбой сети/Firebase),
+            # у тебя всё равно останется, что именно игрок пытался вывести, вместо полной
+            # неизвестности (реальный случай: @Upasigospod, оплата прошла, дальнейшая
+            # цепочка сорвалась — сумму/кошелёк узнать было решительно неоткуда).
+            try:
+                import aiohttp as _aiohttp
+                _base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                async with _aiohttp.ClientSession() as _session:
+                    await _session.put(f"{_base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}", json={
+                        "coins": coins, "wallet": wallet, "username": username,
+                        "createdAt": int(time_module.time() * 1000)
+                    })
+            except Exception:
+                pass
             # Комиссия фиксированная по локации (5⭐/10⭐/25⭐/75⭐/250⭐ на Пруду/Реке/
             # Тропиках/Глубинах/Космосе, Premium — 3/6/15/45/150⭐), НЕ зависит от суммы
             # вывода — один и тот же взнос что за 1,000 монет, что за весь потолок.
@@ -9402,6 +9416,20 @@ async def successful_payment(message: types.Message):
             await message.answer(t(message.from_user,
                 "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за комиссию не возвращаются автоматически — напиши администратору.",
                 "❌ Insufficient coin balance at payment time. Stars fee isn't auto-refunded — please contact the admin."))
+            # Раньше здесь был голый return — звёзды с игрока уже списаны Telegram'ом, но
+            # если deduct_coin_balance вернул False НЕ из-за реальной нехватки монет (сбой
+            # записи в Firebase, исчерпаны retry на ETag-конфликте), админ вообще никак не
+            # узнавал об этом: ни уведомления, ни следа в логах — только жалоба игрока
+            # постфактум (реальный случай: @Upasigospod, оплата прошла, "Новый обмен!" в
+            # группу поддержки так и не пришёл). Используем тот же алерт, что уже есть для
+            # остальных веток successful_payment — на всякий случай, даже если тут и правда
+            # была просто нехватка монет: лишний алерт безопаснее пропущенного сбоя.
+            await _alert_payment_fulfillment_failed(
+                user_id, "Обмен на GRAM",
+                detail=f"deduct_coin_balance вернул False — монет {coins}, кошелёк {wallet}. "
+                       f"Либо реально не хватило баланса, либо сбой записи — проверь /playerinfo. "
+                       f"Черновик заявки (на случай если тут не всё): pending_exchanges/tg_{user_id}"
+            )
             return
 
         try:
@@ -9420,6 +9448,7 @@ async def successful_payment(message: types.Message):
             entry = {"amount": int(coins), "gram": gram_amount, "wallet": wallet, "ts": int(time_mod.time() * 1000), "user_id": user_id}
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
+                await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")  # успешно обработан — черновик больше не нужен
         except Exception:
             pass
 
