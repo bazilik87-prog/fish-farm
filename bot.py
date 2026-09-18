@@ -14,7 +14,7 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo, LabeledPrice, PreCheckoutQuery
 )
-from aiogram.exceptions import TelegramMigrateToChat
+from aiogram.exceptions import TelegramMigrateToChat, TelegramRetryAfter
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
@@ -262,56 +262,88 @@ async def notify_support_group(text):
     bot.send_message(SUPPORT_GROUP_ID, ...), чтобы сбой отправки никогда больше не
     пропадал молча, и чтобы миграция группы в supergroup лечилась на лету (см.
     комментарий у SUPPORT_GROUP_ID выше).
+
+    Реальный случай (18.09): игрок сделал 3 запроса на выплату подряд очень быстро —
+    3 почти одновременных successful_payment вызвали 3 почти одновременных отправки
+    сюда, и Telegram ответил флуд-контролем (TelegramRetryAfter) на одну из них —
+    это раньше ловилось голым except Exception ниже и сообщение просто пропадало
+    молча (не пересылалось повторно), пока другой успешный вызов не сбрасывал
+    _support_group_broken. Теперь TelegramRetryAfter обрабатывается отдельно —
+    ждём указанное Telegram время и реально повторяем отправку (до 3 попыток),
+    вместо того чтобы один раз чихнуть в лог и потерять заявку на выплату.
     """
     global _support_group_broken, _support_group_chat_id
-    try:
-        await bot.send_message(_support_group_chat_id, text)
-        if _support_group_broken:
-            # Снова заработало — сбрасываем флаг, чтобы СЛЕДУЮЩИЙ сбой (если будет)
-            # не потерялся из-за того, что "мы же уже предупреждали один раз".
-            _support_group_broken = False
-    except TelegramMigrateToChat as e:
-        old_id = _support_group_chat_id
-        new_id = e.migrate_to_chat_id
-        _support_group_chat_id = new_id  # дальше в этом процессе шлём сразу на новый ID
+    for attempt in range(3):
         try:
-            await bot.send_message(new_id, text)
-            healed = True
-        except Exception:
-            healed = False
-        if ADMIN_ID and not _support_group_broken:
-            _support_group_broken = True
+            await bot.send_message(_support_group_chat_id, text)
+            if _support_group_broken:
+                # Снова заработало — сбрасываем флаг, чтобы СЛЕДУЮЩИЙ сбой (если будет)
+                # не потерялся из-за того, что "мы же уже предупреждали один раз".
+                _support_group_broken = False
+            return
+        except TelegramRetryAfter as e:
+            wait_s = float(getattr(e, 'retry_after', 3) or 3) + 0.5
+            if attempt < 2:
+                await asyncio.sleep(wait_s)
+                continue
+            # Все 3 попытки упёрлись во флуд-контроль — это уже не мимолётная гонка,
+            # сообщаем админу как об обычном сбое, чтобы заявка на выплату не потерялась.
+            if ADMIN_ID and not _support_group_broken:
+                _support_group_broken = True
+                try:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ Группа поддержки: Telegram флуд-контроль не отпустил после 3 "
+                        f"попыток (retry_after={wait_s}с каждый раз) — сообщение не доставлено.\n\n"
+                        f"Текст сообщения:\n{text}"
+                    )
+                except Exception:
+                    pass
+            return
+        except TelegramMigrateToChat as e:
+            old_id = _support_group_chat_id
+            new_id = e.migrate_to_chat_id
+            _support_group_chat_id = new_id  # дальше в этом процессе шлём сразу на новый ID
             try:
-                await bot.send_message(
-                    ADMIN_ID,
-                    f"⚠️ Группа поддержки мигрировала из обычной группы в supergroup: "
-                    f"{old_id} → {new_id}.\n\n"
-                    + (f"Сообщение переотправлено на новый ID — дубли снова идут, но "
-                       f"ТОЛЬКО до следующего перезапуска бота (подмена есть только в "
-                       f"памяти процесса)." if healed else
-                       f"Попытка отправить на новый ID ТОЖЕ провалилась — проверь права "
-                       f"бота в новой супергруппе отдельно, возможно его там больше нет.")
-                    + f"\n\n❗️Обнови константу SUPPORT_GROUP_ID в коде на {new_id} и "
-                    f"задеплой — иначе при следующем перезапуске бот снова начнёт со "
-                    f"старого несуществующего ID.\n\nТекст сообщения:\n{text}"
-                )
+                await bot.send_message(new_id, text)
+                healed = True
             except Exception:
-                pass
-    except Exception as e:
-        if ADMIN_ID and not _support_group_broken:
-            _support_group_broken = True
-            try:
-                await bot.send_message(
-                    ADMIN_ID,
-                    f"⚠️ Не удалось продублировать сообщение в группу поддержки "
-                    f"(ID {_support_group_chat_id}):\n{type(e).__name__}: {e}\n\n"
-                    f"Похоже, бот потерял доступ к группе (кикнут, нет прав на отправку "
-                    f"сообщений и т.п.) — проверь командой /checkgroup. Дальше это же "
-                    f"сообщение повторно не пришлю, пока не починится или не проверишь "
-                    f"/checkgroup.\n\nТекст, который не удалось отправить в группу:\n{text}"
-                )
-            except Exception:
-                pass  # не получилось написать даже админу — дальше эскалировать некуда
+                healed = False
+            if ADMIN_ID and not _support_group_broken:
+                _support_group_broken = True
+                try:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ Группа поддержки мигрировала из обычной группы в supergroup: "
+                        f"{old_id} → {new_id}.\n\n"
+                        + (f"Сообщение переотправлено на новый ID — дубли снова идут, но "
+                           f"ТОЛЬКО до следующего перезапуска бота (подмена есть только в "
+                           f"памяти процесса)." if healed else
+                           f"Попытка отправить на новый ID ТОЖЕ провалилась — проверь права "
+                           f"бота в новой супергруппе отдельно, возможно его там больше нет.")
+                        + f"\n\n❗️Обнови константу SUPPORT_GROUP_ID в коде на {new_id} и "
+                        f"задеплой — иначе при следующем перезапуске бот снова начнёт со "
+                        f"старого несуществующего ID.\n\nТекст сообщения:\n{text}"
+                    )
+                except Exception:
+                    pass
+            return
+        except Exception as e:
+            if ADMIN_ID and not _support_group_broken:
+                _support_group_broken = True
+                try:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ Не удалось продублировать сообщение в группу поддержки "
+                        f"(ID {_support_group_chat_id}):\n{type(e).__name__}: {e}\n\n"
+                        f"Похоже, бот потерял доступ к группе (кикнут, нет прав на отправку "
+                        f"сообщений и т.п.) — проверь командой /checkgroup. Дальше это же "
+                        f"сообщение повторно не пришлю, пока не починится или не проверишь "
+                        f"/checkgroup.\n\nТекст, который не удалось отправить в группу:\n{text}"
+                    )
+                except Exception:
+                    pass  # не получилось написать даже админу — дальше эскалировать некуда
+            return
 
 
 async def is_premium(user_id):
