@@ -7156,6 +7156,21 @@ async def playerinfo_command(message: types.Message):
         else:
             lines.append("💎 Выведено GRAM: 0 (выводов не было)")
 
+        # Оплаты звёздами — отдельный узел (stars_payments/{pid}, append-only лог, пишется
+        # в successful_payment на КАЖДЫЙ платёж), не входит в saves/{pid}, поэтому без
+        # явного запроса невидим здесь же, как и эскроу доставки ниже.
+        try:
+            async with aiohttp.ClientSession() as ssession:
+                async with ssession.get(f"{base}/stars_payments/{pid}.json{FB_AUTH}") as sresp:
+                    stars_data = await sresp.json()
+        except Exception:
+            stars_data = None
+        if isinstance(stars_data, dict) and stars_data:
+            total_stars = sum(float(p.get('amount', 0) or 0) for p in stars_data.values() if isinstance(p, dict))
+            lines.append(f"⭐ Оплачено звёзд всего: {total_stars:,.0f}⭐ ({len(stars_data)} платеж(ей))")
+        else:
+            lines.append("⭐ Оплачено звёзд всего: 0 (оплат не было)")
+
         now_ms = int(time.time() * 1000)
         is_prem = bool(premium_until) and premium_until > now_ms
         if is_prem:
@@ -8884,28 +8899,48 @@ async def pre_checkout(query: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def successful_payment(message: types.Message):
     payload = message.successful_payment.invoice_payload
+    amount = message.successful_payment.total_amount
+
+    # label нужен и для алерта админу, и для лога оплат (см. ниже) — считаем один раз,
+    # с тем же безопасным фолбэком на сырой payload, что был раньше внутри try/except.
+    label = payload
+    try:
+        label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
+                ('Обмен на GRAM' if payload.startswith('ex:') else
+                 'Premium подписка' if payload.startswith('sub:') else
+                 'Слот клана' if payload.startswith('cs:') else
+                 'Создание турнира клана' if payload.startswith('ctc:') else
+                 'Взнос в турнир клана' if payload.startswith('ctp:') else
+                 'Принять турнир клана' if payload.startswith('cta:') else
+                 'Биржа рефералов' if payload.startswith('rb:') else
+                 'Открытие вклада' if payload.startswith('dep:') else payload)
+    except Exception:
+        pass
 
     # Уведомление о любой оплате звёздами — независимо от того, за что платили
     if ADMIN_ID:
         try:
-            amount = message.successful_payment.total_amount
             payer_username = message.from_user.username
             payer_name = f"@{payer_username}" if payer_username else (message.from_user.first_name or f"ID:{message.from_user.id}")
-            label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
-                    ('Обмен на GRAM' if payload.startswith('ex:') else
-                     'Premium подписка' if payload.startswith('sub:') else
-                     'Слот клана' if payload.startswith('cs:') else
-                     'Создание турнира клана' if payload.startswith('ctc:') else
-                     'Взнос в турнир клана' if payload.startswith('ctp:') else
-                     'Принять турнир клана' if payload.startswith('cta:') else
-                     'Биржа рефералов' if payload.startswith('rb:') else
-                     'Открытие вклада' if payload.startswith('dep:') else payload)
             await bot.send_message(
                 ADMIN_ID,
                 f"⭐ Новая оплата!\n👤 {payer_name}\n💰 {amount}⭐\n📦 {label}"
             )
         except Exception:
             pass
+
+    # Лог всех оплат звёздами — append-only запись на каждый платёж (без ETag/инкремента,
+    # так что параллельные оплаты друг друга не перезаписывают), используется в
+    # /playerinfo для показа "⭐ Оплачено звёзд всего" (см. playerinfo_command).
+    try:
+        import aiohttp as _aiohttp
+        _base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with _aiohttp.ClientSession() as _session:
+            await _session.post(f"{_base}/stars_payments/tg_{message.from_user.id}.json{FB_AUTH}", json={
+                "amount": amount, "label": label, "ts": int(time_module.time() * 1000)
+            })
+    except Exception:
+        pass
 
     if payload.startswith('bo:'):
         parts    = payload.split(':')
