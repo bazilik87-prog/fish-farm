@@ -8743,13 +8743,30 @@ async def selftest_command(message: types.Message):
 async def broadcast_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    text = message.text.strip()[len('/broadcast'):].strip()
+    # Команда срабатывает и на caption у сообщения с прикреплённым файлом (это
+    # поведение самого aiogram Command-фильтра — он проверяет message.text ИЛИ
+    # message.caption), но раньше сам обработчик читал только message.text и падал
+    # с AttributeError на любом сообщении с приложением, а приложенный файл вообще
+    # никак не использовался. Теперь: если админ прислал документ (PDF и т.п.) с
+    # подписью "/broadcast текст" — рассылаем ЭТОТ документ каждому игроку с текстом
+    # как подписью, вместо обычного текстового сообщения.
+    raw = message.text or message.caption or ''
+    text = raw.strip()[len('/broadcast'):].strip()
+    document_id = message.document.file_id if message.document else None
     if not text:
         await message.answer(
-            "Использование:\n<code>/broadcast Текст сообщения</code>\n\nПример:\n<code>/broadcast 🎉 Новое обновление! Заходи в игру!</code>",
+            "Использование:\n<code>/broadcast Текст сообщения</code>\n\nПример:\n<code>/broadcast 🎉 Новое обновление! Заходи в игру!</code>\n\n"
+            "Можно приложить файл (например, PDF) — тогда команда идёт ПОДПИСЬЮ к файлу, "
+            "и файл разошлётся вместе с текстом каждому игроку.",
             parse_mode="HTML"
         )
         return
+    # Caption у медиа-сообщений в Telegram ограничен 1024 символами (у обычного
+    # текстового сообщения — 4096) — длинный текст просто не пройдёт как подпись к
+    # файлу. Обрезаем с пометкой, а не роняем всю рассылку ошибкой на первом же игроке.
+    caption = text
+    if document_id and len(caption) > 1024:
+        caption = caption[:1000].rstrip() + '… (полный текст — в Новостях в игре)'
     await message.answer("⏳ Рассылка начата...")
     import aiohttp
     from datetime import datetime, timezone
@@ -8794,7 +8811,13 @@ async def broadcast_command(message: types.Message):
                 continue
             total += 1
             try:
-                await bot.send_message(user_id, text, reply_markup=keyboard)
+                if document_id:
+                    # file_id переиспользуем как есть — Telegram не требует заново
+                    # загружать байты файла на каждого получателя, одного file_id
+                    # (полученного из сообщения админа) достаточно для всей рассылки.
+                    await bot.send_document(user_id, document=document_id, caption=caption, reply_markup=keyboard)
+                else:
+                    await bot.send_message(user_id, text, reply_markup=keyboard)
                 success += 1
             except Exception:
                 failed += 1
