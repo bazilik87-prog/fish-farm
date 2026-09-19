@@ -5123,7 +5123,22 @@ async def sync_state(request):
         prev = {}
         elapsed_ms = 0
     else:
-        elapsed_ms = max(0, now_ms - (prev.get('lastSeen') or now_ms))
+        # ВАЖНО: окно потолка считаем от lastSyncCheckMs — ОТДЕЛЬНОГО поля, которое
+        # обновляет только этот эндпоинт (см. запись ниже), а НЕ от lastSeen (тем
+        # управляет исключительно /actions — для комбэк-бонуса и офлайн-дохода, см.
+        # комментарий у PATCH ниже). Раньше здесь ошибочно использовался lastSeen:
+        # если игрок между /sync не шлёт /actions, lastSeen не двигается, и КАЖДЫЙ
+        # повторный /sync получал потолок заново от той же (растущей по факту часов)
+        # точки — то есть одно и то же временное окно оплачивалось многократно вместо
+        # одного раза. Подтверждённый случай (19.09, ID 1873407633): игрок спамил
+        # /sync каждые 5-9с и получал по потолку заново на каждый вызов — +19,809,
+        # затем +19,890, +19,961... — набрал 1.8М totalEarned за ~2 часа с 335 уловов.
+        # lastSyncCheckMs может отсутствовать у игроков, синкавшихся ДО этого фикса —
+        # тогда падаем на lastSeen как раньше (одна переходная неточность, не дыра).
+        sync_ref_ms = prev.get('lastSyncCheckMs')
+        if sync_ref_ms is None:
+            sync_ref_ms = prev.get('lastSeen') or now_ms
+        elapsed_ms = max(0, now_ms - sync_ref_ms)
 
     prev_coins = float(prev.get('coins', 0) or 0)
     prev_caught = int(prev.get('caught', 0) or 0)
@@ -5274,8 +5289,13 @@ async def sync_state(request):
                 "totalEarned": final_total_earned,
                 "energy": final_energy,
                 "lastEnergyUpdate": now_ms,
-                "spentSinceSync": 0  # "использовано" в проверке earned_delta выше — обнуляем,
+                "spentSinceSync": 0,  # "использовано" в проверке earned_delta выше — обнуляем,
                 # иначе те же траты будут засчитываться повторно на каждом следующем /sync
+                "lastSyncCheckMs": now_ms  # окно потолка на СЛЕДУЮЩЕМ /sync считается от
+                # ЭТОГО момента, а не от lastSeen — см. комментарий у elapsed_ms выше.
+                # Пишем ВСЕГДА, даже если suspicious=True и прирост обрезан: окно должно
+                # схлопываться после КАЖДОГО обработанного /sync, иначе повторный спам с
+                # тем же (уже урезанным) потолком снова насчитает почти столько же.
             })
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
