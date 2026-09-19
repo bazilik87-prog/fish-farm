@@ -148,6 +148,14 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="clantournament-banner-btn">Клан →</div>
 </div>
+<div id="vote-banner" style="display:none;background:linear-gradient(135deg,#1a1a3d,#3949ab,#1a1a3d);margin:0;padding:12px 16px;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <div style="font-size:20px">🗳️</div>
+    <div style="font-size:13px;font-weight:700;color:#fff" id="vote-banner-title">Голосование</div>
+  </div>
+  <div id="vote-banner-options" style="display:flex;gap:8px"></div>
+  <div id="vote-banner-sub" style="font-size:11px;color:#c5cae9;margin-top:6px;text-align:center">—</div>
+</div>
 <div id="loc-bar"></div>
 <div id="next-loc-progress" style="background:#16213e;padding:4px 0 1px"></div>
 <div id="stats">
@@ -4387,6 +4395,103 @@ function openClanTournamentsFromBanner() {
   openClanTournaments();
 }
 
+var voteState = null;
+
+function checkVote() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/vote_status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res || !res.ok) return;
+      voteState = res.active ? res : null;
+      updateVoteBanner();
+    }).catch(function(){});
+}
+
+function updateVoteBanner() {
+  var el = document.getElementById('vote-banner');
+  if (!el) return;
+  if (!voteState || !voteState.active) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  var titleEl = document.getElementById('vote-banner-title');
+  var subEl = document.getElementById('vote-banner-sub');
+  var optsEl = document.getElementById('vote-banner-options');
+  if (titleEl) titleEl.textContent = t(voteState.titleRu, voteState.titleEn);
+
+  var keys = Object.keys(voteState.optionsRu || {});
+  var total = voteState.total || 0;
+  var myVote = voteState.myVote;
+  var optsHtml = '';
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var label = t((voteState.optionsRu || {})[k] || '', (voteState.optionsEn || {})[k] || '');
+    var c = (voteState.counts && voteState.counts[k]) || 0;
+    var pct = total ? Math.round(c / total * 100) : 0;
+    var mine = myVote === k;
+    var bg = mine ? '#2e7d32' : (myVote ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)');
+    var clickAttr = myVote ? '' : (' onclick="castVote(\'' + k + '\')"');
+    optsHtml += '<div' + clickAttr + ' style="flex:1;background:' + bg + ';border-radius:10px;padding:9px 6px;text-align:center;' +
+      (myVote ? '' : 'cursor:pointer;') + '-webkit-tap-highlight-color:transparent">'
+      + '<div style="font-size:11.5px;font-weight:700;color:#fff;line-height:1.3">' + label + (mine ? ' ✓' : '') + '</div>'
+      + '<div style="font-size:17px;font-weight:800;color:#fff;margin-top:3px">' + pct + '%</div>'
+      + '</div>';
+  }
+  if (optsEl) optsEl.innerHTML = optsHtml;
+
+  var msLeft = (voteState.endsAt || 0) - Date.now();
+  var timeText = '';
+  if (msLeft > 0) {
+    var totalMin = Math.floor(msLeft / 60000);
+    var d = Math.floor(totalMin / 1440), h = Math.floor((totalMin % 1440) / 60);
+    timeText = d > 0
+      ? (t('осталось ', 'left ') + d + t('д ', 'd ') + h + t('ч', 'h'))
+      : (t('осталось ', 'left ') + h + t('ч', 'h'));
+  }
+  if (subEl) subEl.textContent = t('Всего голосов: ', 'Total votes: ') + total + (timeText ? ('  ·  ' + timeText) : '') +
+    (myVote ? t('  · твой голос учтён', '  · your vote is in') : t('  · тапни вариант, чтобы проголосовать', '  · tap an option to vote'));
+}
+
+function castVote(choice) {
+  if (!voteState || voteState.myVote || !voteState.active) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  // Оптимистично блокируем повторный тап сразу, не дожидаясь ответа сервера — иначе
+  // быстрый двойной тап по кнопке успевает уйти на сервер дважды до первого ответа.
+  voteState.myVote = choice;
+  updateVoteBanner();
+  fetch(BOT_API_URL + '/vote_cast', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, choice: choice})
+  }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, data: d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        if (res.data && res.data.error === 'already_voted') {
+          voteState.myVote = res.data.myVote;
+          showNotif(t('Ты уже голосовал', 'You already voted'));
+        } else {
+          voteState.myVote = null; // сервер голос не принял — снимаем оптимистичную блокировку
+          showNotif(t('❌ Не удалось отправить голос', '❌ Failed to submit vote'));
+        }
+        updateVoteBanner();
+        checkVote();
+        return;
+      }
+      voteState.myVote = res.data.myVote;
+      voteState.counts = res.data.counts;
+      voteState.total = res.data.total;
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      showNotif(t('✅ Голос учтён!', '✅ Vote recorded!'));
+      updateVoteBanner();
+    }).catch(function(){
+      voteState.myVote = null;
+      updateVoteBanner();
+      showNotif(t('❌ Ошибка сети', '❌ Network error'));
+    });
+}
+
 function openTgUser(username) {
   var url = 'https://t.me/' + username;
   if (tg && tg.openTelegramLink) { tg.openTelegramLink(url); }
@@ -6650,6 +6755,8 @@ function startGame() {
       checkClanTester();
       setInterval(checkClanTester, 60000);
       setInterval(updateClanTournamentBanner, 30000);
+      checkVote();
+      setInterval(checkVote, 30000);
     });
   }, 800);
 

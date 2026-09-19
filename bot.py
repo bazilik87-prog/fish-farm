@@ -6899,6 +6899,8 @@ async def comm_command(message: types.Message):
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
+        "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
+        "/voteresults — текущий счёт активного/последнего голосования\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
         "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
         "/stoppromo — остановить акцию\n"
@@ -8833,6 +8835,142 @@ async def broadcast_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('startvote'))
+async def startvote_command(message: types.Message):
+    """
+    Запускает новое голосование игроков. Формат — по одной подписанной строке на каждое
+    поле (порядок неважен, регистр меток неважен):
+
+    /startvote
+    Вопрос RU: Как будем выводить выигрыш — USDT или GRAM по рынку?
+    Вариант1 RU: USDT (фикс. $1.50)
+    Вариант2 RU: GRAM по рынку
+    Вопрос EN: How should payouts work — USDT or market-rate GRAM?
+    Вариант1 EN: USDT (fixed $1.50)
+    Вариант2 EN: Market-rate GRAM
+    Дней: 7
+
+    «Дней» необязательно, по умолчанию 7. Отказывает, если уже есть активное
+    голосование — сначала дай ему автозавершиться (или дождись /voteresults со
+    статусом finished), иначе перезапись /vote/current потеряла бы уже собранные голоса.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    raw = (message.text or '').strip()
+    lines = raw.split('\n')[1:]  # первая строка — сама команда /startvote
+    fields = {}
+    for line in lines:
+        if ':' not in line:
+            continue
+        key, _, val = line.partition(':')
+        fields[key.strip().lower()] = val.strip()
+
+    q_ru = fields.get('вопрос ru') or fields.get('question ru')
+    o1_ru = fields.get('вариант1 ru') or fields.get('option1 ru')
+    o2_ru = fields.get('вариант2 ru') or fields.get('option2 ru')
+    q_en = fields.get('вопрос en') or fields.get('question en')
+    o1_en = fields.get('вариант1 en') or fields.get('option1 en')
+    o2_en = fields.get('вариант2 en') or fields.get('option2 en')
+    days_raw = fields.get('дней') or fields.get('days')
+
+    if not all([q_ru, o1_ru, o2_ru, q_en, o1_en, o2_en]):
+        await message.answer(
+            "Использование (каждое поле своей строкой):\n\n"
+            "<code>/startvote\n"
+            "Вопрос RU: текст вопроса\n"
+            "Вариант1 RU: текст\n"
+            "Вариант2 RU: текст\n"
+            "Вопрос EN: text\n"
+            "Вариант1 EN: text\n"
+            "Вариант2 EN: text\n"
+            "Дней: 7</code>\n\n"
+            "«Дней» необязательно, по умолчанию 7.",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        days = float(days_raw) if days_raw else 7.0
+    except ValueError:
+        await message.answer("❌ «Дней» должно быть числом")
+        return
+
+    import aiohttp
+    from datetime import datetime, timezone
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            current = await _vote_get_current(session, base)
+            if isinstance(current, dict) and current.get('status') == 'active':
+                await message.answer(
+                    "❌ Уже есть активное голосование — дождись автозавершения "
+                    "(см. /voteresults) прежде чем запускать новое."
+                )
+                return
+            now = datetime.now(timezone.utc)
+            vote_id = now.strftime('%Y%m%d_%H%M%S')
+            now_ms = int(now.timestamp() * 1000)
+            entry = {
+                'id': vote_id,
+                'titleRu': q_ru,
+                'titleEn': q_en,
+                'optionsRu': {'opt1': o1_ru, 'opt2': o2_ru},
+                'optionsEn': {'opt1': o1_en, 'opt2': o2_en},
+                'startedAt': now_ms,
+                'endsAt': now_ms + int(days * 86400 * 1000),
+                'status': 'active',
+            }
+            await session.put(f"{base}/vote/current.json{FB_AUTH}", json=entry)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    await message.answer(
+        f"✅ Голосование запущено (id {vote_id}), длительность {days:g} дн.\n\n"
+        f"RU: {q_ru}\n1) {o1_ru}\n2) {o2_ru}\n\n"
+        f"EN: {q_en}\n1) {o1_en}\n2) {o2_en}\n\n"
+        f"Игроки увидят баннер в игре. /voteresults — текущий счёт."
+    )
+
+
+@dp.message(Command('voteresults'))
+async def voteresults_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            current = await _vote_get_current(session, base)
+            if not isinstance(current, dict) or not current.get('id'):
+                await message.answer("Голосований ещё не было.")
+                return
+            vote_id = current['id']
+            options = current.get('optionsRu', {})
+            counts, total = await _vote_tally(session, base, vote_id, options)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    lines = [
+        f"🗳️ <b>{current.get('titleRu', '')}</b>",
+        f"Статус: {current.get('status')}",
+        f"Всего голосов: {total}", ""
+    ]
+    for key, label in options.items():
+        c = counts.get(key, 0)
+        pct = (c / total * 100) if total else 0
+        lines.append(f"{label}: {c} ({pct:.1f}%)")
+    ends_at = current.get('endsAt')
+    if ends_at:
+        left_ms = ends_at - int(time_module.time() * 1000)
+        if current.get('status') == 'active':
+            if left_ms > 0:
+                lines.append(f"\nОсталось: {left_ms // 3600000} ч")
+            else:
+                lines.append("\n⏳ Срок истёк, ждёт автозавершения (проверка раз в минуту).")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @dp.message(Command('pushcomeback'))
 async def pushcomeback_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -9888,6 +10026,176 @@ async def price_regeneration_loop():
         await asyncio.sleep(PRICE_INTERVAL_MS / 1000)
 
 
+async def _vote_get_current(session, base):
+    async with session.get(f"{base}/vote/current.json{FB_AUTH}") as resp:
+        return await resp.json()
+
+
+async def _vote_tally(session, base, vote_id, options):
+    """
+    Пересчитывает голоса напрямую по /vote/voters/{voteId} — единственный источник
+    правды. Никакого отдельного кэша-счётчика с инкрементом нет специально: при малом
+    числе игроков полный пересчёт на каждый запрос дешевле, чем риск, что счётчик
+    разъедется с реальностью при гонке (как разъезжались leaderboard.caught и
+    saves.caught до отдельной синхронизации — не повторяем эту ошибку здесь).
+    """
+    async with session.get(f"{base}/vote/voters/{vote_id}.json{FB_AUTH}") as resp:
+        voters = await resp.json()
+    voters = voters if isinstance(voters, dict) else {}
+    counts = {opt: 0 for opt in options}
+    for choice in voters.values():
+        if choice in counts:
+            counts[choice] += 1
+    return counts, len(voters)
+
+
+async def _vote_cast(pid, vote_id, choice):
+    """
+    Регистрирует голос игрока — /vote/voters/{voteId}/{pid} пишется один раз и больше
+    никогда не перезаписывается: голос финальный, менять нельзя (правило голосования).
+    ETag+If-Match с ретраями — та же защита от гонки, что у add_deposit_entry() —
+    если два почти одновременных запроса от одного игрока (двойной тап, повтор сети из
+    очереди действий) прилетят вместе, voter-запись создастся только у одного, второй
+    получит already_voted при следующей попытке записи вместо тихой перезаписи чужого
+    (в данном случае — своего же более раннего) голоса.
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    voter_url = f"{base}/vote/voters/{vote_id}/{pid}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(6):
+                async with session.get(voter_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    existing = await resp.json()
+                if existing:
+                    return 'already_voted', existing
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(voter_url, json=choice, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    if put_resp.status in (200, 204):
+                        return 'ok', choice
+                    return 'error', None
+    except Exception:
+        return 'error', None
+    return 'error', None
+
+
+async def vote_status(request):
+    """
+    Отдаёт текущее состояние голосования — вопрос, варианты, live-проценты, мой голос,
+    сколько осталось времени. Опрашивается фронтом раз в ~30 секунд, баннер и модалка
+    рисуются из этого ответа. Нет активного /vote/current — active=false, баннер на
+    фронте просто не показывается.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    pid = f"tg_{real_user_id}"
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            current = await _vote_get_current(session, base)
+            if not isinstance(current, dict) or not current.get('id'):
+                return web.json_response({'ok': True, 'active': False}, headers=CORS)
+            vote_id = current['id']
+            options = current.get('optionsRu', {})
+            counts, total = await _vote_tally(session, base, vote_id, options)
+            async with session.get(f"{base}/vote/voters/{vote_id}/{pid}.json{FB_AUTH}") as resp:
+                my_vote = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    return web.json_response({
+        'ok': True,
+        'active': current.get('status') == 'active',
+        'status': current.get('status'),
+        'titleRu': current.get('titleRu', ''),
+        'titleEn': current.get('titleEn', ''),
+        'optionsRu': current.get('optionsRu', {}),
+        'optionsEn': current.get('optionsEn', {}),
+        'counts': counts,
+        'total': total,
+        'endsAt': current.get('endsAt'),
+        'myVote': my_vote,
+    }, headers=CORS)
+
+
+async def vote_cast(request):
+    """
+    Приём голоса от игрока. Проверяет, что голосование ещё активно (status=='active' и
+    не истёк endsAt) прямо на сервере — так что голос после дедлайна не пройдёт, даже
+    если фронт почему-то не успел обновить баннер. Сам голос — см. _vote_cast().
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    pid = f"tg_{real_user_id}"
+    choice = data.get('choice')
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            current = await _vote_get_current(session, base)
+            if not isinstance(current, dict) or not current.get('id'):
+                return web.json_response({'error': 'no_active_vote'}, status=400, headers=CORS)
+            vote_id = current['id']
+            options = current.get('optionsRu', {})
+            now_ms = int(time_module.time() * 1000)
+            if current.get('status') != 'active' or now_ms >= current.get('endsAt', 0):
+                return web.json_response({'error': 'vote_closed'}, status=400, headers=CORS)
+            if choice not in options:
+                return web.json_response({'error': 'bad_choice'}, status=400, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    result, stored_choice = await _vote_cast(pid, vote_id, choice)
+    if result == 'already_voted':
+        return web.json_response({'error': 'already_voted', 'myVote': stored_choice}, status=409, headers=CORS)
+    if result != 'ok':
+        return web.json_response({'error': 'write_failed'}, status=500, headers=CORS)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            counts, total = await _vote_tally(session, base, vote_id, options)
+    except Exception:
+        counts, total = {}, 0
+
+    return web.json_response({'ok': True, 'myVote': choice, 'counts': counts, 'total': total}, headers=CORS)
+
+
 async def clan_tournament_loop():
     """
     Фоновая задача — раз в минуту проверяет турниры clan_tournaments на истёкшие окна.
@@ -9941,6 +10249,48 @@ async def clan_tournament_loop():
                             print(f"Ошибка подведения итогов турнира {tid}: {e}")
         except Exception as e:
             print(f"Ошибка фоновой проверки турниров: {e}")
+        await asyncio.sleep(60)
+
+
+async def vote_loop():
+    """
+    Фоновая задача — раз в минуту проверяет /vote/current: если голосование активно и
+    endsAt уже прошёл, финализирует его (status -> finished) и шлёт итог админу с
+    разбивкой по вариантам. Игроки узнают через баннер в игре (он просто пропадает,
+    раз status != 'active') — объявлять ли результат публично через /broadcast решает
+    сам Саша уже по факту, а не автоматически.
+    """
+    while True:
+        try:
+            import aiohttp
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            now_ms = int(time_module.time() * 1000)
+            async with aiohttp.ClientSession() as session:
+                current = await _vote_get_current(session, base)
+                if isinstance(current, dict) and current.get('id') and current.get('status') == 'active' \
+                        and now_ms >= current.get('endsAt', 0):
+                    vote_id = current['id']
+                    options = current.get('optionsRu', {})
+                    counts, total = await _vote_tally(session, base, vote_id, options)
+                    await session.patch(
+                        f"{base}/vote/current.json{FB_AUTH}",
+                        json={'status': 'finished', 'finishedAt': now_ms}
+                    )
+                    lines = [
+                        f"🗳️ <b>Голосование завершено:</b> {current.get('titleRu', '')}",
+                        f"Всего голосов: {total}", ""
+                    ]
+                    for key, label in options.items():
+                        c = counts.get(key, 0)
+                        pct = (c / total * 100) if total else 0
+                        lines.append(f"{label}: {c} ({pct:.1f}%)")
+                    if ADMIN_ID:
+                        try:
+                            await bot.send_message(ADMIN_ID, "\n".join(lines), parse_mode="HTML")
+                        except Exception as e:
+                            print(f"Не удалось отправить итог голосования админу: {e}")
+        except Exception as e:
+            print(f"Ошибка фоновой проверки голосования: {e}")
         await asyncio.sleep(60)
 
 
@@ -10004,6 +10354,10 @@ async def main():
     app.router.add_options('/clan_tournaments_mine', clan_tournaments_mine)
     app.router.add_post('/clan_tournaments_open', clan_tournaments_open)
     app.router.add_options('/clan_tournaments_open', clan_tournaments_open)
+    app.router.add_post('/vote_status', vote_status)
+    app.router.add_options('/vote_status', vote_status)
+    app.router.add_post('/vote_cast', vote_cast)
+    app.router.add_options('/vote_cast', vote_cast)
     app.router.add_get('/health', health)
     app.router.add_get('/online_count', online_count)
     app.router.add_post('/clear_pending_boosts', clear_pending_boosts)
@@ -10034,6 +10388,7 @@ async def main():
         asyncio.create_task(price_regeneration_loop())
         asyncio.create_task(clan_tournament_loop())
         asyncio.create_task(inactive_cleanup_loop())
+        asyncio.create_task(vote_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -10049,6 +10404,7 @@ async def main():
         asyncio.create_task(price_regeneration_loop())
         asyncio.create_task(clan_tournament_loop())
         asyncio.create_task(inactive_cleanup_loop())
+        asyncio.create_task(vote_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
