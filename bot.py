@@ -9615,7 +9615,7 @@ async def cleanup_inactive_command(message: types.Message):
                 uid = pid[3:] if pid.startswith('tg_') else pid
                 if uid in INACTIVITY_EXCLUDED_IDS:
                     continue
-                last_seen = sv.get('lastSeen')
+                last_seen = sv.get('lastSeen') or _guest_pid_created_ms(pid)
                 if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
                     continue
                 days = round((now_ms - last_seen) / 86400000, 1)
@@ -9762,14 +9762,44 @@ INACTIVITY_LIMIT_MS = 60 * 24 * 3600 * 1000  # 60 дней
 INACTIVITY_EXCLUDED_IDS = {"7236477449", "145841941"}
 
 
+def _guest_pid_created_ms(pid):
+    """
+    Fallback-таймстамп для гостевых аккаунтов (p_...) без lastSeen.
+    Гостевой pid генерируется в index.html как
+    'p_' + Math.random().toString(36).substr(2,9) + '_' + Date.now().toString(36) —
+    то есть последний сегмент ID это МОМЕНТ СОЗДАНИЯ аккаунта в base36. Раньше
+    отсутствие lastSeen трактовалось как "недавно заходил, не трогаем" — но это
+    неверно для гостя, который открыл мини-апп и НИ РАЗУ не сделал ни одного
+    /actions (lastSeen пишет только сервер в /actions): у такого lastSeen не
+    появится НИКОГДА, и он был бы защищён от очистки вечно, сколько бы месяцев
+    ни прошло. Теперь для p_-аккаунтов без lastSeen считаем возраст от даты
+    создания, зашитой в сам ID. Для tg_-игроков такого таймстампа в ID нет —
+    там при отсутствии lastSeen по-прежнему не удаляем (недостаточно данных).
+    """
+    if not pid.startswith('p_'):
+        return None
+    parts = pid.split('_')
+    if len(parts) < 3:
+        return None
+    try:
+        return int(parts[-1], 36)
+    except (ValueError, TypeError):
+        return None
+
+
 async def inactive_cleanup_loop():
     """
     Раз в сутки удаляет ВСЕХ игроков, не заходивших 60+ дней (по lastSeen — это поле
     пишет только сервер, подделать нельзя). Без исключений по балансу/покупкам и без
     предупреждения игроку — осознанное решение владельца проекта. Удаление необратимо,
     архива не остаётся.
-    lastSeen отсутствует — не удаляем (недостаточно данных, чтобы быть уверенными,
-    что это действительно 60+ дней, а не просто старая запись без этого поля).
+    lastSeen отсутствует у tg_-игрока — не удаляем (недостаточно данных, чтобы быть
+    уверенными, что это действительно 60+ дней). Для гостевых p_-аккаунтов без
+    lastSeen (открыл мини-апп и ни разу не сыграл — /actions ни разу не вызывался,
+    значит lastSeen не появится никогда) используем таймстамп создания, зашитый в
+    сам ID — см. _guest_pid_created_ms(). Иначе такие пустые гостевые записи были бы
+    защищены от очистки НАВСЕГДА, что и обнаружилось 19.09 — старые p_-заглушки
+    продолжали висеть в базе спустя месяцы после создания.
     """
     while True:
         try:
@@ -9794,7 +9824,7 @@ async def inactive_cleanup_loop():
                     uid = pid[3:] if pid.startswith('tg_') else pid
                     if uid in INACTIVITY_EXCLUDED_IDS:
                         continue
-                    last_seen = sv.get('lastSeen')
+                    last_seen = sv.get('lastSeen') or _guest_pid_created_ms(pid)
                     if not last_seen or (now_ms - last_seen) <= INACTIVITY_LIMIT_MS:
                         continue
                     try:
