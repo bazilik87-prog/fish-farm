@@ -3312,6 +3312,7 @@ function watchAdForLottery() {
   });
 }
 function checkAdMilestone() {
+  if (window._noAds) return; // персональное исключение (no_ads/{uid} в Firebase) — ставит админ через /noads
   window._adCatchCounter = (window._adCatchCounter || 0) + 1;
   var milestone = isPremiumActive() ? 200 : 100; // Premium реже видит межстраничную рекламу
   if (window._adCatchCounter >= milestone) {
@@ -6771,7 +6772,15 @@ function startGame() {
   spawnBubbles(); renderLocBar(); updateUI(); setTimeout(tick,500);
 }
 
+window._noAds = false;
 if (userId && firebaseDB) {
+  // Персональное исключение из межстраничной рекламы (checkAdMilestone) — ставится
+  // админом через /noads, отдельная нода, не блокирует запуск игры и не связана с
+  // рекламой за вознаграждение (энергия/лотерея — она добровольная и это исключение
+  // на неё не влияет). Читаем независимо от проверки бана ниже.
+  firebaseDB.ref('no_ads/' + userId).once('value', function(snap) {
+    window._noAds = !!snap.val();
+  });
   firebaseDB.ref('banned/' + userId).once('value', function(snap) {
     var banVal = snap.val();
     var nowMs = Date.now();

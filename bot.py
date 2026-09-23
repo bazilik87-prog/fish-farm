@@ -229,7 +229,6 @@ def scaled_boost_price(boost_id, base_price, location_order):
     return base_price + step * extra_steps
 PREMIUM_PRICE = 300  # ⭐/месяц
 REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
-
 SUPPORT_GROUP_ID = -1003903288440
 # Раньше КАЖДАЯ отправка в эту группу была обёрнута в свой собственный тихий
 # try/except: pass — если бот терял доступ к группе (кикнут, утратил право писать,
@@ -6896,6 +6895,7 @@ async def comm_command(message: types.Message):
         "/deplist — список всех активных банковских вкладов по игрокам (скоро закроются — вверху)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
+        "/noads @username|ID [off] — исключить/вернуть межстраничную рекламу во время рыбалки\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам\n"
@@ -7841,6 +7841,58 @@ async def ban_command(message: types.Message):
                 await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
 
         await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('noads'))
+async def noads_command(message: types.Message):
+    """
+    Персональное исключение из межстраничной рекламы во время рыбалки (checkAdMilestone
+    в index.html — реклама каждые 100/200 пойманных рыб). НЕ трогает добровольную рекламу
+    за вознаграждение (энергия/лотерея) — то игрок включает сам по желанию, это исключение
+    только на принудительный интерстишл.
+    /noads @username или /noads ID — включить исключение (больше не увидит рекламу).
+    /noads @username off — снять исключение.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n<code>/noads @username</code> или <code>/noads ID</code> — включить исключение\n"
+            "<code>/noads @username off</code> — снять исключение",
+            parse_mode="HTML"
+        )
+        return
+    arg = args[1].lstrip('@')
+    turn_off = len(args) > 2 and args[2].lower() == 'off'
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            if arg.isdigit():
+                uid = int(arg)
+            else:
+                username = arg.lower()
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                uid = None
+                if lb:
+                    for v in lb.values():
+                        if str(v.get('username', '')).lower() == username:
+                            uid = v.get('userId')
+                            break
+                if not uid:
+                    await message.answer(f"❌ Игрок @{username} не найден в лидерборде. Попробуй по ID.")
+                    return
+
+            if turn_off:
+                await session.delete(f"{base}/no_ads/{uid}.json{FB_AUTH}")
+                await message.answer(f"✅ Исключение снято — ID {uid} снова будет видеть межстраничную рекламу.")
+            else:
+                await session.put(f"{base}/no_ads/{uid}.json{FB_AUTH}", json=True)
+                await message.answer(f"✅ ID {uid} больше не увидит межстраничную рекламу во время рыбалки. Реклама за вознаграждение (энергия/лотерея) — как обычно, по желанию игрока.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
