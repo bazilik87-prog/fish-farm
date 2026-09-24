@@ -7132,13 +7132,19 @@ async def playerinfo_command(message: types.Message):
         lines.append(f"🗺 Разлочено: {loc_names_str}")
 
         upg_levels = sv.get('upgLevels') or {}
+        # Автодоход считаем здесь же, а не только в конце (где is_prem пересчитывается для
+        # блока Premium) — заранее, чтобы строка прокачки сразу показывала цифру монет/мин
+        # по каждой локации, без необходимости отдельно лезть в LOCATION_MULT/AUTO_PER_LEVEL руками.
+        _is_prem_for_auto = bool(premium_until) and premium_until > int(time_module.time() * 1000)
         if upg_levels:
             lines.append("")
             lines.append("🎣 Прокачка по локациям:")
             for loc_id in ulocs:
                 lv = upg_levels.get(loc_id, {})
                 parts = [f"{UPG_NAMES.get(k,k)} {lv.get(k,0)}" for k in ['rod', 'net', 'boat', 'sonar']]
-                lines.append(f"  {LOC_NAMES.get(loc_id, loc_id)}: " + ", ".join(parts))
+                auto_per_min = sum(AUTO_PER_LEVEL.get(k, 0) * int(lv.get(k, 0) or 0) for k in ('net', 'boat', 'sonar'))
+                auto_per_min = auto_per_min * LOCATION_MULT.get(loc_id, 1) * (PREMIUM_AUTO_MULT if _is_prem_for_auto else 1)
+                lines.append(f"  {LOC_NAMES.get(loc_id, loc_id)}: " + ", ".join(parts) + f" — 🔄 {auto_per_min:.1f} монет/мин")
 
         transport = sv.get('transport', 'bike')
         dur = sv.get('durability', {})
