@@ -4386,7 +4386,10 @@ async def process_actions(request):
                     for k, v in pr.items():
                         amt = v if isinstance(v, (int, float)) else 0
                         claimed_total += amt
-                        claimed_details.append({'type': 'reward', 'amount': amt})
+                        # k — ключ узла (напр. "admin_compensation" от /addcoins) — сохраняем,
+                        # иначе в /actionlog claim_bonuses виден только общей суммой без
+                        # источника (см. describe_action/summarize_actions_for_log ниже).
+                        claimed_details.append({'type': 'reward', 'source': k, 'amount': amt})
                 claimed_total = round(claimed_total * 100) / 100
                 if claimed_total > 0:
                     coins += claimed_total
@@ -5054,7 +5057,21 @@ async def process_actions(request):
                     "coins_after": coins,
                     "n_actions": len(actions)
                 }
-                summary = summarize_actions_for_log(actions, coins - save_base_coins)
+                summary = summarize_actions_for_log(actions, coins - save_base_coins) or []
+                # claim_bonuses по себе ничего не объясняет в /actionlog (см. жалобу Sasha:
+                # "было 40 → стало 15,609" без единого намёка на источник) — сумма может
+                # прийти из ref_bonuses (10% с вывода GRAM реферала, знаем ОТ КОГО) и/или
+                # pending_rewards (напр. /addcoins, знаем ключ узла). Расписываем прямо
+                # здесь, независимо от общего порога в 10,000 у summarize_actions_for_log —
+                # для claim прозрачность важна и на небольших суммах тоже.
+                if claim_result and claim_result.get('details'):
+                    summary = [s for s in summary if not s.startswith('claim_bonuses')]
+                    for d in claim_result['details']:
+                        amt = d.get('amount', 0) or 0
+                        if d.get('type') == 'ref':
+                            summary.append(f"🎁 claim +{amt:,.0f} — реф.бонус от {d.get('from', '?')}")
+                        else:
+                            summary.append(f"🎁 claim +{amt:,.0f} — {d.get('source', '?')}")
                 if summary:
                     log_entry["details"] = summary
                 await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json=log_entry)
