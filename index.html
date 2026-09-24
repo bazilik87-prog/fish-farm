@@ -1154,8 +1154,11 @@ function load() {
     state.delivery          = s.delivery  || null;
     state.delivery2         = s.delivery2 || null;
     state.deposits           = s.deposits || [];
-    state.unlockedTransports= s.unlockedTransports || ['bike'];
-    state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
+    // utrans/dur — старые имена этих же полей (до переименования); без фолбэка игрок со
+    // старым сохранением в Firebase видел бы себя как владельца только bike, хотя реально
+    // купил больше (см. тот же фикс на сервере в bot.py /actions и /playerinfo).
+    state.unlockedTransports= s.unlockedTransports || s.utrans || ['bike'];
+    state.durability        = s.durability || s.dur || {bike:100,moped:100,car:100,truck:100};
     state.dailyDay          = s.dailyDay  || 0;
     state.dailyLastClaim    = s.dailyLastClaim || 0;
     state.lastSeen          = s.lastSeen  || Date.now();
@@ -6682,8 +6685,9 @@ function applyState(s) {
   state.delivery          = s.delivery  || null;
   state.delivery2         = s.delivery2 || null;
   state.deposits          = s.deposits || [];
-  state.unlockedTransports= s.unlockedTransports || ['bike'];
-  state.durability        = s.durability || {bike:100,moped:100,car:100,truck:100};
+  // utrans/dur — старые имена этих же полей (до переименования), см. комментарий в load().
+  state.unlockedTransports= s.unlockedTransports || s.utrans || ['bike'];
+  state.durability        = s.durability || s.dur || {bike:100,moped:100,car:100,truck:100};
   state.dailyDay          = s.dailyDay  || 0;
   state.dailyLastClaim    = s.dailyLastClaim || 0;
   state.lastSeen          = s.lastSeen  || Date.now();

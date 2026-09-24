@@ -4125,10 +4125,20 @@ async def process_actions(request):
     salt_delta = 0
     knife_delta = 0
     truck_tickets_delta = 0
-    unlocked_transports = sv.get('unlockedTransports') or ['bike']
+    # Старые аккаунты (до переименования полей в клиенте) хранят этот же список под именем
+    # utrans/dur вместо unlockedTransports/durability — если новое поле отсутствует, но
+    # старое есть, доверяем старому, иначе игрок с реально купленным транспортом здесь
+    # виден как "только bike": сервер разрешал бы купить уже купленное (списав монеты
+    # повторно) и урезал бы вместимость доставки до велосипеда. Подтверждённый случай:
+    # ID (см. /playerinfo) с utrans:[bike,moped,car], но без unlockedTransports вообще.
+    unlocked_transports = sv.get('unlockedTransports')
+    if not unlocked_transports:
+        unlocked_transports = sv.get('utrans') or ['bike']
     if not isinstance(unlocked_transports, list):
         unlocked_transports = ['bike']
-    durability = sv.get('durability') or {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
+    durability = sv.get('durability')
+    if not durability:
+        durability = sv.get('dur') or {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
     if not isinstance(durability, dict):
         durability = {'bike': 100, 'moped': 100, 'car': 100, 'truck': 100}
     current_transport = sv.get('transport') or 'bike'
@@ -4506,7 +4516,7 @@ async def process_actions(request):
             # Транспорт не берём со слов клиента как есть — сверяем, что он реально
             # принадлежит игроку (или это платная аренда грузовика с активным бустом).
             claimed_transport = act.get('transport')
-            owned = set(sv.get('unlockedTransports') or []) | {'bike'}
+            owned = set(unlocked_transports) | {'bike'}  # уже с учётом legacy utrans, см. выше
             if claimed_transport == 'rentalTruck':
                 truck_rental_active = (sv.get('boosts') or {}).get('truckRental', 0) > now_ms
                 capacity = TRANSPORT_CAPACITY['rentalTruck'] if truck_rental_active else TRANSPORT_CAPACITY['bike']
@@ -7147,9 +7157,12 @@ async def playerinfo_command(message: types.Message):
                 lines.append(f"  {LOC_NAMES.get(loc_id, loc_id)}: " + ", ".join(parts) + f" — 🔄 {auto_per_min:.1f} монет/мин")
 
         transport = sv.get('transport', 'bike')
-        dur = sv.get('durability', {})
+        # Старые аккаунты хранят это под именами utrans/dur (до переименования полей в
+        # клиенте) — без фолбэка сюда показывался бы "куплен только bike" даже у игрока
+        # с реально купленным транспортом (см. тот же фикс в /actions выше).
+        dur = sv.get('durability') or sv.get('dur') or {}
         dur_str = ", ".join(f"{k}:{v}%" for k, v in dur.items()) if dur else "—"
-        owned = sv.get('unlockedTransports', ['bike'])
+        owned = sv.get('unlockedTransports') or sv.get('utrans') or ['bike']
         owned_str = ", ".join(owned) if owned else "bike"
         lines.append("")
         lines.append(f"🚛 Куплено: {owned_str}")
