@@ -6918,7 +6918,7 @@ async def comm_command(message: types.Message):
         "/tempban 111 @username [дней] — временный бан на N дней (по умолч. 7), ID и/или @username, прогресс не трогает, разбан сам по истечении\n"
         "/unban 123456789 — досрочно снять бан (постоянный или временный), ID или @username\n"
         "/banlist — список всех активных банов (постоянные + временные с датой окончания)\n"
-        "/langstats — сколько игроков на ru/en (по кэшу языка Telegram-клиента) + список англоязычных\n"
+        "/langstats — сколько игроков на ru/en (по кэшу языка Telegram-клиента)\n"
         "/deplist — список всех активных банковских вкладов по игрокам (скоро закроются — вверху)\n"
         "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
@@ -8181,13 +8181,6 @@ async def langstats_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/saves.json{FB_AUTH}") as resp:
                 saves_data = await resp.json()
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                lb_data = await resp.json()
-        by_uid = {}
-        if isinstance(lb_data, dict):
-            for v in lb_data.values():
-                if isinstance(v, dict) and v.get('userId'):
-                    by_uid[str(v['userId'])] = v.get('username')
 
         ru_uids, en_uids, unknown_count = [], [], 0
         if isinstance(saves_data, dict):
@@ -8209,13 +8202,8 @@ async def langstats_command(message: types.Message):
             f"🇷🇺 ru: {len(ru_uids)}",
             f"🇬🇧 en: {len(en_uids)}",
             f"❔ ещё не закэшировано (давно не заходили с момента добавления кэша): {unknown_count}",
-            f"Всего аккаунтов: {total}\n",
+            f"Всего аккаунтов: {total}",
         ]
-        if en_uids:
-            lines.append("🇬🇧 Англоязычные:")
-            for uid in en_uids:
-                uname = by_uid.get(str(uid))
-                lines.append(f"  {'@'+uname if uname else 'ID:'+str(uid)} (ID:{uid})")
 
         text = "\n".join(lines)
         for i in range(0, len(text), 4000):
