@@ -9730,6 +9730,9 @@ async def successful_payment(message: types.Message):
         # Если у игрока не хватает монет (баланс изменился/был подделан с момента создания счёта) —
         # НЕ отправляем админу запрос на выплату GRAM (это самое важное — блокировка происходит
         # в любом случае). Уведомление вам в Telegram отключено по просьбе — слишком много шума.
+        # balance_before нужен ТОЛЬКО для диагностического action_logs ниже (см. src:"exchange") —
+        # списание идёт своим отдельным атомарным путём в deduct_coin_balance, не отсюда.
+        balance_before = await get_coin_balance(user_id)
         deducted = await deduct_coin_balance(user_id, int(coins))
         if not deducted:
             await message.answer(t(message.from_user,
@@ -9750,6 +9753,26 @@ async def successful_payment(message: types.Message):
                        f"Черновик заявки (на случай если тут не всё): pending_exchanges/tg_{user_id}"
             )
             return
+
+        # Раньше это списание было "невидимым" в /actionlog: следующая запись начиналась
+        # с баланса, который не совпадал с концом предыдущей, и это выглядело как
+        # необъяснённое ⚠️ РАСХОЖДЕНИЕ, хотя на деле это просто вывод GRAM (списывается
+        # отдельным путём от /actions, см. deduct_coin_balance выше). Пишем ту же по форме
+        # запись, что и /actions/лотерея/sync, с src:"exchange", чтобы разрыв был подписан.
+        try:
+            import aiohttp as _aiohttp2, time as _time_mod2
+            _base2 = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            async with _aiohttp2.ClientSession() as _s2:
+                await _s2.post(f"{_base2}/action_logs/tg_{user_id}.json{FB_AUTH}", json={
+                    "ts": int(_time_mod2.time() * 1000),
+                    "coins_before": balance_before,
+                    "coins_after": round((balance_before or 0) - int(coins), 2),
+                    "n_actions": 1,
+                    "src": "exchange",
+                    "details": [f"Заявка на вывод GRAM: {coins} монет → {wallet}"]
+                })
+        except Exception:
+            pass
 
         try:
             rate = await get_exchange_rate(user_id)
