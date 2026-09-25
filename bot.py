@@ -688,6 +688,41 @@ async def create_invoice(request):
             )
             return web.json_response({'link': link}, headers=CORS)
 
+        elif action == 'big_fishing_join':
+            user_id = real_user_id
+            username = str(data.get('username', '')).strip()
+            # Предварительная проверка — чисто для UX (не дать открыть счёт, если и так
+            # видно, что набор закрыт). Настоящая проверка "не опоздал ли" — атомарная,
+            # в _big_fishing_join_atomic внутри successful_payment, ПОСЛЕ реальной оплаты:
+            # между этим запросом и оплатой набор мог успеть заполниться.
+            import aiohttp as _aiohttp_bf
+            _base_bf = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            async with _aiohttp_bf.ClientSession() as _sbf:
+                async with _sbf.get(f"{_base_bf}/big_fishing/current.json{FB_AUTH}") as _rbf:
+                    bf = await _rbf.json()
+            pid = f"tg_{user_id}"
+            if isinstance(bf, dict):
+                if bf.get('status') == 'active':
+                    return web.json_response({'error': 'турнир уже идёт, дождись следующего набора'}, status=400, headers=CORS)
+                if bf.get('status') == 'recruiting':
+                    participants = bf.get('participants') or {}
+                    if pid in participants:
+                        return web.json_response({'error': 'ты уже участвуешь в этом наборе'}, status=400, headers=CORS)
+                    if len(participants) >= BIG_FISHING_MAX_SLOTS:
+                        return web.json_response({'error': 'набор уже заполнен, дождись старта'}, status=400, headers=CORS)
+            payload = f"bf:{user_id}:{username}"
+            if len(payload.encode('utf-8')) > 128:
+                return web.json_response({'error': 'payload too long (username слишком длинный)'}, status=400, headers=CORS)
+            link = await bot.create_invoice_link(
+                title="Большая рыбалка",
+                description=f"Взнос за участие в турнире «Большая рыбалка» ({BIG_FISHING_ENTRY_FEE}⭐, невозвратно)",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Entry fee", amount=BIG_FISHING_ENTRY_FEE)],
+                provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
         elif action == 'open_deposit':
             amount = data.get('amount')
             term_days = data.get('termDays')
@@ -1729,6 +1764,295 @@ def _tour_payer_label(v):
     if username:
         return '@' + username
     return v.get('name') or f"ID:{v.get('userId')}"
+
+
+# ===================== «Большая рыбалка» (индивидуальный турнир) =====================
+# 50 участников, взнос 10⭐ каждый (невозвратно), банк 500⭐. Автостарт при заполнении
+# всех 50 мест — 24 часа на лов, топ-3 по улову забирают фиксированные призы 225/135/90⭐
+# (450 из 500 — организатору 50⭐/10%). Модель — прямая калька с клановых турниров
+# (_settle_tournament/_tournament_live_catches выше): тот же catchBaseline-снэпшот и та
+# же leaderboard.caught как источник живого счёта.
+BIG_FISHING_MAX_SLOTS = 50
+BIG_FISHING_ENTRY_FEE = 10  # ⭐ с человека
+BIG_FISHING_PRIZES = [225, 135, 90]  # 1/2/3 место
+BIG_FISHING_DURATION_MS = 24 * 3600 * 1000
+
+# In-memory кэш активного раунда — только для того, чтобы _bf_track_catch на КАЖДОМ
+# /actions-запросе КАЖДОГО игрока не ходил в Firebase проверять, участвует ли он в
+# турнире (это было бы лишним read на каждый тап, тот же класс проблемы, что и
+# bandwidth-инцидент 15.09 у checkTournament в index.html). Обновляется синхронно в
+# момент старта/финиша раунда (_big_fishing_join_atomic/_settle_big_fishing) — гонок
+# нет, процесс один (Railway, один воркер). При рестарте бота восстанавливается в main().
+_BF_CACHE = {"status": "none", "pids": set(), "number": None}
+
+
+def _bf_cache_set(status, pids, number=None):
+    _BF_CACHE["status"] = status
+    _BF_CACHE["pids"] = set(pids)
+    if number is not None:
+        _BF_CACHE["number"] = number
+
+
+def _bf_new_round(number):
+    return {
+        'number': number,
+        'status': 'recruiting',
+        'maxSlots': BIG_FISHING_MAX_SLOTS,
+        'entryFee': BIG_FISHING_ENTRY_FEE,
+        'participants': {},
+        'createdAt': int(time_module.time() * 1000),
+    }
+
+
+async def _bf_track_catch(session, base, pid):
+    """
+    Если pid сейчас участвует в АКТИВНОМ раунде «Большой рыбалки» — отмечает момент
+    времени, когда его улов только что изменился (big_fishing/current/lastCatchAt/{pid}).
+    Нужно ИСКЛЮЧИТЕЛЬНО для tie-break при подведении итогов (см. _settle_big_fishing):
+    при равном итоговом улове выше место получает тот, кто набрал его раньше — а
+    последнее время изменения улова для игрока, чей ФИНАЛЬНЫЙ улов равен этому значению,
+    и есть момент, когда он его достиг. Best-effort, дешёвая проверка через _BF_CACHE —
+    см. комментарий к нему.
+    """
+    if _BF_CACHE.get("status") != "active" or pid not in _BF_CACHE.get("pids", ()):
+        return
+    try:
+        await session.patch(f"{base}/big_fishing/current/lastCatchAt.json{FB_AUTH}",
+                             json={pid: int(time_module.time() * 1000)})
+    except Exception:
+        pass
+
+
+async def _big_fishing_join_atomic(session, base, user_id, username, name):
+    """
+    Атомарно добавляет игрока в текущий набор «Большая рыбалка» (ETag + retry — тот же
+    приём, что и в _mutate_clan_members/deduct_coin_balance выше). Если это ровно 50-й
+    участник — той же атомарной записью переводит раунд recruiting -> active: снимает
+    catchBaseline (leaderboard/{pid}/caught на этот момент) для всех 50 и открывает
+    24-часовое окно лова. Возвращает (ok, started, bf_data) — ok=False означает, что
+    игрок уже участвует / набор уже полон / раунд не в наборе прямо сейчас (деньги с
+    игрока Telegram уже списал — вызывающий код должен алертнуть админа на ручной возврат,
+    автоматических возвратов Stars в этом боте нет нигде).
+    """
+    url = f"{base}/big_fishing/current.json{FB_AUTH}"
+    pid = f"tg_{user_id}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            bf = await resp.json()
+        if not isinstance(bf, dict):
+            bf = _bf_new_round(1)
+        elif bf.get('status') != 'recruiting':
+            return False, False, bf
+
+        participants = dict(bf.get('participants') or {})
+        if pid in participants or len(participants) >= BIG_FISHING_MAX_SLOTS:
+            return False, False, bf
+        participants[pid] = {'userId': user_id, 'username': username, 'name': name,
+                              'joinedAt': int(time_module.time() * 1000)}
+        bf['participants'] = participants
+
+        started = False
+        if len(participants) >= BIG_FISHING_MAX_SLOTS:
+            async def _fetch(p):
+                async with session.get(f"{base}/leaderboard/{p}/caught.json{FB_AUTH}") as r:
+                    v = await r.json()
+                    return p, int(v or 0)
+            results = await asyncio.gather(*[_fetch(p) for p in participants.keys()])
+            now_ms = int(time_module.time() * 1000)
+            bf['status'] = 'active'
+            bf['catchBaseline'] = {p: v for p, v in results}
+            bf['lastCatchAt'] = {}
+            bf['startedAt'] = now_ms
+            bf['endsAt'] = now_ms + BIG_FISHING_DURATION_MS
+            started = True
+
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=bf, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue  # кто-то успел записать раньше (ещё один join) — перечитываем и проверяем заново
+            if put_resp.status not in (200, 204):
+                return False, False, None
+        if started:
+            _bf_cache_set('active', participants.keys(), bf.get('number'))
+        return True, started, bf
+    return False, False, None
+
+
+async def _broadcast_big_fishing_start(session, base, bf):
+    """
+    Старт раунда рассылается АБСОЛЮТНО ВСЕМ зарегистрированным игрокам (не только его 50
+    участникам) — та же логика, что и с уведомлением об открытии кланового турнира: раз
+    баннер турнира в игре виден всем, все и узнают, что он начался.
+    """
+    number = bf.get('number')
+    try:
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            data = await resp.json()
+    except Exception:
+        return
+    if not data:
+        return
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    for pid_p, v in data.items():
+        uid = v.get('userId') if isinstance(v, dict) else None
+        if not uid:
+            continue
+        lang = await _player_lang(session, base, pid_p)
+        text = (f"🎣 Старт турнира «Большая рыбалка» #{number}! Все 50 мест заполнены — 24 часа на лов. "
+                f"Топ-3 по улову заберут призы: 🥇225⭐ 🥈135⭐ 🥉90⭐. Удачи!"
+                if lang == 'ru' else
+                f"🎣 «Big Fishing» tournament #{number} has started! All 50 slots are filled — 24 hours of fishing. "
+                f"Top 3 by catch win prizes: 🥇225⭐ 🥈135⭐ 🥉90⭐. Good luck!")
+        try:
+            await bot.send_message(uid, text, reply_markup=keyboard)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+
+async def _settle_big_fishing(session, base):
+    """
+    Завершает активный раунд «Большой рыбалки» по истечении 24-часового окна: считает
+    улов каждого из 50 участников (leaderboard.caught минус catchBaseline), сортирует по
+    убыванию улова, при равенстве — по lastCatchAt (кто раньше именно ЭТОТ результат
+    показал, см. _bf_track_catch). Топ-3 получают фиксированные 225/135/90⭐ — призовой
+    фонд не зависит от факта равенства мест, это ВСЕГДА ровно 50 невозвратных взносов.
+    Победителям — личное ЛС с местом/уловом/призом, остальным — общая сводка топ-3.
+    Сразу после — открывает следующий набор (recruiting, number+1), т.е. турнир идёт
+    циклически, как и еженедельный.
+    """
+    url = f"{base}/big_fishing/current.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            bf = await resp.json()
+        if not isinstance(bf, dict) or bf.get('status') != 'active':
+            return None
+
+        participants = bf.get('participants') or {}
+        baseline = bf.get('catchBaseline') or {}
+        last_catch_at = bf.get('lastCatchAt') or {}
+
+        async def _fetch(p):
+            async with session.get(f"{base}/leaderboard/{p}/caught.json{FB_AUTH}") as r:
+                v = await r.json()
+                return p, max(0, int(v or 0) - int(baseline.get(p, 0) or 0))
+
+        results = await asyncio.gather(*[_fetch(p) for p in participants.keys()])
+        scores = {p: v for p, v in results}
+        ranked = sorted(participants.keys(),
+                         key=lambda p: (-scores.get(p, 0), last_catch_at.get(p, bf.get('startedAt', 0))))
+
+        prizes = BIG_FISHING_PRIZES
+        results_list = [{
+            'pid': p, 'catches': scores.get(p, 0), 'place': i + 1,
+            'prize': prizes[i] if i < len(prizes) else 0,
+            'name': (participants.get(p) or {}).get('name') or (participants.get(p) or {}).get('username') or p
+        } for i, p in enumerate(ranked)]
+
+        now_ms = int(time_module.time() * 1000)
+        finished = dict(bf)
+        finished['status'] = 'settled'
+        finished['settledAt'] = now_ms
+        finished['results'] = results_list
+        finished_number = bf.get('number')
+        next_round = _bf_new_round((finished_number or 1) + 1)
+
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=next_round, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue  # кто-то успел записать (join после дедлайна?) — перечитываем и проверяем заново
+            if put_resp.status not in (200, 204):
+                return None
+
+            try:
+                await session.patch(f"{base}/big_fishing_history/{finished_number}.json{FB_AUTH}", json=finished)
+            except Exception:
+                pass
+            _bf_cache_set('recruiting', [], next_round.get('number'))
+
+            top3 = results_list[:3]
+            top3_lines = "\n".join(
+                f"{['🥇','🥈','🥉'][i]} {r['name']} — {r['catches']} 🐟 ({r['prize']}⭐)"
+                for i, r in enumerate(top3)
+            )
+            place_word = {0: ('1 место', '1st place'), 1: ('2 место', '2nd place'), 2: ('3 место', '3rd place')}
+
+            for i, r in enumerate(results_list):
+                v = participants.get(r['pid']) or {}
+                uid = v.get('userId')
+                if not uid:
+                    continue
+                lang = await _player_lang(session, base, r['pid'])
+                if i < 3:
+                    pw = place_word[i]
+                    text = (f"🏆 «Большая рыбалка» #{finished_number} завершена! Ты занял {pw[0]} с уловом "
+                            f"{r['catches']} 🐟 и выиграл {r['prize']}⭐! Жди звёзды от администратора."
+                            if lang == 'ru' else
+                            f"🏆 «Big Fishing» #{finished_number} is over! You took {pw[1]} with {r['catches']} "
+                            f"catches and won {r['prize']}⭐! Wait for the stars from the admin.")
+                else:
+                    text = (f"🎣 «Большая рыбалка» #{finished_number} завершена! Твой улов: {r['catches']} 🐟 "
+                            f"({r['place']}-е место из 50).\n\n🏆 Топ-3:\n{top3_lines}\n\n"
+                            f"Следующий набор уже открыт — вступай!"
+                            if lang == 'ru' else
+                            f"🎣 «Big Fishing» #{finished_number} is over! Your catch: {r['catches']} 🐟 "
+                            f"(place {r['place']} of 50).\n\n🏆 Top 3:\n{top3_lines}\n\n"
+                            f"The next signup is already open — join in!")
+                try:
+                    await bot.send_message(uid, text)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.05)
+
+            if results_list:
+                admin_lines = [f"— {_tour_payer_label(participants.get(r['pid'], {}))} — {r['prize']}⭐ "
+                               f"(место {r['place']}, улов {r['catches']})" for r in results_list[:3]]
+                admin_text = (f"🎣 «Большая рыбалка» #{finished_number} завершена! Нужно вручную отправить "
+                              f"звёзды победителям:\n" + "\n".join(admin_lines))
+                if ADMIN_ID:
+                    try:
+                        await bot.send_message(ADMIN_ID, admin_text)
+                    except Exception:
+                        pass
+                await notify_support_group(admin_text)
+            return finished
+    return None
+
+
+async def big_fishing_loop():
+    """
+    Фоновая задача — раз в 30 секунд проверяет текущий раунд «Большой рыбалки»: если он
+    active и 24-часовое окно истекло — подводит итоги (_settle_big_fishing) и тут же
+    открывает следующий набор. Также раз в цикл синхронизирует _BF_CACHE с реальным
+    состоянием в Firebase — safety-net на случай рестарта бота между записями (кэш иначе
+    остался бы в устаревшем "none" до первого join/finish после рестарта).
+    """
+    while True:
+        try:
+            import aiohttp
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            now_ms = int(time_module.time() * 1000)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/big_fishing/current.json{FB_AUTH}") as resp:
+                    bf = await resp.json()
+                if isinstance(bf, dict):
+                    status = bf.get('status', 'none')
+                    if status == 'active':
+                        _bf_cache_set('active', (bf.get('participants') or {}).keys(), bf.get('number'))
+                        if now_ms >= bf.get('endsAt', 0):
+                            try:
+                                await _settle_big_fishing(session, base)
+                            except Exception as e:
+                                print(f"Ошибка подведения итогов «Большой рыбалки»: {e}")
+                    else:
+                        _bf_cache_set(status, [], bf.get('number'))
+        except Exception as e:
+            print(f"Ошибка фоновой проверки «Большой рыбалки»: {e}")
+        await asyncio.sleep(30)
 
 
 TOURNAMENT_VICTORY_TAUNTS = [
@@ -3371,6 +3695,7 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                 await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
             except Exception:
                 pass
+            await _bf_track_catch(session, base, pid)
 
         # Диагностический лог — та же цель, что в lottery_spin: чтобы честные призы за
         # Stars не путались с подозрительными "скачками" при последующем аудите баланса.
@@ -3777,6 +4102,7 @@ async def lottery_spin(request):
                     await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
                 except Exception:
                     pass
+                await _bf_track_catch(session, base, pid)
 
             # Диагностический лог — та же цель, что и action_logs в process_actions:
             # чтобы честные выигрыши лотереи не путались с подозрительными "скачками"
@@ -4045,6 +4371,7 @@ async def process_actions(request):
     sv = sv or {}
     coins = float(sv.get('coins', 0) or 0)
     caught = int(sv.get('caught', 0) or 0)
+    caught_before_request = caught  # для _bf_track_catch ниже — нужно знать, реально ли улов вырос именно в этом запросе
     total_earned = float(sv.get('totalEarned', 0) or 0)
     spent_accum = 0.0  # сумма реальных трат за этот запрос — см. /sync и защиту earned_delta ниже
     upg_levels = sv.get('upgLevels') or {}
@@ -5042,6 +5369,8 @@ async def process_actions(request):
                 })
             except Exception:
                 pass  # лидерборд не должен ронять сам запрос игрока
+            if caught > caught_before_request:
+                await _bf_track_catch(session, base, pid)
 
             # Диагностический лог для поиска гонки записи (несколько параллельных /actions
             # читают один и тот же стартовый баланс и перезаписывают друг друга — см. жалобы
@@ -6479,6 +6808,51 @@ async def clantournaments_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('bigfishingstatus'))
+async def bigfishingstatus_command(message: types.Message):
+    """
+    Статус текущего раунда «Большой рыбалки» — сколько собрано в наборе, либо живой топ-5
+    по улову, если раунд уже идёт.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp, time
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/big_fishing/current.json{FB_AUTH}") as resp:
+                bf = await resp.json()
+            if not isinstance(bf, dict):
+                await message.answer("Раунд «Большой рыбалки» ещё ни разу не создавался (появится с первым /noads... то есть с первым вступлением игрока).")
+                return
+            status = bf.get('status', '?')
+            number = bf.get('number')
+            participants = bf.get('participants') or {}
+            if status == 'recruiting':
+                await message.answer(f"🎣 «Большая рыбалка» #{number} — идёт набор: {len(participants)}/{BIG_FISHING_MAX_SLOTS} мест "
+                                      f"(банк {len(participants) * BIG_FISHING_ENTRY_FEE}⭐).")
+                return
+            if status == 'active':
+                baseline = bf.get('catchBaseline') or {}
+                ends_at = bf.get('endsAt', 0)
+                now_ms = int(time.time() * 1000)
+                left_h = max(0, (ends_at - now_ms) // 3600000)
+
+                async def _fetch(p):
+                    async with session.get(f"{base}/leaderboard/{p}/caught.json{FB_AUTH}") as r:
+                        v = await r.json()
+                        return p, max(0, int(v or 0) - int(baseline.get(p, 0) or 0))
+
+                results = await asyncio.gather(*[_fetch(p) for p in participants.keys()])
+                ranked = sorted(results, key=lambda kv: -kv[1])[:5]
+                lines = [f"{i+1}. {_tour_payer_label(participants.get(p, {}))} — {c} 🐟" for i, (p, c) in enumerate(ranked)]
+                await message.answer(f"🎣 «Большая рыбалка» #{number} — идёт (осталось ~{left_h}ч).\n\nТоп-5:\n" + "\n".join(lines))
+                return
+            await message.answer(f"🎣 «Большая рыбалка» #{number} — статус: {status}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('clanforce'))
 async def clanforce_command(message: types.Message):
     """
@@ -6945,6 +7319,7 @@ async def comm_command(message: types.Message):
         "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
+        "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
         "/comm — список команд\n\n"
         "🎮 <b>Команды для всех:</b>\n\n"
         "/start — запустить игру\n\n"
@@ -9150,7 +9525,8 @@ async def successful_payment(message: types.Message):
                  'Взнос в турнир клана' if payload.startswith('ctp:') else
                  'Принять турнир клана' if payload.startswith('cta:') else
                  'Биржа рефералов' if payload.startswith('rb:') else
-                 'Открытие вклада' if payload.startswith('dep:') else payload)
+                 'Открытие вклада' if payload.startswith('dep:') else
+                 'Большая рыбалка — взнос' if payload.startswith('bf:') else payload)
     except Exception:
         pass
 
@@ -9844,6 +10220,49 @@ async def successful_payment(message: types.Message):
         except Exception:
             pass
 
+    elif payload.startswith('bf:'):
+        # bf:{user_id}:{username}
+        parts = payload.split(':', 2)
+        if len(parts) < 2:
+            await message.answer(t(message.from_user,
+                "✅ Оплата получена! Свяжись с администратором для зачисления в турнир.",
+                "✅ Payment received! Contact the admin to get registered for the tournament."))
+            return
+        user_id = parts[1]
+        username = parts[2] if len(parts) > 2 else ''
+        name = message.from_user.full_name if message.from_user else ''
+
+        import aiohttp as _aiohttp_bf2
+        _base_bf2 = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with _aiohttp_bf2.ClientSession() as _sbf:
+            ok, started, bf = await _big_fishing_join_atomic(_sbf, _base_bf2, int(user_id), username, name)
+
+        if not ok:
+            # Звёзды Telegram уже списал, а зачислить в турнир не вышло (набор успел
+            # заполниться/закрыться между открытием счёта и оплатой, либо повторный клик
+            # по уже оплаченному счёту) — денежный сбой, ручной возврат, как и везде в
+            # этом боте (автоматических возвратов Stars нет нигде).
+            reason = (bf or {}).get('status', 'unknown') if isinstance(bf, dict) else 'no_data'
+            await message.answer(t(message.from_user,
+                "⚠️ Оплата получена, но зачислить участие не удалось — набор уже закрылся. Свяжись с администратором, вернём звёзды.",
+                "⚠️ Payment received, but we couldn't register your entry — signup already closed. Contact the admin, we'll refund your stars."))
+            await _alert_payment_fulfillment_failed(
+                user_id, "Большая рыбалка — взнос за участие",
+                detail=f"reason={reason}, username={username}. Нужен ручной возврат {BIG_FISHING_ENTRY_FEE}⭐."
+            )
+            return
+
+        await message.answer(t(message.from_user,
+            "✅ Ты участвуешь в турнире «Большая рыбалка»! Как только соберутся все 50 — старт автоматом, всем придёт уведомление.",
+            "✅ You're in the «Big Fishing» tournament! Once all 50 slots fill, it starts automatically and everyone gets notified."))
+
+        if started:
+            try:
+                async with _aiohttp_bf2.ClientSession() as _sbf2:
+                    await _broadcast_big_fishing_start(_sbf2, _base_bf2, bf)
+            except Exception:
+                pass
+
 
 @dp.message(Command('cleanup_inactive'))
 async def cleanup_inactive_command(message: types.Message):
@@ -10404,6 +10823,18 @@ async def main():
     except Exception as e:
         print(f"Не удалось загрузить config/clans_open_all при старте, остаётся False: {e}")
 
+    try:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/big_fishing/current.json{FB_AUTH}") as resp:
+                bf = await resp.json()
+        if isinstance(bf, dict):
+            status = bf.get('status', 'none')
+            _bf_cache_set(status, (bf.get('participants') or {}).keys() if status == 'active' else [], bf.get('number'))
+    except Exception as e:
+        print(f"Не удалось загрузить big_fishing/current при старте, _BF_CACHE остаётся 'none': {e}")
+
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
     app.router.add_options('/invoice', create_invoice)
@@ -10488,6 +10919,7 @@ async def main():
         asyncio.create_task(clan_tournament_loop())
         asyncio.create_task(inactive_cleanup_loop())
         asyncio.create_task(vote_loop())
+        asyncio.create_task(big_fishing_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -10504,6 +10936,7 @@ async def main():
         asyncio.create_task(clan_tournament_loop())
         asyncio.create_task(inactive_cleanup_loop())
         asyncio.create_task(vote_loop())
+        asyncio.create_task(big_fishing_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":

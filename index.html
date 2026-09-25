@@ -148,6 +148,16 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="clantournament-banner-btn">Клан →</div>
 </div>
+<div id="bigfishing-banner" onclick="onBigFishingBannerClick()" style="display:none;background:linear-gradient(135deg,#7a4a00,#e6a817,#7a4a00);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">🎣</div>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#fff" id="bigfishing-banner-title">Большая рыбалка</div>
+      <div id="bigfishing-banner-sub" style="font-size:11px;color:#ffe6b3;margin-top:2px">—</div>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bigfishing-banner-btn">Вступить →</div>
+</div>
 <div id="vote-banner" style="display:none;background:linear-gradient(135deg,#1a1a3d,#3949ab,#1a1a3d);margin:0;padding:12px 16px;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
     <div style="font-size:20px">🗳️</div>
@@ -220,6 +230,7 @@ function setLanguage(lang) {
   applyStaticTranslations();
   updateEnergyBar();
   renderContent();
+  updateBigFishingBanner();
   if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
 }
 function applyStaticTranslations() {
@@ -238,6 +249,7 @@ function applyStaticTranslations() {
     'refcontest-banner-btn': t('Мой счёт →', 'My score →'),
     'clantournament-banner-title': t('Турнир клана', 'Clan tournament'),
     'clantournament-banner-btn': t('Клан →', 'Clan →'),
+    'bigfishing-banner-title': t('Большая рыбалка', 'Big Fishing'),
     'weather-text': weatherName(currentWeather.id),
     'tab-lbl-upgrades': t('Апгрейды', 'Upgrades'),
     'tab-lbl-aquarium': t('Рыбы', 'Fish'),
@@ -3902,6 +3914,107 @@ function updateRefContestBanner() {
   if (timerEl) timerEl.textContent = t('Осталось: ','Left: ')+d+t('д ','d ')+h+t('ч','h');
 }
 
+// ===================== «Большая рыбалка» (индивидуальный турнир) =====================
+// Тот же лёгкий опрос, что и у checkTournament() — сервер отдаёт только маленький узел
+// big_fishing/current (в наборе там всего 50 записей участников, а не тысячи как у
+// клановых турниров), так что читаем его целиком одним запросом, без разбивки по путям.
+var bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:50, entryFee:10, joined:false, myBaseline:0, endsAt:0};
+function checkBigFishing() {
+  if (!firebaseDB) return;
+  firebaseDB.ref('big_fishing/current').once('value', function(snap) {
+    var bf = snap.val();
+    var myId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+    var myPid = 'tg_' + myId;
+    if (!bf) { bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:50, entryFee:10, joined:false, myBaseline:0, endsAt:0}; updateBigFishingBanner(); return; }
+    var participants = bf.participants || {};
+    bigFishingData = {
+      status: bf.status || 'none',
+      number: bf.number,
+      filledCount: Object.keys(participants).length,
+      maxSlots: bf.maxSlots || 50,
+      entryFee: bf.entryFee || 10,
+      joined: !!participants[myPid],
+      myBaseline: (bf.catchBaseline && bf.catchBaseline[myPid]) || 0,
+      endsAt: bf.endsAt || 0
+    };
+    updateBigFishingBanner();
+  });
+}
+
+function updateBigFishingBanner() {
+  var el = document.getElementById('bigfishing-banner');
+  if (!el) return;
+  var d = bigFishingData;
+  if (!d || d.status === 'none' || d.status === 'settled') { el.style.display='none'; return; }
+  el.style.display='flex';
+  var subEl = document.getElementById('bigfishing-banner-sub');
+  var btnEl = document.getElementById('bigfishing-banner-btn');
+  if (d.status === 'recruiting') {
+    if (subEl) subEl.textContent = t('Собрано ','Filled ')+d.filledCount+'/'+d.maxSlots+' · '+t('Банк: ','Bank: ')+(d.filledCount*d.entryFee)+'⭐';
+    if (btnEl) btnEl.textContent = d.joined ? t('Ты в деле ✅','You\'re in ✅') : (t('Вступить — ','Join — ')+d.entryFee+'⭐');
+  } else if (d.status === 'active') {
+    var msLeft = Math.max(0, d.endsAt - Date.now());
+    var h = Math.floor(msLeft/3600000), m = Math.floor((msLeft%3600000)/60000);
+    if (d.joined) {
+      var myCatches = Math.max(0, (state.caught||0) - d.myBaseline);
+      if (subEl) subEl.textContent = t('Твой улов: ','Your catch: ')+myCatches+' 🐟 · '+t('осталось ','left ')+h+t('ч ','h ')+m+t('м','m');
+      if (btnEl) btnEl.textContent = '🎣 ' + myCatches;
+    } else {
+      if (subEl) subEl.textContent = t('Уже идёт · осталось ','Already running · left ')+h+t('ч ','h ')+m+t('м','m');
+      if (btnEl) btnEl.textContent = t('Идёт','Live');
+    }
+  }
+}
+
+function onBigFishingBannerClick() {
+  var d = bigFishingData;
+  if (d && d.status === 'active') {
+    var myCatches = Math.max(0, (state.caught||0) - d.myBaseline);
+    showNotif(d.joined
+      ? (t('🎣 Твой улов в турнире: ','🎣 Your tournament catch: ')+myCatches+t(' рыб',' fish'))
+      : t('Турнир уже идёт — дождись следующего набора, чтобы вступить','Tournament already running — wait for the next signup to join'));
+    return;
+  }
+  if (d && d.status === 'recruiting' && !d.joined) {
+    joinBigFishing();
+    return;
+  }
+  if (d && d.status === 'recruiting' && d.joined) {
+    showNotif(t('✅ Ты уже участвуешь — ждём, пока соберутся все 50','✅ You\'re already in — waiting for all 50 to join'));
+  }
+}
+
+function joinBigFishing() {
+  if (!tg || !tg.initData) return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  var username = (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.username) || '';
+  fetch(BOT_API_URL+'/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action:'big_fishing_join', username: username, init_data: tg.initData})
+  }).then(function(r){
+    return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
+  }).then(function(res) {
+    if (!res.ok) { showNotif((res.data && res.data.error) || t('Ошибка сервера','Server error')); return; }
+    var link = res.data.link;
+    if (link && tg.openInvoice) {
+      var invLink = link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status) {
+        if (status === 'paid') {
+          showNotif(t('✅ Ты в деле! Ждём остальных участников','✅ You\'re in! Waiting for the rest of the players'), true);
+          setTimeout(checkBigFishing, 1500);
+        }
+      });
+    } else if (res.data && res.data.error) {
+      showNotif(res.data.error);
+    } else {
+      showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link'));
+    }
+  }).catch(function(){
+    showNotif(t('Ошибка сети, попробуй ещё раз','Network error, try again'));
+  });
+}
+
 function showRefContestInfo() {
   window._specialScreenOpen=true;
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
@@ -6762,6 +6875,9 @@ function startGame() {
       setInterval(updateClanTournamentBanner, 30000);
       checkVote();
       setInterval(checkVote, 30000);
+      checkBigFishing();
+      setInterval(checkBigFishing, 20000);
+      setInterval(updateBigFishingBanner, 30000);
     });
   }, 800);
 
