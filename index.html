@@ -148,7 +148,7 @@ html{overflow-x:hidden;width:100%}
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="clantournament-banner-btn">Клан →</div>
 </div>
-<div id="bigfishing-banner" onclick="onBigFishingBannerClick()" style="display:none;background:linear-gradient(135deg,#7a4a00,#e6a817,#7a4a00);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
+<div id="bigfishing-banner" onclick="showBigFishingInfo()" style="display:none;background:linear-gradient(135deg,#7a4a00,#e6a817,#7a4a00);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">🎣</div>
     <div>
@@ -156,7 +156,7 @@ html{overflow-x:hidden;width:100%}
       <div id="bigfishing-banner-sub" style="font-size:11px;color:#ffe6b3;margin-top:2px">—</div>
     </div>
   </div>
-  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bigfishing-banner-btn">Вступить →</div>
+  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bigfishing-banner-btn" onclick="event.stopPropagation(); onBigFishingBannerClick()">Вступить →</div>
 </div>
 <div id="vote-banner" style="display:none;background:linear-gradient(135deg,#1a1a3d,#3949ab,#1a1a3d);margin:0;padding:12px 16px;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -3996,6 +3996,59 @@ function onBigFishingBannerClick() {
   if (d.status === 'recruiting' && d.joined) {
     showNotif(t('✅ Ты уже участвуешь — ждём, пока соберутся все 50','✅ You\'re already in — waiting for all 50 to join'));
   }
+}
+
+// Клик по самому баннеру (в отличие от клика по кнопке внутри него, у которой свой
+// stopPropagation) — всегда открывает окно с правилами турнира, независимо от того,
+// вступил игрок уже или нет и идёт ли набор или сам раунд. Кнопка "Вступить"/"Ты в деле"
+// внутри баннера по-прежнему делает саму оплату/показывает статус — это отдельный клик.
+function showBigFishingInfo() {
+  var modal = document.createElement('div');
+  modal.id = 'bigfishing-info-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  document.body.appendChild(modal);
+  renderBigFishingInfoModal();
+}
+function renderBigFishingInfoModal() {
+  var modal = document.getElementById('bigfishing-info-modal');
+  if (!modal) return;
+  var d = bigFishingData || {};
+  var statusLine;
+  if (d.status === 'recruiting') {
+    statusLine = t('🟡 Идёт набор: ','🟡 Signup in progress: ') + d.filledCount + '/' + d.maxSlots + ' · ' + t('банк ','bank ') + (d.filledCount * d.entryFee) + '⭐';
+  } else if (d.status === 'active') {
+    var msLeft = Math.max(0, d.endsAt - Date.now());
+    var h = Math.floor(msLeft / 3600000), m = Math.floor((msLeft % 3600000) / 60000);
+    if (d.joined) {
+      var myCatches = Math.max(0, (state.caught || 0) - d.myBaseline);
+      statusLine = t('🟢 Турнир идёт · твой улов: ','🟢 Tournament running · your catch: ') + myCatches + ' 🐟 · ' + t('осталось ','left ') + h + t('ч ','h ') + m + t('м','m');
+    } else {
+      statusLine = t('🟢 Турнир уже идёт — дождись следующего набора · осталось ','🟢 Tournament already running — wait for the next signup · left ') + h + t('ч ','h ') + m + t('м','m');
+    }
+  } else {
+    statusLine = t('⚪ Раунд ещё не открыт — стань первым, кто вступит!','⚪ No round open yet — be the first to join!');
+  }
+  var html = '<div style="background:#2b1a00;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #e6a817;max-height:80vh;overflow-y:auto">'
+    + '<div style="text-align:center;margin-bottom:14px">'
+    + '<div style="font-size:36px;margin-bottom:4px">🎣</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#fff">' + t('Большая рыбалка','Big Fishing') + '</div>'
+    + '</div>'
+    + '<div style="background:rgba(230,168,23,0.15);border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#ffd77a;font-weight:600;font-size:12px">' + statusLine + '</div>'
+    + '<div style="background:#1a1200;border-radius:10px;padding:14px;margin-bottom:14px">'
+    + '<div style="font-size:13px;font-weight:600;color:#ffd77a;margin-bottom:8px">📋 ' + t('Условия','Rules') + '</div>'
+    + '<div style="font-size:12px;color:#e8d9c0;line-height:1.7">'
+    + '🎫 ' + t('Взнос — ','Entry fee — ') + (d.entryFee || 10) + t('⭐, невозвратно','⭐, non-refundable') + '<br>'
+    + '👥 ' + t('Набирается ','Signup for ') + (d.maxSlots || 50) + t(' игроков — при заполнении старт автоматом',' players — starts automatically once full') + '<br>'
+    + '⏱ ' + t('24 часа на лов — считается улов и тапами, и рыбой из лотереи','24 hours of fishing — counts both tap catches and lottery fish prizes') + '<br>'
+    + '⚖️ ' + t('При равном улове выше место у того, кто набрал его быстрее','On a tie, whoever reached that catch count first gets the higher place')
+    + '</div></div>'
+    + '<div style="background:linear-gradient(135deg,#3a2400,#5a3a00);border-radius:10px;padding:14px;margin-bottom:16px">'
+    + '<div style="font-size:13px;font-weight:600;color:#ffd77a;margin-bottom:8px">🏆 ' + t('Призы','Prizes') + '</div>'
+    + '<div style="font-size:12px;color:#e8d9c0;line-height:1.8">🥇 ' + t('1 место','1st place') + ' — 225⭐<br>🥈 ' + t('2 место','2nd place') + ' — 135⭐<br>🥉 ' + t('3 место','3rd place') + ' — 90⭐</div>'
+    + '</div>'
+    + '<button onclick="document.getElementById(\'bigfishing-info-modal\').remove()" style="width:100%;padding:12px;background:#e6a817;border:none;border-radius:10px;color:#2b1a00;font-size:14px;font-weight:700;cursor:pointer">' + t('Закрыть','Close') + '</button>'
+    + '</div>';
+  modal.innerHTML = html;
 }
 
 function joinBigFishing() {
