@@ -3945,11 +3945,20 @@ function updateBigFishingBanner() {
   var el = document.getElementById('bigfishing-banner');
   if (!el) return;
   var d = bigFishingData;
-  if (!d || d.status === 'none' || d.status === 'settled') { el.style.display='none'; return; }
+  // status==='settled' не должно возникать надолго — сервер сразу переоткрывает
+  // следующий набор (см. _settle_big_fishing), но на всякий случай тоже не прячем
+  // насовсем, а даём кнопке "Вступить": со стороны игрока это то же самое, что и 'none'.
+  if (!d) { el.style.display='none'; return; }
   el.style.display='flex';
   var subEl = document.getElementById('bigfishing-banner-sub');
   var btnEl = document.getElementById('bigfishing-banner-btn');
-  if (d.status === 'recruiting') {
+  if (d.status === 'none' || d.status === 'settled') {
+    // Раунда ещё не существует в Firebase вообще — он создаётся сам при первом join
+    // (см. _big_fishing_join_atomic в bot.py), так что баннер всё равно нужно показывать
+    // с призывом вступить, иначе первому игроку буквально негде нажать эту кнопку.
+    if (subEl) subEl.textContent = t('Набери 50 игроков и выиграй звёзды!','Get 50 players together and win Stars!');
+    if (btnEl) btnEl.textContent = t('Открыть набор — ','Open signup — ')+(d.entryFee||10)+'⭐';
+  } else if (d.status === 'recruiting') {
     if (subEl) subEl.textContent = t('Собрано ','Filled ')+d.filledCount+'/'+d.maxSlots+' · '+t('Банк: ','Bank: ')+(d.filledCount*d.entryFee)+'⭐';
     if (btnEl) btnEl.textContent = d.joined ? t('Ты в деле ✅','You\'re in ✅') : (t('Вступить — ','Join — ')+d.entryFee+'⭐');
   } else if (d.status === 'active') {
@@ -3968,18 +3977,23 @@ function updateBigFishingBanner() {
 
 function onBigFishingBannerClick() {
   var d = bigFishingData;
-  if (d && d.status === 'active') {
+  if (!d || d.status === 'none' || d.status === 'settled') {
+    // Раунда ещё нет в Firebase — этот клик его и создаст (см. _big_fishing_join_atomic).
+    joinBigFishing();
+    return;
+  }
+  if (d.status === 'active') {
     var myCatches = Math.max(0, (state.caught||0) - d.myBaseline);
     showNotif(d.joined
       ? (t('🎣 Твой улов в турнире: ','🎣 Your tournament catch: ')+myCatches+t(' рыб',' fish'))
       : t('Турнир уже идёт — дождись следующего набора, чтобы вступить','Tournament already running — wait for the next signup to join'));
     return;
   }
-  if (d && d.status === 'recruiting' && !d.joined) {
+  if (d.status === 'recruiting' && !d.joined) {
     joinBigFishing();
     return;
   }
-  if (d && d.status === 'recruiting' && d.joined) {
+  if (d.status === 'recruiting' && d.joined) {
     showNotif(t('✅ Ты уже участвуешь — ждём, пока соберутся все 50','✅ You\'re already in — waiting for all 50 to join'));
   }
 }
