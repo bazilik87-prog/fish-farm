@@ -2478,17 +2478,25 @@ function checkCutting() {
       }
     }
   }
-  // Проверяем истёкшее филе
+  // Проверяем истёкшее филе. ВАЖНО: раньше здесь стояло условие "!fl2.packingEndsAt &&" —
+  // но packingEndsAt снимается ТОЛЬКО вручную, кнопкой "Забрать" (см. collectFilet — она
+  // пересобирает объект уже без этого поля). Если игрок не успел нажать "Забрать" сразу,
+  // как упаковка закончилась (а таймер выше в этой же функции всё равно уже поставил ему
+  // dieAt и даже показывает обратный отсчёт "Истекает через..." в интерфейсе кухни), это
+  // старое условие никогда не давало филе реально протухнуть — оно бессрочно лежало на
+  // складе с истёкшим, но игнорируемым dieAt (баг, из-за которого филе "не портилось всю
+  // ночь"). Срок годности должен работать одинаково — забрал игрок или нет.
   var liveFilets=[], deadFilets=[];
   for (var k=0;k<(state.filets||[]).length;k++) {
     var fl2=state.filets[k];
-    if (!fl2.packingEndsAt && fl2.dieAt && now>=fl2.dieAt) deadFilets.push(fl2);
+    if (fl2.dieAt && now>=fl2.dieAt) deadFilets.push(fl2);
     else liveFilets.push(fl2);
   }
   if (deadFilets.length) {
     state.filets=liveFilets;
     showNotif(t('🍱 Истёк срок годности: ','🍱 Expired: ')+deadFilets.length+t(' филе выброшено!',' filets thrown out!'), true);
     changed=true;
+    save(); // раньше не сохранялось вообще — просроченное филе возвращалось после перезахода
   }
   var now=Date.now();
   for (var i=0;i<state.drying.length;i++) {
