@@ -528,10 +528,23 @@ async def get_location_mult(user_id):
 
 
 async def get_exchange_rate(user_id, mult=None):
-    """Курс обмена (сколько монет за 1 GRAM) растёт вместе с локацией игрока."""
+    """
+    Сколько монет составляют один "юнит" вывода — растёт вместе с локацией игрока.
+    До 26.09.2026 этот юнит выплачивался реальным 1 GRAM (курс которого гуляет на
+    рынке) — по итогам голосования игроков (67% за USDT) заменён на фиксированные
+    USDT_PER_UNIT долларов в USDT (TON), см. константу ниже. Сама таблица монет-за-юнит
+    по локациям не менялась и не меняется этим переходом.
+    """
     if mult is None:
         mult = await get_location_mult(user_id)
     return 100000 * mult
+
+
+# $ за один юнит вывода (см. get_exchange_rate) — фиксированная цена вместо рыночной
+# цены GRAM, по итогам голосования игроков от 26.09.2026. Ключевое отличие от GRAM:
+# раньше юнит стоил столько, сколько давал рынок в моменте отправки; теперь — всегда
+# ровно эта сумма, независимо от каких-либо курсов.
+USDT_PER_UNIT = 1.50
 
 
 async def get_coin_balance(user_id):
@@ -579,10 +592,10 @@ async def add_deposit_entry(user_id, deposit):
 async def deduct_coin_balance(user_id, amount):
     """
     Атомарно списывает amount монет с баланса игрока — ETag-блокировка с retry, а не
-    голое "прочитал-проверил-записал". Это путь банковского вывода в GRAM/Stars —
+    голое "прочитал-проверил-записал". Это путь банковского вывода в USDT/Stars —
     самое чувствительное место в игре: без блокировки параллельный /actions мог
     переписать списание обратно (тот пишет ВЕСЬ saves/{pid} по своему более старому
-    снимку), отменяя вычет уже ПОСЛЕ того, как GRAM/Stars реально отправлены игроку —
+    снимку), отменяя вычет уже ПОСЛЕ того, как USDT/Stars реально отправлены игроку —
     по сути бесплатный вывод денег. Теперь пишем узкий путь saves/{pid}/coins.json
     с If-Match и перепроверкой достаточности баланса на каждой попытке.
     """
@@ -641,7 +654,7 @@ async def create_invoice(request):
             loc_mult = await get_location_mult(user_id)
             # Пруд (loc_mult == 1) — отдельный пониженный потолок по просьбе. Река —
             # исключение, потолок оставлен как на (старом) Пруду по отдельной просьбе, остальные
-            # локации по формуле mult^2 (см. комментарий выше про Stars-за-GRAM).
+            # локации по формуле mult^2 (см. комментарий выше про Stars-за-USDT).
             if loc_mult == 1:
                 max_withdraw = 25000
             elif loc_mult == 2:
@@ -679,8 +692,8 @@ async def create_invoice(request):
             base_fee = 3 if await is_premium(user_id) else 5
             fee = base_fee * loc_mult
             link = await bot.create_invoice_link(
-                title="GRAM Exchange",
-                description=f"{coins} coins to GRAM",
+                title="USDT Exchange",
+                description=f"{coins} coins to USDT (TON)",
                 payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Fee", amount=fee)],
@@ -2122,7 +2135,7 @@ async def _settle_tournament(session, base, tournament_id):
     которая при равных составах и ставках алгебраически сворачивается в 1.8×ставка на
     человека (см. документацию). Рассылает участникам обеих команд итог (победа/поражение),
     а админу и в SUPPORT_GROUP_ID — список «ник — сумма» для ручной отправки звёзд
-    победителям (выплаты в этом боте всегда ручные, как и вывод GRAM/джекпот).
+    победителям (выплаты в этом боте всегда ручные, как и вывод USDT/джекпот).
     Ничьей по правилам не бывает (капитан подтвердил — составы и ставки одинаковые, но
     улов у команд разный практически всегда), однако на случай статистического совпадения
     гонка всё равно закрывается (иначе она бы висела в running вечно), просто без выплаты —
@@ -3775,6 +3788,10 @@ async def reset_progress(request):
     Игрок нажал "Сбросить прогресс" в настройках. coins/caught/totalEarned/upgLevels/
     energy/unsoldCaught теперь пишет только сервер — клиент больше не может обнулить их
     напрямую в Firebase, поэтому нужен отдельный серверный сброс.
+
+    deposits тоже обнуляем здесь: раньше открытый вклад (заморож. монеты) переживал сброс —
+    игрок получал чистый профиль, но с фантомным вкладом, который потом закрывался и возвращал
+    монеты, не согласующиеся с "чистым" состоянием после сброса.
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -3819,6 +3836,7 @@ async def reset_progress(request):
                 "premiumFreeSpinDate": 0,
                 "deliveryEscrow": 0,
                 "deliveryEscrow2": 0,
+                "deposits": [],
                 "lastSeen": now_ms
             })
     except Exception as e:
@@ -4482,9 +4500,6 @@ async def process_actions(request):
     pending_daily_bonus = False
     pending_quest_bonus = False
     pending_comeback_bonus = False
-    pending_net_promo_bonus = False
-    pending_promo_ends_at = None
-    pending_promo_amount = 0
 
     for act in actions:
         if not isinstance(act, dict):
@@ -4778,26 +4793,6 @@ async def process_actions(request):
             # времени отсутствия по lastSeen (не от заявленного клиентом), проверка права —
             # в retry-цикле ниже (та же защита от двойного тапа, что и остальные бонусы).
             pending_comeback_bonus = True
-
-        elif a_type == 'net_promo_bonus':
-            # Разовый промо-бонус +500 монет за покупку Сети (запускается /startpromo).
-            # Конфиг акции (endsAt/сумма) читаем один раз здесь — это глобальный, редко
-            # меняющийся админский параметр, не подверженный той же гонке, что личная
-            # метка "уже получал". А вот саму проверку "уже получал именно за эту акцию"
-            # и начисление — в retry-цикл ниже, по той же причине, что и остальные бонусы.
-            try:
-                async with aiohttp.ClientSession() as promo_session:
-                    async with promo_session.get(f"{base}/promo/net_bonus.json{FB_AUTH}") as resp:
-                        promo = await resp.json()
-            except Exception:
-                promo = None
-            promo_ends_at = promo.get('endsAt') if isinstance(promo, dict) else None
-            if not promo_ends_at or now_ms > promo_ends_at:
-                rejected += 1
-            else:
-                pending_net_promo_bonus = True
-                pending_promo_ends_at = promo_ends_at
-                pending_promo_amount = float(promo.get('bonus', 500)) if isinstance(promo, dict) else 500
 
         elif a_type == 'rare_fish_catch':
             # Улов редкой рыбы (Осетрина) — сервер сверяет, что она РЕАЛЬНО была активна
@@ -5128,9 +5123,9 @@ async def process_actions(request):
     # отдельном пути escrow/{pid} с ETag-блокировкой (см. resolve_escrow_ops). Старые
     # поля обнуляем НИЖЕ, только после подтверждённой миграции — а не здесь заранее,
     # чтобы не потерять деньги при сетевой ошибке во время переноса.
-    # dailyDay/dailyLastClaim/comebackClaimedAt/questBonusDate/netPromoClaimed больше
-    # НЕ пишутся здесь абсолютным значением — они проверяются и начисляются внутри
-    # retry-цикла ниже, на свежих данных при каждой попытке (защита от двойного тапа).
+    # dailyDay/dailyLastClaim/comebackClaimedAt/questBonusDate больше НЕ пишутся здесь
+    # абсолютным значением — они проверяются и начисляются внутри retry-цикла ниже,
+    # на свежих данных при каждой попытке (защита от двойного тапа).
 
     response_daily_day = None
     response_daily_last_claim = None
@@ -5190,7 +5185,7 @@ async def process_actions(request):
                 **extra_fields
             }
             saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
-            bonus_rejected_counted = {'daily': False, 'quest': False, 'comeback': False, 'promo': False}
+            bonus_rejected_counted = {'daily': False, 'quest': False, 'comeback': False}
             for save_attempt in range(6):
                 async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
                     setag = sresp.headers.get("ETag")
@@ -5273,16 +5268,6 @@ async def process_actions(request):
                     elif not bonus_rejected_counted['comeback']:
                         rejected += 1
                         bonus_rejected_counted['comeback'] = True
-
-                if pending_net_promo_bonus:
-                    if fresh_sv.get('netPromoClaimed') == pending_promo_ends_at:
-                        if not bonus_rejected_counted['promo']:
-                            rejected += 1
-                            bonus_rejected_counted['promo'] = True
-                    else:
-                        coins = round((coins + pending_promo_amount) * 100) / 100
-                        total_earned = round((total_earned + pending_promo_amount) * 100) / 100
-                        bonus_fields['netPromoClaimed'] = pending_promo_ends_at
 
                 save_headers = {"If-Match": setag} if setag else {}
                 # Firebase REST API поддерживает If-Match ТОЛЬКО с PUT, не с PATCH (PATCH с
@@ -5389,7 +5374,7 @@ async def process_actions(request):
                 summary = summarize_actions_for_log(actions, coins - save_base_coins) or []
                 # claim_bonuses по себе ничего не объясняет в /actionlog (см. жалобу Sasha:
                 # "было 40 → стало 15,609" без единого намёка на источник) — сумма может
-                # прийти из ref_bonuses (10% с вывода GRAM реферала, знаем ОТ КОГО) и/или
+                # прийти из ref_bonuses (10% с вывода USDT реферала, знаем ОТ КОГО) и/или
                 # pending_rewards (напр. /addcoins, знаем ключ узла). Расписываем прямо
                 # здесь, независимо от общего порога в 10,000 у summarize_actions_for_log —
                 # для claim прозрачность важна и на небольших суммах тоже.
@@ -5823,7 +5808,7 @@ async def start(message: types.Message):
             "🌍 Открывать локации от Пруда до Космоса — каждая выгоднее прошлой\n"
             "📦 Продавать улов на рынке (свежий, вяленый или филе) и нанимать водителя, чтобы возить рыбу, пока ты занят\n"
             "🎰 Крутить лотерею и ловить джекпот в Stars ⭐\n"
-            "🏦 Обменивать монеты на GRAM в Банке\n"
+            "🏦 Обменивать монеты на USDT (TON) в Банке\n"
             "🏆 Участвовать в турнирах недели с призами в Stars\n"
             "👥 Приглашать друзей — бонусы обоим\n"
             "💬 Общаться с другими игроками в чате\n\n"
@@ -5834,7 +5819,7 @@ async def start(message: types.Message):
             "🌍 Unlock locations from the Pond to Space — each more rewarding than the last\n"
             "📦 Sell your catch at the market (fresh, dried, or filet) and hire a driver to carry fish while you're busy\n"
             "🎰 Spin the lottery and win the jackpot in Stars ⭐\n"
-            "🏦 Exchange coins for GRAM at the Bank\n"
+            "🏦 Exchange coins for USDT (TON) at the Bank\n"
             "🏆 Join weekly tournaments with Stars prizes\n"
             "👥 Invite friends — bonuses for both\n"
             "💬 Chat with other players\n\n"
@@ -6224,140 +6209,6 @@ async def referrals_command(message: types.Message):
             types.BufferedInputFile(content.encode('utf-8'), filename=filename),
             caption=f"👥 Всего приглашений: {total_refs}"
         )
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('refcontest'))
-async def refcontest_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("⏳ Загружаю рейтинг реферального конкурса...")
-    import aiohttp, time
-    from datetime import datetime, timezone, timedelta
-    try:
-        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/ref_contest.json{FB_AUTH}") as resp:
-                rc = await resp.json() or {}
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                lb = await resp.json()
-
-        scores = rc.get('scores') or {}
-        ends_at = rc.get('endsAt', 0)
-        now_ms = int(time.time() * 1000)
-        is_active = bool(rc.get('active')) and ends_at > now_ms
-        status = "🟢 Активен" if is_active else "🔴 Завершён"
-        header = f"🏆 Реферальный конкурс — {status}"
-        if is_active:
-            ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
-            header += f"\nДо {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК"
-
-        if not scores:
-            await message.answer(header + "\n\nПока нет результатов.")
-            return
-
-        # Строим словарь userId -> username
-        id_to_name = {}
-        if lb:
-            for v in lb.values():
-                uid = str(v.get('userId', ''))
-                username = v.get('username', '')
-                first_name = v.get('firstName', '')
-                if username:
-                    id_to_name[uid] = f"@{username}"
-                elif first_name:
-                    id_to_name[uid] = first_name
-                else:
-                    id_to_name[uid] = f"ID:{uid}"
-
-        results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        lines = []
-        medals = ['🥇', '🥈', '🥉']
-        for i, (uid, count) in enumerate(results):
-            medal = medals[i] if i < 3 else f"{i+1}."
-            name = id_to_name.get(uid, f"ID:{uid}")
-            lines.append(f"{medal} {name} — {count} активных рефералов")
-
-        text = header + "\n\n" + "\n".join(lines)
-        await message.answer(text)
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('startrefconcurs'))
-async def startrefcontest_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("⏳ Запускаю реферальный конкурс...")
-    import aiohttp, time
-    from datetime import datetime, timezone, timedelta
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    started_at = int(time.time() * 1000)
-    ends_at = started_at + 14 * 24 * 3600 * 1000  # 14 дней
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/ref_contest.json{FB_AUTH}", json={
-                "active": True,
-                "startedAt": started_at,
-                "endsAt": ends_at,
-                "scores": {}
-            })
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                players = await resp.json()
-
-        ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
-        await message.answer(
-            f"✅ Реферальный конкурс запущен!\n"
-            f"⏱ 14 дней — до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК\n"
-            f"Через 14 дней он сам пометится как завершённый (или останови раньше через /stoprefconcurs).\n"
-            f"Игроки увидят баннер с таймером и своим результатом прямо в игре."
-        )
-
-        if not players:
-            return
-
-        text = (
-            "🎗️ РЕФЕРАЛЬНЫЙ КОНКУРС СТАРТУЕТ!\n\n"
-            "14 дней на то, чтобы привести как можно больше активных друзей!\n\n"
-            "Условие: очко засчитывается, когда твой реферал впервые запрашивает вывод от 1000 монет.\n\n"
-            "⚠️ Важно: считается не сам факт приглашения, а именно активность реферала — просто зарегистрировавшийся друг очков не даёт. Приглашай тех, кто реально будет играть!\n\n"
-            "Призы:\n"
-            "🥇 1 место — 15 GRAM\n"
-            "🥈 2 место — 10 GRAM\n"
-            "🥉 3 место — 5 GRAM\n\n"
-            "Скопируй свою реферальную ссылку в Настройках и зови друзей!\n"
-            "Следи за своим прогрессом прямо в игре — там появится баннер конкурса."
-        )
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-        ]])
-        sent = 0
-        for v in players.values():
-            user_id = v.get('userId')
-            if not user_id:
-                continue
-            try:
-                await bot.send_message(user_id, text, reply_markup=keyboard)
-                sent += 1
-            except Exception:
-                pass
-            await asyncio.sleep(0.05)
-        await message.answer(f"📨 Анонс отправлен {sent} игрокам.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('stoprefconcurs'))
-async def stoprefcontest_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.patch(f"{base}/ref_contest.json{FB_AUTH}", json={"active": False})
-        await message.answer("✅ Реферальный конкурс остановлен досрочно. Итоги — командой /refcontest")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -6961,37 +6812,6 @@ async def clanslist_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
-@dp.message(Command('startpromo'))
-async def startpromo_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    import aiohttp, time
-    ends_at = int((time.time() + 86400) * 1000)  # 24 часа
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/promo/net_bonus.json{FB_AUTH}", json={"endsAt": ends_at, "bonus": 500})
-        from datetime import datetime, timezone, timedelta
-        ends_dt = datetime.fromtimestamp(ends_at/1000, tz=timezone(timedelta(hours=3)))
-        await message.answer(f"✅ Акция запущена!\n🎁 Бонус 500🪙 за покупку Сети активен до {ends_dt.strftime('%d.%m.%Y %H:%M')} МСК")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('stoppromo'))
-async def stoppromo_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.delete(f"{base}/promo/net_bonus.json{FB_AUTH}")
-        await message.answer("✅ Акция остановлена!")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
 @dp.message(Command('getchatid'))
 async def getchatid_command(message: types.Message):
     """
@@ -7274,9 +7094,6 @@ async def comm_command(message: types.Message):
         "/audit — найти аккаунты с накрученным балансом (сверка с реальным временем)\n"
         "/selftest — автопроверка формул экономики на сервере (без клика по игре)\n"
         "/referrals — реферальная система (файл .txt)\n"
-        "/refcontest — рейтинг реферального конкурса\n"
-        "/startrefconcurs — начать конкурс на 14 дней (сбрасывает счёт, рассылает анонс всем)\n"
-        "/stoprefconcurs — остановить конкурс досрочно\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
         "/addenergy @username — вручную заполнить энергию до максимума (компенсация за не выданную оплаченную покупку)\n"
         "/syncerrors — список игроков с ошибками синхронизации\n"
@@ -7294,7 +7111,6 @@ async def comm_command(message: types.Message):
         "/banlist — список всех активных банов (постоянные + временные с датой окончания)\n"
         "/langstats — сколько игроков на ru/en (по кэшу языка Telegram-клиента)\n"
         "/deplist — список всех активных банковских вкладов по игрокам (скоро закроются — вверху)\n"
-        "/delnum НОМЕР — удалить анонимную запись без username/ID (напр. «Рыбак #478»)\n"
         "/ban @username — удалить игрока и заблокировать вход\n"
         "/noads @username|ID [off] — исключить/вернуть межстраничную рекламу во время рыбалки\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
@@ -7303,8 +7119,6 @@ async def comm_command(message: types.Message):
         "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
         "/voteresults — текущий счёт активного/последнего голосования\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
-        "/startpromo — запустить акцию +500🪙 за Сеть на 24ч\n"
-        "/stoppromo — остановить акцию\n"
         "/getchatid — узнать ID группы (написать прямо в группе рекламодателя)\n"
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
         "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
@@ -7409,6 +7223,16 @@ async def syncerrors_command(message: types.Message):
                 await message.answer("✅ Ошибок синхронизации нет — все игроки сохраняются нормально.")
                 return
 
+            # Гостевые pid (p_...) — это сессии без настоящего Telegram-контекста (открыли
+            # игру не в Telegram, tg.initDataUnsafe.user не пойман, см. getPlayerId() в
+            # index.html). Firebase Rules намеренно не дают им писать в saves/ — то же
+            # самое всё равно отклонит и backend без настоящего init_data. Это ожидаемо и
+            # никогда не станет реальной проблемой, поэтому не засоряем ими диагностику.
+            errors = {pid: info for pid, info in errors.items() if not pid.startswith('p_')}
+            if not errors:
+                await message.answer("✅ Ошибок синхронизации у реальных игроков нет (есть только ожидаемые отказы у гостевых сессий вне Telegram).")
+                return
+
             async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
                 lb = await resp.json()
 
@@ -7501,18 +7325,30 @@ async def playerinfo_command(message: types.Message):
             async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as resp:
                 referred_by_him = await resp.json()
 
-            # Суммарно выведено GRAM за всё время — считаем по withdrawals_log, где теперь
+            # Суммарно выведено за всё время — считаем по withdrawals_log, где теперь
             # (с добавлением user_id в запись при каждом выводе) можно фильтровать по игроку.
             # Выводы ДО этого изменения не будут учтены — там user_id ещё не писался.
+            # С 26.09.2026 (переход на USDT по итогам голосования) новые записи несут
+            # currency:"usdt" и поле "usdt"; более старые записи без currency — это
+            # исторические выводы в GRAM по рыночному курсу НА МОМЕНТ отправки, их нельзя
+            # задним числом пересчитать в доллары (курс GRAM тогда был другим) — поэтому
+            # считаем и показываем ОТДЕЛЬНО, а не одной смешанной суммой.
             async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as resp:
                 withdrawals = await resp.json()
             total_gram_withdrawn = 0.0
-            withdrawal_count = 0
+            total_usdt_withdrawn = 0.0
+            gram_withdrawal_count = 0
+            usdt_withdrawal_count = 0
             if isinstance(withdrawals, dict):
                 for w in withdrawals.values():
                     if isinstance(w, dict) and str(w.get('user_id', '')) == str(uid):
-                        total_gram_withdrawn += float(w.get('gram', 0) or 0)
-                        withdrawal_count += 1
+                        if w.get('currency') == 'usdt':
+                            total_usdt_withdrawn += float(w.get('usdt', 0) or 0)
+                            usdt_withdrawal_count += 1
+                        else:
+                            total_gram_withdrawn += float(w.get('gram', 0) or 0)
+                            gram_withdrawal_count += 1
+            withdrawal_count = gram_withdrawal_count + usdt_withdrawal_count
 
             async with session.get(f"{base}/banned/{uid}.json{FB_AUTH}") as resp:
                 ban_val = await resp.json()
@@ -7564,10 +7400,12 @@ async def playerinfo_command(message: types.Message):
         total_earned = sv.get('totalEarned', 0)
         caught = sv.get('caught', 0)
         lines.append(f"🪙 Баланс: {coins:,.0f} · Всего заработано: {total_earned:,.0f} · Поймано: {caught:,}")
-        if withdrawal_count:
-            lines.append(f"💎 Выведено GRAM: {total_gram_withdrawn:,.5f} ({withdrawal_count} вывод(ов))")
-        else:
-            lines.append("💎 Выведено GRAM: 0 (выводов не было)")
+        if usdt_withdrawal_count:
+            lines.append(f"💵 Выведено USDT (TON): ${total_usdt_withdrawn:,.2f} ({usdt_withdrawal_count} вывод(ов))")
+        if gram_withdrawal_count:
+            lines.append(f"💎 Выведено GRAM (до перехода на USDT): {total_gram_withdrawn:,.5f} ({gram_withdrawal_count} вывод(ов))")
+        if not withdrawal_count:
+            lines.append("💵 Выведено: 0 (выводов не было)")
 
         # Оплаты звёздами — отдельный узел (stars_payments/{pid}, append-only лог, пишется
         # в successful_payment на КАЖДЫЙ платёж), не входит в saves/{pid}, поэтому без
@@ -7839,7 +7677,7 @@ async def checkgroup_command(message: types.Message):
     """
     Диагностика доступа бота к группе поддержки — специально на случай вроде недавней
     передачи прав на группу другому аккаунту, после которой дубли заявок на выплату
-    (GRAM/джекпот/возвраты за турниры) могли молча перестать приходить, потому что каждая
+    (USDT/джекпот/возвраты за турниры) могли молча перестать приходить, потому что каждая
     такая отправка раньше была обёрнута в свой тихий try/except (см. notify_support_group
     и комментарий у SUPPORT_GROUP_ID). Проверяет три вещи по очереди: виден ли сам чат,
     какой у бота там статус/права, и проходит ли РЕАЛЬНАЯ отправка сообщения — вместо того,
@@ -8159,49 +7997,6 @@ async def breakref_all_command(message: types.Message):
             await session.delete(f"{base}/referrals/by/{referrer_uid}.json{FB_AUTH}")
 
         await message.answer(f"✅ Разорвано {count} реферальных связей у ID:{referrer_uid}.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
-@dp.message(Command('delnum'))
-async def delnum_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    args = message.text.strip().split()
-    if len(args) < 2 or not args[1].isdigit():
-        await message.answer(
-            "Использование:\n<code>/delnum 478</code>\n\n"
-            "Удаляет запись из лидерборда/сохранения по номеру (<code>num</code>) — "
-            "для анонимных записей без username и userId (например, старые эксплойт-аккаунты типа «Рыбак #478»).",
-            parse_mode="HTML"
-        )
-        return
-    target_num = int(args[1])
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                lb = await resp.json()
-
-            target_pid = None
-            target_info = None
-            if lb:
-                for pid, v in lb.items():
-                    if v.get('num') == target_num:
-                        target_pid = pid
-                        target_info = v
-                        break
-
-            if not target_pid:
-                await message.answer(f"❌ Запись с номером {target_num} не найдена в лидерборде.")
-                return
-
-            await session.delete(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}")
-            await session.delete(f"{base}/saves/{target_pid}.json{FB_AUTH}")
-
-        earned = target_info.get('totalEarned', 0) if target_info else 0
-        await message.answer(f"✅ Запись #{target_num} удалена (было заработано: {earned:,} монет). Лидерборд и сохранение очищены.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -8790,7 +8585,7 @@ async def pay_command(message: types.Message):
     text = message.text.strip().split()
     if len(text) < 3:
         await message.answer(
-            "Использование:\n<code>/pay @username СУММА</code> или <code>/pay 123456789 СУММА</code> (по ID)\n\nПример:\n<code>/pay @Metelegram12 0.073</code>",
+            "Использование:\n<code>/pay @username СУММА</code> или <code>/pay 123456789 СУММА</code> (по ID) — сумма в USDT\n\nПример:\n<code>/pay @Metelegram12 4.50</code>",
             parse_mode="HTML"
         )
         return
@@ -8821,14 +8616,14 @@ async def pay_command(message: types.Message):
         await bot.send_message(
             user_id,
             f"✅ <b>Выплата выполнена!</b>\n\n"
-            f"💎 {amount} GRAM отправлены на твой кошелёк.\n\n"
+            f"💵 ${amount} USDT (TON) отправлены на твой кошелёк.\n\n"
             f"Спасибо что играешь в FishFarm! 🎣",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
             ]])
         )
-        await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате {amount} GRAM")
+        await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате ${amount} USDT")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -9518,7 +9313,7 @@ async def successful_payment(message: types.Message):
     label = payload
     try:
         label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
-                ('Обмен на GRAM' if payload.startswith('ex:') else
+                ('Обмен на USDT' if payload.startswith('ex:') else
                  'Premium подписка' if payload.startswith('sub:') else
                  'Слот клана' if payload.startswith('cs:') else
                  'Создание турнира клана' if payload.startswith('ctc:') else
@@ -10099,8 +9894,8 @@ async def successful_payment(message: types.Message):
         # ex:{user_id}:{coins}:{wallet}:{username}
         if len(parts) < 4:
             await message.answer(t(message.from_user,
-                "✅ Оплата получена! Свяжись с администратором для получения GRAM.",
-                "✅ Payment received! Contact the admin to get your GRAM."))
+                "✅ Оплата получена! Свяжись с администратором для получения USDT.",
+                "✅ Payment received! Contact the admin to get your USDT."))
             return
         user_id  = parts[1]
         coins    = parts[2]
@@ -10109,7 +9904,7 @@ async def successful_payment(message: types.Message):
 
         # Критическая проверка: реально списываем монеты с баланса в Firebase.
         # Если у игрока не хватает монет (баланс изменился/был подделан с момента создания счёта) —
-        # НЕ отправляем админу запрос на выплату GRAM (это самое важное — блокировка происходит
+        # НЕ отправляем админу запрос на выплату USDT (это самое важное — блокировка происходит
         # в любом случае). Уведомление вам в Telegram отключено по просьбе — слишком много шума.
         # balance_before нужен ТОЛЬКО для диагностического action_logs ниже (см. src:"exchange") —
         # списание идёт своим отдельным атомарным путём в deduct_coin_balance, не отсюда.
@@ -10128,7 +9923,7 @@ async def successful_payment(message: types.Message):
             # остальных веток successful_payment — на всякий случай, даже если тут и правда
             # была просто нехватка монет: лишний алерт безопаснее пропущенного сбоя.
             await _alert_payment_fulfillment_failed(
-                user_id, "Обмен на GRAM",
+                user_id, "Обмен на USDT",
                 detail=f"deduct_coin_balance вернул False — монет {coins}, кошелёк {wallet}. "
                        f"Либо реально не хватило баланса, либо сбой записи — проверь /playerinfo. "
                        f"Черновик заявки (на случай если тут не всё): pending_exchanges/tg_{user_id}"
@@ -10137,7 +9932,7 @@ async def successful_payment(message: types.Message):
 
         # Раньше это списание было "невидимым" в /actionlog: следующая запись начиналась
         # с баланса, который не совпадал с концом предыдущей, и это выглядело как
-        # необъяснённое ⚠️ РАСХОЖДЕНИЕ, хотя на деле это просто вывод GRAM (списывается
+        # необъяснённое ⚠️ РАСХОЖДЕНИЕ, хотя на деле это просто вывод USDT (списывается
         # отдельным путём от /actions, см. deduct_coin_balance выше). Пишем ту же по форме
         # запись, что и /actions/лотерея/sync, с src:"exchange", чтобы разрыв был подписан.
         try:
@@ -10150,25 +9945,34 @@ async def successful_payment(message: types.Message):
                     "coins_after": round((balance_before or 0) - int(coins), 2),
                     "n_actions": 1,
                     "src": "exchange",
-                    "details": [f"Заявка на вывод GRAM: {coins} монет → {wallet}"]
+                    "details": [f"Заявка на вывод USDT: {coins} монет → {wallet}"]
                 })
         except Exception:
             pass
 
+        # С 26.09.2026 (по итогам голосования игроков, 67% за USDT) юнит вывода стоит
+        # фиксированные USDT_PER_UNIT $ вместо рыночной цены GRAM — см. комментарий у
+        # get_exchange_rate/USDT_PER_UNIT. Формула коэффициента монет-за-юнит (rate)
+        # не менялась, меняется только то, во что этот юнит конвертируется на выходе.
         try:
             rate = await get_exchange_rate(user_id)
-            gram_amount = round(int(coins) / rate, 5)
-        except ValueError:
-            gram_amount = 0
+            units = int(coins) / rate
+            usdt_amount = round(units * USDT_PER_UNIT, 2)
+        except (ValueError, ZeroDivisionError):
+            usdt_amount = 0
 
         # Публичная лента выводов — для баннера "История выплат" в игре.
-        # user_id добавлен, чтобы /playerinfo мог посчитать, сколько GRAM вывел конкретный
-        # игрок за всё время — раньше запись была полностью анонимной, это посчитать было
-        # нельзя. Для выводов ДО этого изменения user_id не будет — они не попадут в сумму.
+        # user_id добавлен, чтобы /playerinfo мог посчитать, сколько игрок вывел за всё
+        # время — раньше запись была полностью анонимной, это посчитать было нельзя.
+        # Для выводов ДО этого изменения user_id не будет — они не попадут в сумму.
+        # currency помечает КАЖДУЮ запись явно ("usdt" — новые, начиная с этого перехода;
+        # старые записи без этого поля — это исторические выводы в GRAM по рыночному
+        # курсу на момент отправки, задним числом их пересчитывать в доллары нельзя —
+        # курс GRAM тогда был другим). См. разбивку по этому полю в /playerinfo.
         try:
             import aiohttp, time as time_mod
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-            entry = {"amount": int(coins), "gram": gram_amount, "wallet": wallet, "ts": int(time_mod.time() * 1000), "user_id": user_id}
+            entry = {"amount": int(coins), "usdt": usdt_amount, "currency": "usdt", "wallet": wallet, "ts": int(time_mod.time() * 1000), "user_id": user_id}
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
                 await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")  # успешно обработан — черновик больше не нужен
@@ -10177,20 +9981,20 @@ async def successful_payment(message: types.Message):
 
         await message.answer(
             t(message.from_user,
-                f"✅ Заявка принята!\n\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⏳ Отправим в течение 24 часов.",
-                f"✅ Request accepted!\n\n🪙 Coins: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⏳ We'll send it within 24 hours.")
+                f"✅ Заявка принята!\n\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⏳ Отправим в течение 24 часов.",
+                f"✅ Request accepted!\n\n🪙 Coins: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⏳ We'll send it within 24 hours.")
         )
         if ADMIN_ID:
             ul = f"@{username}" if username else f"ID: {user_id}"
             try:
                 await bot.send_message(
                     ADMIN_ID,
-                    f"💰 Новый обмен!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Отправь токены!"
+                    f"💰 Новый обмен!\n👤 {ul}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Отправь токены!"
                 )
             except Exception:
                 pass
             await notify_support_group(
-                f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💎 GRAM: {gram_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
+                f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
             )
 
         # Реферальный бонус: 10% от суммы вывода — начисляем на сервере, после того как
@@ -10209,14 +10013,6 @@ async def successful_payment(message: types.Message):
                         "amount": bonus,
                         "from": from_name
                     })
-                    # Реферальный конкурс: очко засчитывается один раз — когда реферал впервые вывел от 1000 монет
-                    async with session.get(f"{base}/ref_contest/withdrawal_done/{user_id}.json{FB_AUTH}") as resp2:
-                        already_done = await resp2.json()
-                    if not already_done:
-                        await session.put(f"{base}/ref_contest/withdrawal_done/{user_id}.json{FB_AUTH}", json=True)
-                        async with session.get(f"{base}/ref_contest/scores/{referrer_id}.json{FB_AUTH}") as resp3:
-                            current_score = await resp3.json()
-                        await session.put(f"{base}/ref_contest/scores/{referrer_id}.json{FB_AUTH}", json=(current_score or 0) + 1)
         except Exception:
             pass
 

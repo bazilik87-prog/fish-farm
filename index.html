@@ -113,7 +113,7 @@ html{overflow-x:hidden;width:100%}
     <div style="font-size:28px">🏦</div>
     <div>
       <div style="font-size:14px;font-weight:700;color:#fff" id="bank-banner-title">Банк FishFarm</div>
-      <div style="font-size:11px;color:#90caf9;margin-top:2px" id="bank-banner-sub">Обменяй монеты на 💎 GRAM за ⭐</div>
+      <div style="font-size:11px;color:#90caf9;margin-top:2px" id="bank-banner-sub">Обменяй монеты на 💵 USDT (TON) за ⭐</div>
     </div>
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bank-banner-btn">Открыть →</div>
@@ -127,16 +127,6 @@ html{overflow-x:hidden;width:100%}
     </div>
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="tournament-banner-btn">Топ →</div>
-</div>
-<div id="refcontest-banner" onclick="showRefContestInfo()" style="display:none;background:linear-gradient(135deg,#0f3a2a,#24aa6a,#0f3a2a);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
-  <div style="display:flex;align-items:center;gap:12px">
-    <div style="font-size:28px">🎗️</div>
-    <div>
-      <div style="font-size:14px;font-weight:700;color:#fff" id="refcontest-banner-title">Реферальный конкурс</div>
-      <div id="refcontest-timer" style="font-size:11px;color:#c8f0dc;margin-top:2px">Осталось: —</div>
-    </div>
-  </div>
-  <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="refcontest-banner-btn">Мой счёт →</div>
 </div>
 <div id="clantournament-banner" onclick="openClanTournamentsFromBanner()" style="display:none;background:linear-gradient(135deg,#5c1010,#c62828,#5c1010);margin:0;padding:14px 16px;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:12px">
@@ -241,12 +231,10 @@ function applyStaticTranslations() {
     'lbl-tap': t('за улов', 'per catch'),
     'lbl-auto': t('🪙 авто/мин', '🪙 auto/min'),
     'bank-banner-title': t('Банк FishFarm', 'FishFarm Bank'),
-    'bank-banner-sub': t('Обменяй монеты на 💎 GRAM за ⭐', 'Exchange coins for 💎 GRAM with ⭐'),
+    'bank-banner-sub': t('Обменяй монеты на 💵 USDT (TON) за ⭐', 'Exchange coins for 💵 USDT (TON) with ⭐'),
     'bank-banner-btn': t('Открыть →', 'Open →'),
     'tournament-banner-title': t('Турнир недели', 'Weekly tournament'),
     'tournament-banner-btn': t('Топ →', 'Top →'),
-    'refcontest-banner-title': t('Реферальный конкурс', 'Referral contest'),
-    'refcontest-banner-btn': t('Мой счёт →', 'My score →'),
     'clantournament-banner-title': t('Турнир клана', 'Clan tournament'),
     'clantournament-banner-btn': t('Клан →', 'Clan →'),
     'bigfishing-banner-title': t('Большая рыбалка', 'Big Fishing'),
@@ -3530,20 +3518,25 @@ function activateBoost(id, growJackpot) {
     if(currentTab==='boosts') renderBoosts();
   }
 }
+// $ за один юнит вывода (та же таблица монет-за-юнит по локациям, что и раньше для
+// GRAM) — фиксированная цена вместо рыночного курса, с 26.09.2026 по итогам
+// голосования игроков. Держим числом в одном месте, а не хардкодим 1.5 по всем
+// местам расчёта — см. тот же USDT_PER_UNIT в bot.py.
+var USDT_PER_UNIT = 1.50;
 function renderBank() {
   var coins = Math.floor(state.coins);
   document.getElementById('content').innerHTML =
     '<div class="card" style="text-align:center;padding:20px">'
       +'<div style="font-size:32px;margin-bottom:8px">🏦</div>'
       +'<div style="font-size:16px;font-weight:600;color:#FFD700;margin-bottom:4px">'+t('Банк FishFarm','FishFarm Bank')+'</div>'
-      +'<div style="font-size:12px;color:#90caf9;margin-bottom:12px">'+t('Обменяй монеты на GRAM','Exchange coins for GRAM')+'</div>'
+      +'<div style="font-size:12px;color:#90caf9;margin-bottom:12px">'+t('Обменяй монеты на USDT (TON)','Exchange coins for USDT (TON)')+'</div>'
       +'<button class="btn btn-full" onclick="showDeposits()" style="background:#0a3a1a;color:#6ddc6d">🏦 '+t('Вклады','Deposits')+(state.deposits&&state.deposits.length?' ('+state.deposits.length+')':'')+'</button>'
     +'</div>'
     +'<div class="card">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">'+t('Монеты','Coins')+'</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
         +'<div style="font-size:24px;color:#90caf9">→</div>'
-        +'<div style="text-align:center;flex:1"><div style="font-size:28px">💎</div><div style="font-size:13px;color:#90caf9;margin-top:4px">GRAM</div></div>'
+        +'<div style="text-align:center;flex:1"><div style="font-size:28px">💵</div><div style="font-size:13px;color:#90caf9;margin-top:4px">USDT</div></div>'
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма обмена (монеты):','Exchange amount (coins):')+'</div>'
       +'<div style="font-size:11px;color:#666;margin-bottom:6px">'+t('От 1,000 до ','From 1,000 to ')+maxWithdrawCap().toLocaleString('ru-RU')+t(' монет за один вывод',' coins per withdrawal')+'</div>'
@@ -3555,13 +3548,13 @@ function renderBank() {
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
         +'<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+(Math.min(1000,coins)/(100000*maxUnlockedMult())).toFixed(5)+' GRAM</div>'
-        +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+((Math.min(1000,coins)/(100000*maxUnlockedMult()))*USDT_PER_UNIT).toFixed(2)+' USDT</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>'
       +'</div>'
       +'<div id="bank-fee-line" style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
       +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ '+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</span></button>'
     +'</div>'
-    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 '+t('После оплаты администратор отправит GRAM на указанный кошелёк в течение 24 часов.','After payment, the admin will send GRAM to the specified wallet within 24 hours.')+'</div>'
+    +'<div class="card" style="font-size:12px;color:#666;line-height:1.8">📌 '+t('После оплаты администратор отправит USDT (TON) на указанный кошелёк в течение 24 часов.','After payment, the admin will send USDT (TON) to the specified wallet within 24 hours.')+'</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
     +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 '+t('Напиши боту эту команду:','Send this command to the bot:')+'</div>'
     +'<div id="bank-cmd" style="font-size:12px;color:#FFD700;font-family:monospace;word-break:break-all;margin-bottom:10px"></div>'
@@ -3587,7 +3580,10 @@ function loadWithdrawalsLog() {
     var html = '';
     for (var i=0;i<liveItems.length;i++) {
       var it = liveItems[i];
-      var gram = (typeof it.gram === 'number' ? it.gram : (it.amount||0)/100000).toFixed(5);
+      var isUsdt = it.currency === 'usdt';
+      var amtLabel = isUsdt
+        ? '💵 $'+(typeof it.usdt === 'number' ? it.usdt : 0).toFixed(2)+' USDT'
+        : '💎 '+(typeof it.gram === 'number' ? it.gram : (it.amount||0)/100000).toFixed(5)+' GRAM';
       var dateStr = '—';
       if (it.ts) {
         var d = new Date(it.ts);
@@ -3599,7 +3595,7 @@ function loadWithdrawalsLog() {
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px;gap:8px">'
         + '<span style="color:#666;font-family:monospace;white-space:nowrap">'+dateStr+'</span>'
         + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
-        + '<span style="color:#6ddc6d;font-weight:600;white-space:nowrap">💎 '+gram+' GRAM</span>'
+        + '<span style="color:#6ddc6d;font-weight:600;white-space:nowrap">'+amtLabel+'</span>'
         + '</div>';
     }
     el2.innerHTML = html;
@@ -3615,10 +3611,10 @@ function updateBankPreview() {
   var input=document.getElementById('ex-amount');
   var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
   var rate=100000*maxUnlockedMult();
-  var gram=val/rate;
+  var usdt=(val/rate)*USDT_PER_UNIT;
   var fee=bankFeeAmount(); // фиксированная по локации, не зависит от val
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💎 '+gram.toFixed(5)+' GRAM</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = 1 GRAM · Отправка вручную в течение 24ч',' coins = 1 GRAM · Sent manually within 24h')+'</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+usdt.toFixed(2)+' USDT</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>';
   var feeLine=document.getElementById('bank-fee-line');
   if(feeLine) feeLine.innerHTML='⭐ '+t('Комиссия:','Fee:')+' '+fee+' '+starsWord(fee)+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange');
   var feeBtn=document.getElementById('bank-fee-btn-text');
@@ -3655,7 +3651,7 @@ function exchangeCoins() {
       tg.openInvoice(invLink2, function(status){
         if(status==='paid') {
           state.coins=Math.round((state.coins-amount)*100)/100;
-          showNotif(t('💸 Заявка на вывод ','💸 Withdrawal request for ') + amount + t(' монет отправлена! GRAM придут в течение 24ч',' coins sent! GRAM will arrive within 24h'), true);
+          showNotif(t('💸 Заявка на вывод ','💸 Withdrawal request for ') + amount + t(' монет отправлена! USDT (TON) придут в течение 24ч',' coins sent! USDT (TON) will arrive within 24h'), true);
           updateUI(); save();
           // Списание баланса и начисление реферального бонуса теперь делает сервер (bot.py)
           // сразу после подтверждения оплаты — это защищает от подмены суммы на клиенте.
@@ -3897,31 +3893,6 @@ function updateTournamentBanner() {
   if (timerEl) timerEl.textContent = t('Осталось: ','Left: ')+h+t('ч ','h ')+m+t('м','m');
 }
 
-var refContestData = {active:false, endsAt:0};
-function checkRefContest() {
-  if (!firebaseDB) return;
-  firebaseDB.ref('ref_contest').once('value', function(snap) {
-    var rc = snap.val();
-    if (!rc) { refContestData = {active:false, endsAt:0}; }
-    else { refContestData = {active: !!rc.active, endsAt: rc.endsAt||0}; }
-    updateRefContestBanner();
-  });
-}
-
-function updateRefContestBanner() {
-  var el = document.getElementById('refcontest-banner');
-  if (!el) return;
-  var now = Date.now();
-  var isLive = refContestData.active && refContestData.endsAt > now;
-  if (!isLive) { el.style.display='none'; return; }
-  el.style.display='flex';
-  var msLeft = refContestData.endsAt - now;
-  var d = Math.floor(msLeft/86400000);
-  var h = Math.floor((msLeft%86400000)/3600000);
-  var timerEl = document.getElementById('refcontest-timer');
-  if (timerEl) timerEl.textContent = t('Осталось: ','Left: ')+d+t('д ','d ')+h+t('ч','h');
-}
-
 // ===================== «Большая рыбалка» (индивидуальный турнир) =====================
 // Тот же лёгкий опрос, что и у checkTournament() — сервер отдаёт только маленький узел
 // big_fishing/current (в наборе там всего 50 записей участников, а не тысячи как у
@@ -4087,53 +4058,6 @@ function joinBigFishing() {
     }
   }).catch(function(){
     showNotif(t('Ошибка сети, попробуй ещё раз','Network error, try again'));
-  });
-}
-
-function showRefContestInfo() {
-  window._specialScreenOpen=true;
-  var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-  var myId = tgUser ? tgUser.id : 0;
-  var html = '<div class="card"><button class="btn btn-full" onclick="showTab(\'settings\')" style="background:#0f3460;margin-bottom:12px">← '+t('Назад','Back')+'</button>'
-    + '<div style="text-align:center;margin-bottom:16px">'
-    + '<div style="font-size:40px;margin-bottom:6px">🎗️</div>'
-    + '<div style="font-size:16px;font-weight:700;color:#fff">'+t('Реферальный конкурс','Referral contest')+'</div>'
-    + '</div>'
-    + '<div id="refcontest-info-body"><div style="text-align:center;color:#90caf9;padding:20px">⏳ '+t('Загрузка...','Loading...')+'</div></div>'
-    + '</div>';
-  document.getElementById('content').innerHTML = html;
-
-  if (!firebaseDB || !myId) return;
-  firebaseDB.ref('ref_contest').once('value', function(snap) {
-    var rc = snap.val() || {};
-    var scores = rc.scores || {};
-    var myScore = scores[myId] || 0;
-    var now = Date.now();
-    var isLive = rc.active && rc.endsAt > now;
-    var statusHtml = '';
-    if (isLive) {
-      var msLeft = rc.endsAt - now;
-      var d = Math.floor(msLeft/86400000), h = Math.floor((msLeft%86400000)/3600000);
-      statusHtml = '<div style="background:#0a2a1a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#6ddc6d;font-weight:600">🟢 '+t('Активен · осталось','Active · left')+' '+d+t('д ','d ')+h+t('ч','h')+'</div>';
-    } else {
-      statusHtml = '<div style="background:#2a0a0a;border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#e57373;font-weight:600">🔴 '+t('Сейчас конкурс не идёт','No contest running right now')+'</div>';
-    }
-    var body = statusHtml
-      + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
-      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">📋 '+t('Условия','Rules')+'</div>'
-      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.6">'+t('Приглашай друзей в игру по своей реферальной ссылке. Очко засчитывается, когда твой друг <b>впервые запрашивает вывод от 1000 монет</b>.<br><br>⚠️ Сам факт приглашения очков не даёт — только активность реферала.','Invite friends to the game with your referral link. A point is awarded when your friend <b>first requests a withdrawal of 1000+ coins</b>.<br><br>⚠️ Just inviting doesn\'t give points — only your referral\'s activity does.')+'</div>'
-      + '</div>'
-      + '<div style="background:#0f2040;border-radius:10px;padding:14px;margin-bottom:14px">'
-      + '<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🏆 '+t('Призы','Prizes')+'</div>'
-      + '<div style="font-size:12px;color:#c8d8f0;line-height:1.8">🥇 '+t('1 место','1st place')+' — 15 GRAM<br>🥈 '+t('2 место','2nd place')+' — 10 GRAM<br>🥉 '+t('3 место','3rd place')+' — 5 GRAM</div>'
-      + '</div>'
-      + '<div style="background:linear-gradient(135deg,#0f3a2a,#1a5a3a);border-radius:10px;padding:16px;text-align:center">'
-      + '<div style="font-size:12px;color:#c8f0dc;margin-bottom:6px">'+t('Твой результат','Your score')+'</div>'
-      + '<div style="font-size:32px;font-weight:700;color:#aef5ae">'+myScore+'</div>'
-      + '<div style="font-size:11px;color:#90caf9;margin-top:2px">'+t('активных рефералов','active referrals')+'</div>'
-      + '</div>';
-    var bodyEl = document.getElementById('refcontest-info-body');
-    if (bodyEl) bodyEl.innerHTML = body;
   });
 }
 
@@ -5850,7 +5774,7 @@ function showInstructions() {
     +'💰 <b style="color:#FFD700">'+t('Постоянный бонус','Ongoing bonus')+'</b> — '+t('каждый раз когда твой реферал выводит монеты через Банк, ты автоматически получаешь 10% от суммы его вывода! Например: друг вывел 500 монет → ты получаешь 🪙50 прямо на баланс','every time your referral withdraws coins via the Bank, you automatically get 10% of their withdrawal amount! Example: a friend withdraws 500 coins → you get 🪙50 straight to your balance')+'<br><br>'
     +t('Все реферальные бонусы приходят автоматически при входе в игру и отображаются в истории уведомлений как 👥 Реферальный бонус.','All referral bonuses arrive automatically when you enter the game and show up in the notification history as 👥 Referral bonus.')+'<br>'
     +t('В разделе «Мои друзья» можно видеть кто уже присоединился!','In the "My friends" section you can see who has already joined!')+'<br><br>'
-    +'<b style="color:#fff">'+t('🏦 Банк и вклады','🏦 Bank and deposits')+'</b><br>'+t('Обмен монет на GRAM — минимум 1,000 монет за раз. Курс, потолок за раз и комиссия растут вместе с самой продвинутой открытой локацией:','Exchange coins for GRAM — minimum 1,000 coins per exchange. Rate, cap per exchange, and fee grow with your furthest unlocked location:')
+    +'<b style="color:#fff">'+t('🏦 Банк и вклады','🏦 Bank and deposits')+'</b><br>'+t('Обмен монет на 💵 USDT (TON) — минимум 1,000 монет за раз. Курс, потолок за раз и комиссия растут вместе с самой продвинутой открытой локацией:','Exchange coins for 💵 USDT (TON) — minimum 1,000 coins per exchange. Rate, cap per exchange, and fee grow with your furthest unlocked location:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0">'
         +'<td style="padding:3px 4px;text-align:left">'+t('Локация','Location')+'</td>'
@@ -5858,13 +5782,13 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">⭐</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:1</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:1</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:1</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:1</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
-      +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:1</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:$1.50</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:$1.50</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:$1.50</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$1.50</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:$1.50</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
     +'</table>'
-    +t('(комиссия указана обычная/Premium; курс — монет за 1 GRAM). GRAM отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per 1 GRAM). GRAM is sent manually within 24h.')+'<br><br>'
+    +t('(комиссия указана обычная/Premium; курс — монет за $1.50 USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $1.50 USDT). USDT (TON) is sent manually within 24h.')+'<br><br>'
     +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Открытие — ⭐1 (бесплатно для Premium). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Opening costs ⭐1 (free for Premium). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Срок','Term')+'</td><td style="padding:3px 4px;text-align:right">'+t('Ставка','Rate')+'</td></tr>'
@@ -5885,7 +5809,7 @@ function showInstructions() {
     +'<b style="color:#fff">'+t('🎰 Лотерея','🎰 Lottery')+'</b><br>'+t('Крути колесо в разделе Бустеры — цена билета (⭐1–5) растёт вместе с самой дальней открытой локацией. Призы (монеты/рыба/соль/ножи тоже растут вместе с локацией, джекпот — нет): 🐟100 рыб (28%) · 🪙300 (25%) · 👢 дырявый сапог, пусто (19%) · 🪙500 (15%) · 🧂15 соли (6%) · 🔪15 ножей (4%) · 🚛 бесплатная аренда грузовика на 12ч (2%) · ⭐ Джекпот в Stars (~1%).','Spin the wheel in the Boosters section — ticket price (⭐1–5) grows with your furthest unlocked location. Prizes (coins/fish/salt/knives also scale with your location, jackpot doesn\'t): 🐟100 fish (28%) · 🪙300 (25%) · 👢 leaky boot, nothing (19%) · 🪙500 (15%) · 🧂15 salt (6%) · 🔪15 knives (4%) · 🚛 free truck rental for 12h (2%) · ⭐ Stars jackpot (~1%).')+'<br>'
     +t('Джекпот стартует с 50⭐ и растёт на +0.5⭐ за каждую неудачную попытку любого игрока. При выигрыше звёзды переводит администратор вручную.','The jackpot starts at 50⭐ and grows by +0.5⭐ for every failed attempt by any player. If won, the admin transfers the Stars manually.')+'<br>'
     +t('📺 Раз в час можно крутить лотерею бесплатно за просмотр рекламы — шанс выиграть джекпот такой же, как при обычной крутке, только сам джекпот от этой крутки не растёт.','📺 Once per hour you can spin the lottery for free by watching an ad — the jackpot odds are the same as a paid spin, but that spin doesn\'t grow the jackpot.')+'<br><br>'
-    +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на GRAM. Курс, потолок вывода и комиссия зависят от твоей самой продвинутой открытой локации:','Exchange coins for GRAM. The rate, withdrawal cap and fee depend on your furthest unlocked location:')
+    +'<b style="color:#fff">'+t('🏦 Банк','🏦 Bank')+'</b><br>'+t('Обменяй монеты на 💵 USDT (TON). Курс, потолок вывода и комиссия зависят от твоей самой продвинутой открытой локации:','Exchange coins for 💵 USDT (TON). The rate, withdrawal cap and fee depend on your furthest unlocked location:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0">'
         +'<td style="padding:3px 4px;text-align:left">'+t('Локация','Location')+'</td>'
@@ -5893,14 +5817,14 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Комиссия','Fee')+'</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:1</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:1</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:1</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:1</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
-      +'<tr><td style="padding:3px 4px">🚀 '+t('Космос','Space')+'</td><td style="padding:3px 4px;text-align:right">5,000,000:1</td><td style="padding:3px 4px;text-align:right">125,000,000</td><td style="padding:3px 4px;text-align:right">250⭐/150⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:$1.50</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:$1.50</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:$1.50</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:$1.50</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚀 '+t('Космос','Space')+'</td><td style="padding:3px 4px;text-align:right">5,000,000:$1.50</td><td style="padding:3px 4px;text-align:right">125,000,000</td><td style="padding:3px 4px;text-align:right">250⭐/150⭐</td></tr>'
     +'</table>'
     +'<div style="font-size:10px;color:#666;margin-bottom:8px">'+t('Комиссия указана как обычная/Premium. Курс и потолок — монет','Fee shown as regular/Premium. Rate and cap are in coins')+'</div>'
-    +t('Укажи сумму (от 1,000 монет) и TON кошелёк — GRAM отправляются вручную администратором в течение 24ч.','Enter an amount (1,000 coins minimum) and your TON wallet — GRAM is sent manually by the admin within 24h.')+'<br><br>'
+    +t('Укажи сумму (от 1,000 монет) и TON кошелёк — USDT (TON) отправляется вручную администратором в течение 24ч.','Enter an amount (1,000 coins minimum) and your TON wallet — USDT (TON) is sent manually by the admin within 24h.')+'<br><br>'
     +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐300/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), +50 энергии за рекламу вместо +25, реже межстраничная реклама при ловле (раз в 200 уловов вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐300/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), +50 energy per ad instead of +25, less frequent interstitial ads while fishing (every 200 catches instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
     +'<b style="color:#fff">'+t('🛡️ Клановые турниры','🛡️ Clan tournaments')+'</b><br>'+t('Создай клан (до 8 игроков) во вкладке 🛡️ Клан и пригласи друзей. Капитан объявляет турнир и вносит взнос ⭐ за себя — остальные в клане подключаются и платят такой же взнос. Турнир публикуется в общем списке, и любой другой клан может принять вызов, собрав такой же состав и внеся такую же ставку. Дальше 48 часов идёт гонка — считается общий улов рыбы обеих команд, у кого больше — тот победил. Победители забирают банк за вычетом комиссии (≈1.8× ставки на игрока). Клан может вести сразу несколько таких турниров параллельно — с разными соперниками одновременно, не дожидаясь окончания текущей гонки. Пока в турнире есть неразрешённый взнос — распустить клан, выйти из него или исключить оплатившего участника нельзя.','Create a clan (up to 8 players) in the 🛡️ Clan tab and invite friends. The captain starts a tournament and pays a ⭐ stake for themselves — clanmates then join in and pay the same stake. The tournament is published to the public list, and any other clan can accept the challenge by matching the team size and stake. Then it\'s a 48-hour race — total fish caught by both teams is compared, higher wins. Winners split the pot minus a fee (≈1.8× the stake per player). A clan can run several such tournaments at once — racing different opponents in parallel, without waiting for the current race to finish. While a tournament is unresolved you can\'t disband the clan, leave it, or kick a member who has already paid in.')+'<br><br>'
@@ -6100,11 +6024,24 @@ function tapOcean(e) {
     // Даже без улова — лёгкий пинг серверу (не чаще раза в 20с), чтобы lastEnergyUpdate
     // не "застаивался" на время ожидания регена, иначе при первом же успешном тапе после
     // паузы сервер досчитает всю накопленную регенерацию разом, и энергия резко "прыгнет".
-    if (!window._energyPingTimer && tg && tg.initData) {
-      window._energyPingTimer = setTimeout(function(){
-        window._energyPingTimer = null;
-        syncMoneyToServer();
-      }, 1000);
+    // ВАЖНО: _energyPingTimer сам по себе не даёт 20-секундный кулдаун — он лишь не даёт
+    // поставить ВТОРОЙ таймер, пока первый ещё не сработал (те самые 1000мс). Как только
+    // он срабатывает и обнуляется, следующий тап (а тапать можно раз в 200мс, см. lastTapTime
+    // выше) снова его ставит — при частом тапе без энергии пинг летит на сервер почти
+    // раз в секунду вместо заявленных раз в 20с. Реальный 20-секундный кулдаун — через
+    // отдельную метку времени _lastEnergyPingAt, которая обновляется в момент постановки
+    // таймера (а не только использование самого факта "таймер тикает").
+    if (tg && tg.initData) {
+      var nowPing = Date.now();
+      if (!window._lastEnergyPingAt || nowPing - window._lastEnergyPingAt >= 20000) {
+        window._lastEnergyPingAt = nowPing;
+        if (!window._energyPingTimer) {
+          window._energyPingTimer = setTimeout(function(){
+            window._energyPingTimer = null;
+            syncMoneyToServer();
+          }, 1000);
+        }
+      }
     }
     return;
   }
@@ -6164,27 +6101,8 @@ function buyUpgrade(id) {
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
   }
-  // Акция на покупку Сети (если активна)
-  if (id==='net' && u.bought===1) {
-    checkNetBonus();
-  }
   calcStats(); unlockFish(); updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-}
-
-function checkNetBonus() {
-  if (!firebaseDB) return;
-  firebaseDB.ref('promo/net_bonus').once('value', function(snap) {
-    var d = snap.val();
-    if (!d || !d.endsAt || Date.now() > d.endsAt) return;
-    // Акция активна — начисляем бонус
-    state.coins = Math.round((state.coins + (d.bonus||500))*100)/100;
-    state.totalEarned = Math.round((state.totalEarned + (d.bonus||500))*100)/100;
-    queueAction({type:'net_promo_bonus', loc: state.currentLoc});
-    flushActions();
-    showNotif(t('🎁 Бонус за покупку Сети! +🪙','🎁 Net purchase bonus! +🪙')+fmt(d.bonus||500));
-    updateUI(); save();
-  });
 }
 
 function changeKnifeOrder(delta) {
@@ -6839,6 +6757,14 @@ function loadFromFirebase(callback) {
   if (!firebaseDB) { callback(); return; }
   var pid = getPlayerId();
   if (!pid || pid.startsWith('p_')) { callback(); return; } // только для Telegram пользователей
+  // Если в прошлой сессии (другая вкладка/перезаход) сохранение падало с ошибкой — запись
+  // в sync_errors/{pid} остаётся висеть вечно, потому что раньше её чистил только тот же
+  // браузерный таб, где произошла ошибка (флаг _fbSaveHadError жил в памяти вкладки и
+  // терялся при перезагрузке). Проверяем один раз при каждом старте игры: если запись есть —
+  // выставляем тот же флаг, и она уйдёт сама при первом же успешном сохранении в этой сессии.
+  firebaseDB.ref('sync_errors/' + pid).once('value', function(errSnap) {
+    if (errSnap.exists()) window._fbSaveHadError = true;
+  });
   firebaseDB.ref('saves/' + pid).once('value', function(snap) {
     var fbData = snap.val();
     if (!fbData) { callback(); return; }
@@ -6942,9 +6868,6 @@ function startGame() {
       checkTournament();
       setInterval(checkTournament, 60000);
       setInterval(updateTournamentBanner, 30000);
-      checkRefContest();
-      setInterval(checkRefContest, 60000);
-      setInterval(updateRefContestBanner, 30000);
       checkClanTester();
       setInterval(checkClanTester, 60000);
       setInterval(updateClanTournamentBanner, 30000);
