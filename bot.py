@@ -4420,48 +4420,47 @@ async def process_actions(request):
     # Непроданный улов — нельзя продать больше рыбы, чем реально было поймано и ещё не продано.
     unsold = float(sv.get('unsoldCaught', 0) or 0)
 
-    # Автодоход (Сеть/Лодка/Сонар) — начисляем по реальному прошедшему времени с последнего
-    # обращения к /actions, используя ТЕКУЩУЮ локацию и реальный уровень апгрейдов —
-    # раньше это (в отличие от тапов) считал только клиент, теперь тоже сервер.
+    # Автодоход (Сеть/Лодка/Сонар) и автозакрытие созревших вкладов — раньше СЧИТАЛИСЬ
+    # здесь же, один раз, от снимка sv, и добавлялись прямо в coins/total_earned до
+    # вычисления coins_delta/total_earned_delta. Из-за этого coins_delta ЗАПОМИНАЛ
+    # уже посчитанный автодоход/проценты как часть своей дельты, а дельта потом слепо
+    # переигрывается на каждой попытке retry-цикла поверх СВЕЖЕГО баланса (см. ниже,
+    # "ГЛАВНАЯ ЗАЩИТА ОТ ГОНКИ ЗАПИСИ БАЛАНСА"). Если два /actions от одного игрока
+    # после долгого отсутствия шли почти одновременно, оба читали один и тот же
+    # устаревший lastSeen/deposits, оба честно считали одинаковый большой автодоход/
+    # проценты — и оба его засчитывали, то есть игрок получал двойную (а то и больше,
+    # с учётом retry) выплату за один и тот же промежуток офлайна. Подтверждённый
+    # случай: два подряд действия с одинаковым ts, суммарно давшие в разы больше, чем
+    # видимые типы действий могут объяснить (comeback_bonus, у которого потолок 1000,
+    # "принёс" +15,751).
+    #
+    # Фикс: здесь считаем ТОЛЬКО ставку автодохода (auto_per_sec) — она зависит от
+    # локации/уровней апгрейдов, не от времени, гонки не боится. Само начисление
+    # автодохода и закрытие вкладов пересчитываются заново на КАЖДОЙ попытке retry-
+    # цикла от СВЕЖЕГО fresh_sv (тем же способом, каким там уже защищена energy) —
+    # если конкурентный запрос успел раньше списать lastSeen/закрыть вклад, повторный
+    # расчёт честно увидит уже нулевой прошедший срок / отсутствие вклада в списке и
+    # не начислит второй раз.
     cur_loc = sv.get('loc') or 'pond'
     if cur_loc not in LOCATION_MULT:
         cur_loc = 'pond'
-    last_seen = sv.get('lastSeen') or now_ms
-    auto_elapsed_sec = max(0, (now_ms - last_seen) / 1000)
-    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24 * 30:  # запас на 30 дней — lastSeen пишет только сервер, подделать нельзя, поэтому длинный офлайн честный
-        cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}
-        auto_per_sec = 0
-        for upg_id, per_level in AUTO_PER_LEVEL.items():
-            lvl = max(0, min(int(cur_lv.get(upg_id, 0) or 0), MAX_UPGRADE_LEVEL))
-            auto_per_sec += per_level * lvl
-        auto_per_sec = auto_per_sec * LOCATION_MULT.get(cur_loc, 1) * (PREMIUM_AUTO_MULT if is_prem else 1)
-        auto_earned = round(auto_per_sec * auto_elapsed_sec / 60 * 100) / 100
-        if auto_earned > 0:
-            coins += auto_earned
-            total_earned += auto_earned
+    cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}
+    auto_per_sec = 0
+    for upg_id, per_level in AUTO_PER_LEVEL.items():
+        lvl = max(0, min(int(cur_lv.get(upg_id, 0) or 0), MAX_UPGRADE_LEVEL))
+        auto_per_sec += per_level * lvl
+    auto_per_sec = auto_per_sec * LOCATION_MULT.get(cur_loc, 1) * (PREMIUM_AUTO_MULT if is_prem else 1)
 
-    # Автозакрытие созревших вкладов — при КАЖДОМ /actions (не только по явному действию
-    # игрока), чтобы проценты начислились сами, как только истёк срок, а не только когда
-    # игрок вспомнит зайти на вкладку "Вклады". Досрочное закрытие — отдельное действие
-    # ниже (close_deposit), без процентов.
+    # Вклады — локальный список используется ниже действиями open_deposit/close_deposit
+    # (это явные, разовые, id-based операции игрока за ЭТОТ запрос — не racy сами по
+    # себе, поэтому остаются как раньше). Автозакрытие СОЗРЕВШИХ вкладов с начислением
+    # процентов больше не делается здесь — см. retry-цикл ниже.
     deposits = sv.get('deposits') or []
     if not isinstance(deposits, list):
         deposits = []
-    deposits_changed = False
-    still_open_deposits = []
-    for dep in deposits:
-        if not isinstance(dep, dict):
-            continue
-        if dep.get('endsAt', 0) <= now_ms:
-            rate = DEPOSIT_RATES.get(dep.get('termDays'), 0)
-            amount = float(dep.get('amount', 0) or 0)
-            interest = round(amount * rate * (dep.get('termDays', 0) / DEPOSIT_YEAR_DAYS) * 100) / 100
-            coins = round((coins + amount + interest) * 100) / 100
-            deposits_changed = True
-        else:
-            still_open_deposits.append(dep)
-    if deposits_changed:
-        deposits = still_open_deposits
+    deposits_added = []       # новые вклады, открытые ЭТИМ запросом (action open_deposit)
+    deposits_closed_ids = set()  # id вкладов, досрочно закрытых ЭТИМ запросом (action close_deposit)
+    deposit_open_seq = 0
 
     prices_cache = None
     rejected = 0
@@ -4965,30 +4964,37 @@ async def process_actions(request):
                 continue
             coins = round((coins - amount) * 100) / 100
             spent_accum += amount
-            deposits.append({
-                'id': f"dep_{now_ms}_{len(deposits)}",
+            deposits_added.append({
+                'id': f"dep_{now_ms}_{deposit_open_seq}",
                 'amount': round(amount * 100) / 100,
                 'termDays': term_days,
                 'startedAt': now_ms,
                 'endsAt': now_ms + term_days * 86400000,
             })
-            deposits_changed = True
+            deposit_open_seq += 1
 
         elif a_type == 'close_deposit':
             # Досрочное закрытие — только тело вклада, без процентов (условие оговорено
-            # заранее, это не баг, а фича — так и должно быть).
+            # заранее, это не баг, а фича — так и должно быть). Ищем среди вкладов,
+            # открытых ЭТИМ ЖЕ запросом, и среди тех, что были в сейве на момент чтения —
+            # финальный (актуальный) список собирается заново в retry-цикле от fresh_sv.
             dep_id = act.get('id')
-            found = None
-            for dep in deposits:
-                if isinstance(dep, dict) and dep.get('id') == dep_id:
-                    found = dep
-                    break
+            found = next((d for d in deposits_added if d.get('id') == dep_id), None)
+            if not found:
+                found = next((d for d in deposits if isinstance(d, dict) and d.get('id') == dep_id), None)
             if not found:
                 rejected += 1
                 continue
+            if found.get('endsAt', 0) <= now_ms:
+                # Уже созрел — забрать без процентов через close_deposit нельзя, он
+                # закрывается автоматически с процентами (см. retry-цикл ниже).
+                rejected += 1
+                continue
             coins = round((coins + float(found.get('amount', 0) or 0)) * 100) / 100
-            deposits = [d for d in deposits if d is not found]
-            deposits_changed = True
+            if found in deposits_added:
+                deposits_added.remove(found)
+            else:
+                deposits_closed_ids.add(dep_id)
 
         elif a_type == 'buy_upgrade':
             upg_id = act.get('upg')
@@ -5204,6 +5210,49 @@ async def process_actions(request):
                 fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
                 energy = max(0, min(max_energy, fresh_prev_energy + fresh_regen_sec / ENERGY_REGEN_SEC + energy_action_delta))
+
+                # Автодоход (Сеть/Лодка/Сонар) — пересчитываем от СВЕЖЕГО lastSeen на каждой
+                # попытке, тем же способом, что и energy выше. Если конкурентный /actions уже
+                # успел записать lastSeen=now_ms между попытками, здесь честно получится
+                # elapsed≈0 и повторного начисления за тот же промежуток не будет.
+                fresh_last_seen = fresh_sv.get('lastSeen') or now_ms
+                fresh_auto_elapsed_sec = max(0, (now_ms - fresh_last_seen) / 1000)
+                fresh_auto_earned = 0.0
+                if fresh_auto_elapsed_sec > 0 and fresh_auto_elapsed_sec < 3600 * 24 * 30:  # запас на 30 дней
+                    fresh_auto_earned = round(auto_per_sec * fresh_auto_elapsed_sec / 60 * 100) / 100
+                if fresh_auto_earned > 0:
+                    coins = round((coins + fresh_auto_earned) * 100) / 100
+                    total_earned = round((total_earned + fresh_auto_earned) * 100) / 100
+
+                # Автозакрытие созревших вкладов — тем же принципом: список берём заново из
+                # fresh_sv (не из snapshot начала запроса), поверх него накатываем
+                # открытия/закрытия ЭТОГО запроса (deposits_added/deposits_closed_ids), и
+                # только затем ищем СОЗРЕВШИЕ среди того, что реально осталось. Если
+                # конкурентный запрос уже закрыл и зачислил проценты по вкладу, здесь его
+                # просто не будет в fresh-списке — повторно не начислим.
+                fresh_deposits_raw = fresh_sv.get('deposits') or []
+                if not isinstance(fresh_deposits_raw, list):
+                    fresh_deposits_raw = []
+                working_deposits = [dict(d) for d in fresh_deposits_raw if isinstance(d, dict)]
+                existing_dep_ids = {d.get('id') for d in working_deposits}
+                for new_dep in deposits_added:
+                    if new_dep.get('id') not in existing_dep_ids:
+                        working_deposits.append(new_dep)
+                        existing_dep_ids.add(new_dep.get('id'))
+                if deposits_closed_ids:
+                    working_deposits = [d for d in working_deposits if d.get('id') not in deposits_closed_ids]
+                still_open_deposits = []
+                for dep in working_deposits:
+                    if dep.get('endsAt', 0) <= now_ms:
+                        rate = DEPOSIT_RATES.get(dep.get('termDays'), 0)
+                        dep_amount = float(dep.get('amount', 0) or 0)
+                        interest = round(dep_amount * rate * (dep.get('termDays', 0) / DEPOSIT_YEAR_DAYS) * 100) / 100
+                        coins = round((coins + dep_amount + interest) * 100) / 100
+                        # Проценты по вкладу — не "заработок" в игровом смысле (тапы/автодоход),
+                        # поэтому в totalEarned не идут — так было и в старой версии этого кода.
+                    else:
+                        still_open_deposits.append(dep)
+                deposits = still_open_deposits
 
                 bonus_fields = {}
                 # "Разовые" бонусы — проверяем право на СВЕЖИХ данных каждую попытку, а не
