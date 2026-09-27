@@ -3548,7 +3548,7 @@ function renderBank() {
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
         +'<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+((Math.min(1000,coins)/(100000*maxUnlockedMult()))*USDT_PER_UNIT).toFixed(2)+' USDT</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+((Math.min(1000,coins)/(100000*maxUnlockedMult()))*USDT_PER_UNIT).toFixed(5)+' USDT</div>'
         +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>'
       +'</div>'
       +'<div id="bank-fee-line" style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
@@ -3582,7 +3582,7 @@ function loadWithdrawalsLog() {
       var it = liveItems[i];
       var isUsdt = it.currency === 'usdt';
       var amtLabel = isUsdt
-        ? '💵 $'+(typeof it.usdt === 'number' ? it.usdt : 0).toFixed(2)+' USDT'
+        ? '💵 $'+(typeof it.usdt === 'number' ? it.usdt : 0).toFixed(5)+' USDT'
         : '💎 '+(typeof it.gram === 'number' ? it.gram : (it.amount||0)/100000).toFixed(5)+' GRAM';
       var dateStr = '—';
       if (it.ts) {
@@ -3614,7 +3614,7 @@ function updateBankPreview() {
   var usdt=(val/rate)*USDT_PER_UNIT;
   var fee=bankFeeAmount(); // фиксированная по локации, не зависит от val
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+usdt.toFixed(2)+' USDT</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+usdt.toFixed(5)+' USDT</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>';
   var feeLine=document.getElementById('bank-fee-line');
   if(feeLine) feeLine.innerHTML='⭐ '+t('Комиссия:','Fee:')+' '+fee+' '+starsWord(fee)+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange');
   var feeBtn=document.getElementById('bank-fee-btn-text');

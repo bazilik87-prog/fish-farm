@@ -9957,7 +9957,7 @@ async def successful_payment(message: types.Message):
         try:
             rate = await get_exchange_rate(user_id)
             units = int(coins) / rate
-            usdt_amount = round(units * USDT_PER_UNIT, 2)
+            usdt_amount = round(units * USDT_PER_UNIT, 5)
         except (ValueError, ZeroDivisionError):
             usdt_amount = 0
 
