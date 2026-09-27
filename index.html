@@ -4473,7 +4473,9 @@ var clanTester = false;
 var clanChecked = false;
 var myClan = null;
 var myClanInvites = [];
-var clanView = 'main'; // 'main' | 'invite' | 'tournaments' | 'tournaments_browse' | 'tournaments_archive'
+var myClanJoinRequest = null; // {clanId, clanName, sentAt} — заявка самого игрока в чужой клан, см. clan_join_request
+var clanBrowseState = {loading: false, clans: []}; // топ-5 активных кланов со свободными местами, см. openClanBrowse()
+var clanView = 'main'; // 'main' | 'invite' | 'browse' | 'tournaments' | 'tournaments_browse' | 'tournaments_archive'
 var clanRefState = {offset: 0, items: [], hasMore: false, total: 0, loading: false};
 var clanSearchState = {query: '', loading: false, items: [], searched: false};
 var clanInvitedIds = {}; // общий для рефералов и поиска — чтобы "Приглашён" отражался в обоих списках
@@ -4493,6 +4495,7 @@ function checkClanTester() {
     clanTester = !!res.isTester;
     myClan = res.clan || null;
     myClanInvites = res.invites || [];
+    myClanJoinRequest = res.myJoinRequest || null;
     updateClanTournamentBanner();
     // Не перерисовываем поверх активного поля ввода названия клана — иначе фоновый
     // ответ статуса может прилететь прямо во время печати и оборвать ввод.
@@ -4698,6 +4701,7 @@ function renderClan() {
   }
 
   if (clanView === 'invite') { renderClanReferrals(html); return; }
+  if (clanView === 'browse') { renderClanBrowse(html); return; }
   if (clanView === 'tournaments') { renderClanTournaments(html); return; }
   if (clanView === 'tournaments_browse') { renderClanTournamentsBrowse(html); return; }
   if (clanView === 'tournaments_archive') { renderClanTournamentsArchive(html); return; }
@@ -4711,6 +4715,15 @@ function renderClan() {
     +'<div style="font-size:11px;color:#666;margin-bottom:10px">'+t('Только латинские буквы и цифры, 2-20 символов','Latin letters and digits only, 2-20 characters')+'</div>'
     +'<button class="btn btn-gold btn-full" onclick="createClan()">➕ '+t('Создать клан','Create clan')+'</button>'
     +'</div>';
+
+  if (myClanJoinRequest) {
+    html += '<div class="card" style="text-align:center">'
+      +'<div style="font-size:13px;color:#90caf9">⏳ '+t('Заявка отправлена в клан','Join request sent to clan')+' «'+myClanJoinRequest.clanName+'»</div>'
+      +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Ждём решения капитана','Waiting for the captain\'s decision')+'</div>'
+      +'</div>';
+  } else {
+    html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="openClanBrowse()">🚪 '+t('Вступить в клан','Join a clan')+'</button>';
+  }
 
   if (myClanInvites.length) {
     html += '<div style="font-size:12px;color:#90caf9;margin:10px 4px 6px">'+t('Приглашения в клан','Clan invitations')+'</div>';
@@ -4765,6 +4778,23 @@ function renderClanMain(html) {
       +'</div>';
   }
   html += '</div>';
+
+  if (myClan.isCaptain && myClan.joinRequests && myClan.joinRequests.length) {
+    html += '<div style="font-size:12px;color:#90caf9;margin:10px 4px 6px">'+t('Заявки на вступление','Join requests')+'</div>';
+    for (var jr=0; jr<myClan.joinRequests.length; jr++) {
+      var req = myClan.joinRequests[jr];
+      var reqHandle = req.username
+        ? '<div style="font-size:11px;color:#4fc3f7;cursor:pointer" onclick="openTgUser(\''+req.username+'\')">@'+req.username+'</div>'
+        : '<div style="font-size:11px;color:#666">'+t('нет юзернейма Telegram','no Telegram username')+'</div>';
+      html += '<div class="card">'
+        +'<div style="font-size:13px;font-weight:700;color:#fff">🐟 '+(req.name||('ID:'+req.userId))+'</div>'
+        +reqHandle
+        +'<div style="display:flex;gap:8px;margin-top:10px">'
+        +'<button class="btn btn-gold" style="flex:1" onclick="respondClanJoinRequest('+req.userId+',\'accept\')">✅ '+t('Принять','Accept')+'</button>'
+        +'<button class="btn" style="flex:1;background:#5a1a1a" onclick="respondClanJoinRequest('+req.userId+',\'decline\')">✖ '+t('Отклонить','Decline')+'</button>'
+        +'</div></div>';
+    }
+  }
 
   if (myClan.isCaptain) {
     var mc = myClan.membersCount||1, mm = myClan.maxMembers||2;
@@ -4885,6 +4915,91 @@ function respondClanInvite(clanId, action) {
         myClanInvites = myClanInvites.filter(function(iv){ return iv.clanId !== clanId; });
         showNotif(t('Приглашение отклонено','Invitation declined'));
       }
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function openClanBrowse() {
+  clanView = 'browse';
+  clanBrowseState = {loading: true, clans: []};
+  renderClan();
+  fetchClanTop();
+}
+
+function fetchClanTop() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  clanBrowseState.loading = true;
+  fetch(BOT_API_URL + '/clan_top', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    clanBrowseState.loading = false;
+    if (!res || !res.ok) { showNotif(t('❌ Не удалось загрузить список','❌ Failed to load the list')); return; }
+    clanBrowseState.clans = res.clans || [];
+    if (clanView === 'browse') renderClan();
+  }).catch(function(){ clanBrowseState.loading = false; showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function renderClanBrowse(html) {
+  html += '<div style="font-size:12px;color:#90caf9;margin:0 4px 10px">'+t('Топ-5 самых активных кланов со свободными местами:','Top 5 most active clans with open slots:')+'</div>';
+
+  if (clanBrowseState.loading) {
+    html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
+  } else if (!clanBrowseState.clans.length) {
+    html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Сейчас нет кланов со свободными местами — создай свой!','No clans with open slots right now — create your own!')+'</div>';
+  } else {
+    for (var i=0; i<clanBrowseState.clans.length; i++) {
+      var c = clanBrowseState.clans[i];
+      html += '<div class="card">'
+        +'<div style="font-size:14px;font-weight:700;color:#fff">🛡️ '+c.name+'</div>'
+        +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Участников:','Members:')+' '+c.membersCount+' / '+c.maxMembers+' · '+t('заработано:','earned:')+' 🪙'+fmt(c.totalEarned)+'</div>'
+        +'<button class="btn btn-gold btn-full" style="margin-top:10px" onclick="knockClan(\''+c.id+'\')">🚪 '+t('Постучаться','Knock')+'</button>'
+        +'</div>';
+    }
+  }
+
+  html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
+  document.getElementById('content').innerHTML = html;
+}
+
+function knockClan(clanId) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Отправляем заявку...','⏳ Sending request...'));
+  fetch(BOT_API_URL + '/clan_join_request', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, clan_id: clanId})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось отправить заявку','failed to send request')));
+        return;
+      }
+      var c = clanBrowseState.clans.filter(function(x){ return x.id === clanId; })[0];
+      myClanJoinRequest = {clanId: clanId, clanName: c ? c.name : '', sentAt: Date.now()};
+      showNotif(t('✅ Заявка отправлена!','✅ Request sent!'));
+      clanView = 'main';
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function respondClanJoinRequest(userId, action) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(action === 'accept' ? t('⏳ Принимаем...','⏳ Accepting...') : t('⏳ Отклоняем...','⏳ Declining...'));
+  fetch(BOT_API_URL + '/clan_join_request_respond', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, target_user_id: String(userId), action: action})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) {
+        showNotif(t('❌ ','❌ ')+(res.data && res.data.error || t('не удалось выполнить','failed')));
+        return;
+      }
+      if (action === 'accept') myClan = res.data.clan;
+      else if (myClan && myClan.joinRequests) myClan.joinRequests = myClan.joinRequests.filter(function(r){ return r.userId !== userId; });
+      showNotif(action === 'accept' ? t('✅ Игрок принят в клан!','✅ Player accepted into the clan!') : t('Заявка отклонена','Request declined'));
       renderClan();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }

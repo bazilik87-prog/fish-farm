@@ -2479,6 +2479,7 @@ async def clan_status(request):
 
     clan = None
     invites = []
+    my_join_request = None
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
@@ -2495,6 +2496,25 @@ async def clan_status(request):
                     clan['tournamentLockedPids'] = list(paid_pids)
                     clan['iAmLocked'] = pid in paid_pids
                     clan['activeTournament'] = tour_summary
+                    if clan['isCaptain']:
+                        # Заявки от чужих игроков, которые "постучались" в этот клан
+                        # (см. clan_join_request) — капитан принимает/отклоняет их прямо
+                        # с главного экрана клана, отдельного перехода никуда не нужно.
+                        async with session.get(f"{base}/clan_join_requests/{clan_id}.json{FB_AUTH}") as jresp:
+                            raw_join_reqs = await jresp.json()
+                        join_reqs = []
+                        if isinstance(raw_join_reqs, dict):
+                            for jpid, jr in raw_join_reqs.items():
+                                if not isinstance(jr, dict):
+                                    continue
+                                join_reqs.append({
+                                    'userId': jr.get('userId'),
+                                    'name': jr.get('name', ''),
+                                    'username': jr.get('username', ''),
+                                    'sentAt': jr.get('sentAt', 0),
+                                })
+                            join_reqs.sort(key=lambda x: x['sentAt'], reverse=True)
+                        clan['joinRequests'] = join_reqs
             else:
                 async with session.get(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}") as iresp:
                     raw_invites = await iresp.json()
@@ -2510,10 +2530,14 @@ async def clan_status(request):
                             'sentAt': inv.get('sentAt', 0),
                         })
                     invites.sort(key=lambda x: x['sentAt'], reverse=True)
+                async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as jrresp:
+                    jr_data = await jrresp.json()
+                if isinstance(jr_data, dict) and jr_data.get('clanId'):
+                    my_join_request = {'clanId': jr_data.get('clanId'), 'clanName': jr_data.get('clanName', ''), 'sentAt': jr_data.get('sentAt', 0)}
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
-    return web.json_response({'ok': True, 'isTester': True, 'clan': clan, 'invites': invites}, headers=CORS)
+    return web.json_response({'ok': True, 'isTester': True, 'clan': clan, 'invites': invites, 'myJoinRequest': my_join_request}, headers=CORS)
 
 
 async def clan_create(request):
@@ -2646,6 +2670,17 @@ async def clan_create(request):
             # больше не может принять чьё-то чужое приглашение.
             try:
                 await session.delete(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}")
+            except Exception:
+                pass
+            # И свою собственную заявку на вступление в чужой клан (если успел постучаться
+            # куда-то, а потом передумал и создал свой) — иначе она повиснет у чужого
+            # капитана в списке заявок на игрока, который уже никогда не примет их клан.
+            try:
+                async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as jr_resp:
+                    stale_jr = await jr_resp.json()
+                if isinstance(stale_jr, dict) and stale_jr.get('clanId'):
+                    await session.delete(f"{base}/clan_join_requests/{stale_jr['clanId']}/{pid}.json{FB_AUTH}")
+                await session.delete(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}")
             except Exception:
                 pass
     except Exception as e:
@@ -3059,10 +3094,316 @@ async def clan_invite_respond(request):
                 pass
 
             await session.delete(f"{base}/pending_clan_invites/{pid}.json{FB_AUTH}")
+            # Так же чистим собственную заявку на вступление в другой клан, если она
+            # была отправлена раньше, а потом игрок принял приглашение сюда — иначе
+            # заявка повиснет у чужого капитана (см. тот же приём в clan_create).
+            try:
+                async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as jr_resp:
+                    stale_jr = await jr_resp.json()
+                if isinstance(stale_jr, dict) and stale_jr.get('clanId'):
+                    await session.delete(f"{base}/clan_join_requests/{stale_jr['clanId']}/{pid}.json{FB_AUTH}")
+                await session.delete(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}")
+            except Exception:
+                pass
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'clan': _clan_public(clan_id, clan_data, real_user_id)}, headers=CORS)
+
+
+async def clan_top(request):
+    """
+    Топ-5 кланов со свободными местами для экрана "Вступить в клан" — игрок без клана
+    видит их и может "постучаться" (см. clan_join_request ниже). Активность считаем по
+    сумме totalEarned участников (решение Саши) — берём его прямо из leaderboard/{pid},
+    группируя по полю clanId, которое туда пишется при вступлении/создании клана (см.
+    clan_invite_respond/clan_create) — отдельно обходить clans/{id}/members и делать
+    N лишних запросов не нужно, у leaderboard уже есть всё за один фетч.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_top = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user_top = {}
+    real_user_id = real_user_top.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user_top.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans.json{FB_AUTH}") as cresp:
+                all_clans = await cresp.json()
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as lresp:
+                all_players = await lresp.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    all_clans = all_clans or {}
+    all_players = all_players or {}
+
+    earned_by_clan = {}
+    for v in all_players.values():
+        if not isinstance(v, dict):
+            continue
+        cid = v.get('clanId')
+        if not cid:
+            continue
+        earned_by_clan[cid] = earned_by_clan.get(cid, 0) + (v.get('totalEarned', 0) or 0)
+
+    result = []
+    for cid, c in all_clans.items():
+        if not isinstance(c, dict):
+            continue
+        members_count = c.get('membersCount', len(c.get('members') or {}))
+        max_members = c.get('maxMembers', 2)
+        if members_count >= max_members:
+            continue  # мест нет — стучаться некуда
+        result.append({
+            'id': cid,
+            'name': c.get('name', ''),
+            'membersCount': members_count,
+            'maxMembers': max_members,
+            'totalEarned': round(earned_by_clan.get(cid, 0)),
+        })
+
+    result.sort(key=lambda x: x['totalEarned'], reverse=True)
+    return web.json_response({'ok': True, 'clans': result[:5]}, headers=CORS)
+
+
+async def clan_join_request(request):
+    """
+    Игрок без клана "стучится" в конкретный клан — зеркалит clan_invite, только в обратную
+    сторону (не капитан зовёт игрока, а игрок просится сам). Запрос кладём в ДВА места:
+    clan_join_requests/{clanId}/{pid} — чтобы капитан видел список стучащихся в свой клан
+    (см. clan_status/_clan_public), и saves/{pid}/clanJoinRequest — чтобы сам игрок видел,
+    что заявка уже отправлена (и не мог наштамповать заявки сразу во все кланы).
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    clan_id = str(data.get('clan_id', '')).strip()
+    if not clan_id:
+        return web.json_response({'error': 'invalid clan'}, status=400, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                my_clan_id = await resp.json()
+            if my_clan_id:
+                return web.json_response({'error': 'ты уже состоишь в клане'}, status=400, headers=CORS)
+
+            async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as resp2:
+                existing_req = await resp2.json()
+            if isinstance(existing_req, dict) and existing_req.get('clanId'):
+                return web.json_response({'error': 'у тебя уже есть отправленная заявка — дождись ответа или она устареет'}, status=400, headers=CORS)
+
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as cresp:
+                clan_data = await cresp.json()
+            if not isinstance(clan_data, dict):
+                return web.json_response({'error': 'клан не найден'}, status=404, headers=CORS)
+            members_count = clan_data.get('membersCount', len(clan_data.get('members') or {}))
+            max_members = clan_data.get('maxMembers', 2)
+            if members_count >= max_members:
+                return web.json_response({'error': 'в клане уже нет свободных мест'}, status=400, headers=CORS)
+
+            player_name = real_user.get('first_name') or f"Игрок {real_user_id}"
+            player_username = real_user.get('username', '')
+            if not player_username:
+                try:
+                    async with session.get(f"{base}/leaderboard/{pid}/username.json{FB_AUTH}") as uresp:
+                        player_username = (await uresp.json()) or ''
+                except Exception:
+                    pass
+
+            request_payload = {
+                'userId': real_user_id,
+                'name': player_name,
+                'username': player_username,
+                'sentAt': now_ms,
+            }
+            await session.put(f"{base}/clan_join_requests/{clan_id}/{pid}.json{FB_AUTH}", json=request_payload)
+            await session.put(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}", json={'clanId': clan_id, 'clanName': clan_data.get('name', ''), 'sentAt': now_ms})
+
+            captain_id = clan_data.get('captainId')
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    if captain_id:
+        try:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+            ]])
+            async with aiohttp.ClientSession() as lang_session:
+                lang = await _player_lang(lang_session, base, f"tg_{captain_id}")
+            display = _display_handle(real_user)
+            text = (f"🚪 Игрок {display} просится в твой клан «{clan_data.get('name', '')}»! Открой вкладку «Клан», чтобы принять или отклонить заявку."
+                    if lang == 'ru' else
+                    f"🚪 Player {display} wants to join your clan «{clan_data.get('name', '')}»! Open the Clan tab to accept or decline.")
+            await bot.send_message(int(captain_id), text, reply_markup=keyboard)
+        except Exception:
+            pass
+
+    return web.json_response({'ok': True}, headers=CORS)
+
+
+async def clan_join_request_respond(request):
+    """Капитан принимает или отклоняет одну конкретную заявку на вступление в свой клан."""
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_jrr = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user_jrr = {}
+    real_user_id = real_user_jrr.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if not is_clan_tester(real_user_id, real_user_jrr.get('username')):
+        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
+
+    target_user_id = str(data.get('target_user_id', '')).strip()
+    action = str(data.get('action', '')).strip()
+    if not target_user_id or not target_user_id.isdigit() or action not in ('accept', 'decline'):
+        return web.json_response({'error': 'invalid request'}, status=400, headers=CORS)
+    target_pid = f"tg_{target_user_id}"
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as resp2:
+                clan_data = await resp2.json()
+            if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
+                return web.json_response({'error': 'принимать заявки может только капитан'}, status=403, headers=CORS)
+
+            request_url = f"{base}/clan_join_requests/{clan_id}/{target_pid}.json{FB_AUTH}"
+            async with session.get(request_url) as rresp:
+                req = await rresp.json()
+            if not isinstance(req, dict):
+                return web.json_response({'error': 'заявка не найдена — возможно, уже обработана'}, status=404, headers=CORS)
+
+            if action == 'decline':
+                await session.delete(request_url)
+                await session.delete(f"{base}/saves/{target_pid}/clanJoinRequest.json{FB_AUTH}")
+                return web.json_response({'ok': True}, headers=CORS)
+
+            # accept
+            async with session.get(f"{base}/saves/{target_pid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as tresp:
+                tetag = tresp.headers.get("ETag")
+                tsv = await tresp.json()
+            tsv = tsv or {}
+            if tsv.get('clanId'):
+                await session.delete(request_url)
+                await session.delete(f"{base}/saves/{target_pid}/clanJoinRequest.json{FB_AUTH}")
+                return web.json_response({'error': 'игрок уже состоит в другом клане'}, status=400, headers=CORS)
+
+            async with session.get(f"{base}/banned/{target_user_id}.json{FB_AUTH}") as bresp:
+                ban_val = await bresp.json()
+                if is_ban_active(ban_val, int(time_module.time() * 1000)):
+                    await session.delete(request_url)
+                    await session.delete(f"{base}/saves/{target_pid}/clanJoinRequest.json{FB_AUTH}")
+                    return web.json_response({'error': 'игрок забанен'}, status=403, headers=CORS)
+
+            members_count = clan_data.get('membersCount', len(clan_data.get('members') or {}))
+            max_members = clan_data.get('maxMembers', 2)
+            if members_count >= max_members:
+                return web.json_response({'error': 'в клане уже нет свободных мест'}, status=400, headers=CORS)
+
+            player_name = tsv.get('playerName') or req.get('name') or f"Игрок {target_user_id}"
+            player_username = req.get('username', '')
+
+            def _add_member(members):
+                members[target_pid] = {'userId': int(target_user_id), 'name': player_name, 'username': player_username, 'role': 'member', 'joinedAt': int(time_module.time() * 1000)}
+
+            new_clan_data = await _mutate_clan_members(session, base, clan_id, _add_member)
+            if new_clan_data is None:
+                return web.json_response({'error': 'не удалось принять — попробуй ещё раз'}, status=409, headers=CORS)
+
+            save_headers = {"If-Match": tetag} if tetag else {}
+            merged_tsv = dict(tsv)
+            merged_tsv['clanId'] = clan_id
+            merged_tsv['clanName'] = new_clan_data.get('name', '')
+            async with session.put(f"{base}/saves/{target_pid}.json{FB_AUTH}", json=merged_tsv, headers=save_headers) as presp:
+                if presp.status not in (200, 204):
+                    def _remove_member(members):
+                        members.pop(target_pid, None)
+                    await _mutate_clan_members(session, base, clan_id, _remove_member)
+                    return web.json_response({'error': 'не удалось принять — попробуй ещё раз'}, status=409, headers=CORS)
+
+            try:
+                await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': clan_id})
+            except Exception:
+                pass
+
+            await session.delete(request_url)
+            await session.delete(f"{base}/saves/{target_pid}/clanJoinRequest.json{FB_AUTH}")
+            # Заявка удовлетворена — остальные заявки этого игрока в другие кланы (если
+            # успел настучаться в несколько до этого фикса) тут не чистим: их не может
+            # быть больше одной, т.к. clan_join_request не даёт отправить вторую, пока
+            # первая не обработана.
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+    try:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+        async with aiohttp.ClientSession() as lang_session:
+            lang = await _player_lang(lang_session, base, target_pid)
+        text = (f"✅ Капитан клана «{new_clan_data.get('name', '')}» принял твою заявку! Открой вкладку «Клан»."
+                if lang == 'ru' else
+                f"✅ The captain of clan «{new_clan_data.get('name', '')}» accepted your join request! Open the Clan tab.")
+        await bot.send_message(int(target_user_id), text, reply_markup=keyboard)
+    except Exception:
+        pass
+
+    return web.json_response({'ok': True, 'clan': _clan_public(clan_id, new_clan_data, real_user_id)}, headers=CORS)
 
 
 async def clan_kick(request):
@@ -11228,6 +11569,12 @@ async def main():
     app.router.add_options('/clan_invite', clan_invite)
     app.router.add_post('/clan_invite_respond', clan_invite_respond)
     app.router.add_options('/clan_invite_respond', clan_invite_respond)
+    app.router.add_post('/clan_top', clan_top)
+    app.router.add_options('/clan_top', clan_top)
+    app.router.add_post('/clan_join_request', clan_join_request)
+    app.router.add_options('/clan_join_request', clan_join_request)
+    app.router.add_post('/clan_join_request_respond', clan_join_request_respond)
+    app.router.add_options('/clan_join_request_respond', clan_join_request_respond)
     app.router.add_post('/clan_kick', clan_kick)
     app.router.add_options('/clan_kick', clan_kick)
     app.router.add_post('/clan_leave', clan_leave)
