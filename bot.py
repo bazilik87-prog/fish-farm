@@ -1199,6 +1199,42 @@ async def clear_pending_boosts(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+async def clear_pending_knives(request):
+    """
+    Удаляет pending_knives/{pid} ПОСЛЕ того, как клиент применил ножи к knifeByLoc (см.
+    checkPendingKnives() в index.html) — зеркалит clear_pending_boosts выше по той же
+    причине: knifeByLoc клиент пишет напрямую, и если удаление узла Rules когда-нибудь
+    закроют для клиента, лучше сразу делать это сервером (у него FB_AUTH), чем поймать
+    повторное начисление при каждом новом входе.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user_id = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        real_user_id = None
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.delete(f"{base}/pending_knives/{pid}.json{FB_AUTH}")
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def social_tasks_list(request):
     """
     Список активных «социальных» заданий (вступи в группу рекламодателя за монеты) —
@@ -6144,6 +6180,102 @@ async def addcoins_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('addknife'))
+async def addknife_command(message: types.Message):
+    """
+    Зеркалит /addcoins, но для ножей — те не идут через pending_rewards (тот узел сервер
+    трактует строго как монеты, см. claim_bonuses в process_actions), а через отдельный
+    pending_knives/{pid}/{локация}, который клиент разбирает сам в checkPendingKnives()
+    (index.html) и раскладывает по нужной локации в knifeByLoc — начисление приходит при
+    следующем входе в игру, то же самое поведение, что и у /addcoins.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.strip().split()
+    if len(text) < 3:
+        await message.answer(
+            "Использование:\n<code>/addknife @username КОЛИЧЕСТВО [локация]</code>\n\n"
+            "Локация необязательна — по умолчанию берётся текущая локация игрока.\n"
+            f"Доступные локации: {', '.join(LOCATION_MULT.keys())}\n\n"
+            "Пример:\n<code>/addknife @nikolanaz 5</code>\n<code>/addknife @nikolanaz 5 river</code>",
+            parse_mode="HTML"
+        )
+        return
+    username = text[1].lstrip('@').lower()
+    try:
+        amount = int(text[2])
+    except ValueError:
+        await message.answer("❌ Количество должно быть числом")
+        return
+    if amount <= 0:
+        await message.answer("❌ Количество должно быть больше нуля")
+        return
+
+    location = None
+    if len(text) > 3:
+        location = text[3].lower()
+        if location not in LOCATION_MULT:
+            await message.answer(f"❌ Неизвестная локация «{location}». Доступные: {', '.join(LOCATION_MULT.keys())}")
+            return
+
+    import aiohttp
+    try:
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                data = await resp.json()
+
+        user_id = None
+        if data:
+            for v in data.values():
+                if str(v.get('username', '')).lower() == username:
+                    user_id = str(v.get('userId'))
+                    break
+
+        if not user_id:
+            found_names = [str(v.get('username', '')) for v in data.values() if v.get('username')] if data else []
+            await message.answer(f"❌ Игрок @{username} не найден.\nИмена в базе: {', '.join(found_names[:10])}")
+            return
+
+        if not location:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/saves/tg_{user_id}/loc.json{FB_AUTH}") as resp:
+                    location = (await resp.json()) or 'pond'
+            if location not in LOCATION_MULT:
+                location = 'pond'
+
+        # Читаем и прибавляем к уже накопленному в pending_knives — если ножи начислялись
+        # несколько раз подряд, а игрок ещё не заходил, начисления должны сложиться, а не
+        # затереть друг друга.
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/pending_knives/tg_{user_id}/{location}.json{FB_AUTH}") as resp:
+                existing = await resp.json()
+            existing = existing if isinstance(existing, (int, float)) else 0
+            await session.put(
+                f"{base}/pending_knives/tg_{user_id}/{location}.json{FB_AUTH}",
+                json=existing + amount
+            )
+
+        # Уведомляем игрока
+        try:
+            await bot.send_message(
+                int(user_id),
+                f"🔪 <b>Администратор начислил тебе {amount} нож(ей) на локации «{location}»!</b>\n\n"
+                f"Зайди в игру чтобы получить их 👇",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+                ]])
+            )
+        except Exception:
+            pass
+
+        await message.answer(f"✅ @{username} (ID: {user_id}) получит 🔪{amount} ножей на локации «{location}» при следующем входе в игру")
+
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('resettournamentplayer'))
 async def reset_tournament_player_command(message: types.Message):
     """
@@ -7484,6 +7616,7 @@ async def comm_command(message: types.Message):
         "/selftest — автопроверка формул экономики на сервере (без клика по игре)\n"
         "/referrals — реферальная система (файл .txt)\n"
         "/addcoins @username СУММА — начислить монеты игроку\n"
+        "/addknife @username КОЛИЧЕСТВО [локация] — начислить ножей на склад (по умолчанию — текущая локация игрока)\n"
         "/addenergy @username — вручную заполнить энергию до максимума (компенсация за не выданную оплаченную покупку)\n"
         "/syncerrors — список игроков с ошибками синхронизации\n"
         "/playerinfo @username — развёрнутая статистика игрока\n"
@@ -11115,6 +11248,8 @@ async def main():
     app.router.add_get('/online_count', online_count)
     app.router.add_post('/clear_pending_boosts', clear_pending_boosts)
     app.router.add_options('/clear_pending_boosts', clear_pending_boosts)
+    app.router.add_post('/clear_pending_knives', clear_pending_knives)
+    app.router.add_options('/clear_pending_knives', clear_pending_knives)
     app.router.add_options('/online_count', online_count)
     app.router.add_get('/api/check', partner_check)
 

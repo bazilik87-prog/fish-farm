@@ -3765,6 +3765,37 @@ function checkPendingBoosts() {
 
   // Проверяем реферальные награды
   checkAndApplyRefRewards(false);
+
+  // Ножи, начисленные админом через /addknife — та же схема, что и pending_boosts выше:
+  // читаем узел, применяем локально (в правильную локацию, не обязательно текущую), а
+  // удаляет его сервер через /clear_pending_knives, потому что knifeByLoc — денежно
+  // незначимое, но всё же клиентское поле, и прямой .remove() клиентом рискует так же
+  // молча провалиться на закрытых Rules путях, как раньше было с pending_boosts.
+  checkPendingKnives();
+}
+
+function checkPendingKnives() {
+  if (!firebaseDB) return;
+  var pid = getPlayerId();
+  firebaseDB.ref('pending_knives/' + pid).once('value', function(snap) {
+    var data = snap.val();
+    if (!data) return;
+    if (!state.knifeByLoc) state.knifeByLoc = {};
+    for (var loc in data) {
+      var amt = typeof data[loc] === 'number' ? data[loc] : 0;
+      if (amt <= 0) continue;
+      state.knifeByLoc[loc] = (state.knifeByLoc[loc] || 0) + amt;
+      if (loc === state.currentLoc) state.knife = state.knifeByLoc[loc];
+    }
+    save(true);
+    if (tg && tg.initData) {
+      fetch(BOT_API_URL + '/clear_pending_knives', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({init_data: tg.initData})
+      }).catch(function(){});
+    }
+  });
 }
 
 function checkAndApplyRefRewards(isRod2) {
