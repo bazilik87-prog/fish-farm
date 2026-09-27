@@ -6763,20 +6763,52 @@ async def finance_command(message: types.Message):
     log_finance выше для того, откуда берутся строки). Все суммы в Stars переведены в
     USD по курсу STAR_TO_USD (оценочный, см. константу) на момент события; USDT-выводы
     учтены как есть, без пересчёта. Ручные расходы (хостинг и т.п.) — через /addexpense.
-    Использование: /finance [today|week|month] — без аргумента показывает за всё время.
+    Использование:
+      /finance — за всё время
+      /finance today — сегодня (по календарным суткам МСК)
+      /finance week — последние 7 дней
+      /finance month — последние 30 дней (скользящее окно, НЕ календарный месяц)
+      /finance month N — календарный месяц номер N (1-12) текущего года, например
+      "/finance month 9" — весь сентябрь с 1 по 30 число включительно. Если N больше
+      текущего месяца (просишь месяц, который в этом году ещё не наступил), берём этот
+      месяц ПРОШЛОГО года — так удобнее спрашивать декабрь в январе следующего года.
     """
     if message.from_user.id != ADMIN_ID:
         return
-    arg = message.text.strip()[len('/finance'):].strip().lower()
+    raw = message.text.strip()[len('/finance'):].strip()
+    tokens = raw.split()
     now_ms = int(time_module.time() * 1000)
-    if arg == 'today':
+    cutoff_end = None  # None = без верхней границы (до текущего момента)
+
+    if not tokens:
+        cutoff = 0
+        period_label = "за всё время"
+    elif tokens[0].lower() == 'today':
         # Начало суток по МСК (UTC+3) — тот же сдвиг, что и у дневного бонуса в /actions.
         cutoff = ((now_ms + 3 * 3600000) // 86400000) * 86400000 - 3 * 3600000
         period_label = "сегодня"
-    elif arg == 'week':
+    elif tokens[0].lower() == 'week':
         cutoff = now_ms - 7 * 86400000
         period_label = "за 7 дней"
-    elif arg == 'month':
+    elif tokens[0].lower() == 'month' and len(tokens) > 1 and tokens[1].isdigit():
+        month_num = int(tokens[1])
+        if not (1 <= month_num <= 12):
+            await message.answer("❌ Номер месяца должен быть от 1 до 12.")
+            return
+        from datetime import datetime, timezone, timedelta
+        tz = timezone(timedelta(hours=3))  # МСК/Израиль — тот же сдвиг, что и везде в боте
+        now_local = datetime.fromtimestamp(now_ms / 1000, tz=tz)
+        year = now_local.year
+        if month_num > now_local.month:
+            year -= 1  # месяц ещё не наступил в этом году — значит, спрашивают прошлогодний
+        start_local = datetime(year, month_num, 1, tzinfo=tz)
+        end_local = datetime(year + 1, 1, 1, tzinfo=tz) if month_num == 12 else datetime(year, month_num + 1, 1, tzinfo=tz)
+        cutoff = int(start_local.timestamp() * 1000)
+        cutoff_end = int(end_local.timestamp() * 1000)
+        month_names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+                        'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь']
+        period_label = f"{month_names[month_num - 1]} {year}"
+    elif tokens[0].lower() == 'month':
         cutoff = now_ms - 30 * 86400000
         period_label = "за 30 дней"
     else:
@@ -6798,7 +6830,10 @@ async def finance_command(message: types.Message):
     income_by_cat, expense_by_cat = {}, {}
     total_income = total_expense = 0.0
     for entry in log.values():
-        if not isinstance(entry, dict) or entry.get('ts', 0) < cutoff:
+        if not isinstance(entry, dict):
+            continue
+        ts = entry.get('ts', 0)
+        if ts < cutoff or (cutoff_end is not None and ts >= cutoff_end):
             continue
         amt = float(entry.get('amountUsd', 0) or 0)
         cat = entry.get('category', '?')
@@ -7480,7 +7515,7 @@ async def comm_command(message: types.Message):
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
-        "/finance [today|week|month] — отчёт по доходу/расходу в USD (с 1 октября 2026)\n"
+        "/finance [today|week|month|month N] — отчёт по доходу/расходу в USD (с 1 октября 2026); month N — календарный месяц N (1-12)\n"
         "/addexpense категория сумма [заметка] — ручной расход (хостинг и т.п.)\n"
         "/addincome категория сумма [заметка] — ручной доход\n"
         "/comm — список команд\n\n"
