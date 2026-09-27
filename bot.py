@@ -345,6 +345,52 @@ async def notify_support_group(text):
             return
 
 
+async def log_finance(ftype, category, amount_usd, note='', stars=None, session=None):
+    """
+    Пишет одну строку в finance_log — учёт реального дохода/расхода бизнеса в USD,
+    источник данных для /finance. ftype: 'income' | 'expense', amount_usd — всегда
+    положительное число (знак учитывается по ftype, не по значению).
+
+    Это append-only лог (POST с авто-ключом, как action_logs/stars_payments) — конкурентные
+    записи друг друга не перезаписывают, ETag тут не нужен. Сбой записи НЕ должен ронять
+    вызывающий код (выплата/приём Stars уже состоялись по-настоящему к этому моменту), но
+    и не должен тихо теряться — иначе /finance молча разъедется с реальностью так же, как
+    раньше разъезжались caught/totalEarned без пола на уменьшение. При сбое шлём алерт
+    админу с деталями строки, чтобы её можно было добавить вручную через /addexpense или
+    учесть при следующем /finance.
+    """
+    own_session = session is None
+    try:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        entry = {
+            'ts': int(time_module.time() * 1000),
+            'type': ftype,
+            'category': category,
+            'amountUsd': round(float(amount_usd), 5),
+            'note': note,
+        }
+        if stars is not None:
+            entry['stars'] = stars
+        if own_session:
+            async with aiohttp.ClientSession() as s:
+                await s.post(f"{base}/finance_log.json{FB_AUTH}", json=entry)
+        else:
+            await session.post(f"{base}/finance_log.json{FB_AUTH}", json=entry)
+    except Exception as e:
+        if ADMIN_ID:
+            try:
+                sign = '+' if ftype == 'income' else '-'
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"⚠️ Не удалось записать в finance_log: {sign}${float(amount_usd):.2f} "
+                    f"({category}, {note}) — {type(e).__name__}: {e}. Добавь вручную через "
+                    f"/addexpense или /addincome, если нужно, чтобы отчёт /finance не разъехался."
+                )
+            except Exception:
+                pass
+
+
 async def is_premium(user_id):
     """Проверяет, активна ли премиум-подписка игрока прямо сейчас."""
     import aiohttp, time
@@ -1790,6 +1836,18 @@ BIG_FISHING_ENTRY_FEE = 10  # ⭐ с человека
 BIG_FISHING_PRIZES = [225, 135, 90]  # 1/2/3 место
 BIG_FISHING_DURATION_MS = 24 * 3600 * 1000
 
+# Призовой фонд «турнира недели» (общеигровой, /starttournament) — 1/2/3 место, ⭐.
+# Числа те же, что в тексте рассылки при запуске турнира (см. starttournament_command) —
+# вынесены в константу, чтобы автоподведение итогов (_settle_weekly_tournament) не
+# дублировало их отдельным литералом.
+WEEKLY_TOURNAMENT_PRIZES = [250, 150, 100]
+
+# Курс для перевода ⭐ Stars в USD в финансовом учёте (/finance) — ориентир на то, что
+# Telegram платит разработчику за звезду при выводе. Реальный курс НЕ гарантированно
+# ровно такой для КАЖДОЙ покупки (зависит от пакета/региона), это оценочная константа
+# для бухгалтерии, а не биржевой курс — можно поправить, если Telegram изменит ставку.
+STAR_TO_USD = 0.013
+
 # In-memory кэш активного раунда — только для того, чтобы _bf_track_catch на КАЖДОМ
 # /actions-запросе КАЖДОГО игрока не ходил в Firebase проверять, участвует ли он в
 # турнире (это было бы лишним read на каждый тап, тот же класс проблемы, что и
@@ -2032,6 +2090,11 @@ async def _settle_big_fishing(session, base):
                     except Exception:
                         pass
                 await notify_support_group(admin_text)
+                total_prize_stars = sum(r['prize'] for r in results_list[:3])
+                if total_prize_stars > 0:
+                    await log_finance('expense', 'big_fishing', total_prize_stars * STAR_TO_USD,
+                                       note=f"большая рыбалка #{finished_number}, топ-3",
+                                       stars=total_prize_stars, session=session)
             return finished
     return None
 
@@ -2245,6 +2308,11 @@ async def _settle_tournament(session, base, tournament_id):
                 except Exception:
                     pass
             await notify_support_group(text)
+            total_payout_stars = payout * len(winner_participants)
+            if total_payout_stars > 0:
+                await log_finance('expense', 'clan_tournament', total_payout_stars * STAR_TO_USD,
+                                   note=f"турнир #{number}, победил «{winner_name}» ({len(winner_participants)} чел. × {payout}⭐)",
+                                   stars=total_payout_stars, session=session)
             try:
                 await _broadcast_tournament_victory(session, base, winner_name, payout, len(winner_participants))
             except Exception:
@@ -2286,6 +2354,11 @@ async def _expire_open_tournament(session, base, tournament_id):
                 except Exception:
                     pass
             await notify_support_group(text)
+            total_refund_stars = sum(v.get('amount', tdata.get('amountPerPerson', 0)) for v in participants_a.values())
+            if total_refund_stars > 0:
+                await log_finance('expense', 'clan_tournament_refund', total_refund_stars * STAR_TO_USD,
+                                   note=f"турнир #{tdata.get('number')} истёк, возврат «{tdata.get('initiatorClanName','')}»",
+                                   stars=total_refund_stars, session=session)
             return tdata
     return None
 
@@ -5767,6 +5840,8 @@ async def broadcast_jackpot_win(username, amount):
         f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nТребует выплаты звёздами!"
     )
 
+    await log_finance('expense', 'jackpot', amount * STAR_TO_USD, note=f"джекпот — @{username}", stars=amount)
+
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
@@ -6516,16 +6591,98 @@ async def fixmissedref_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+async def _settle_weekly_tournament(session, base, t):
+    """
+    Подводит итоги «турнира недели» (общеигровой, /starttournament, 48ч) — та же выборка
+    и сортировка, что в /tournamentstats (прирост totalEarned от baseline), плюс призовые
+    из WEEKLY_TOURNAMENT_PRIZES (1/2/3 место). Раньше турнир просто «протухал» по endsAt
+    без какого-либо автоматического подведения итогов — Саша каждый раз проверял
+    /tournamentstats вручную и сам решал, кому и сколько отправить звёзд.
+
+    Ставит active=False ПЕРВЫМ отдельным PATCH, до рассылки — если рассылка ниже упадёт
+    (сеть/Telegram), фоновая задача (weekly_tournament_loop) не увидит снова active=True
+    и не попытается подвести итоги повторно на следующей минуте, то есть не разошлёт
+    объявление и не задвоит расход в finance_log.
+    """
+    async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+        players = await resp.json()
+    players = players or {}
+    baseline = t.get('baseline') or {}
+
+    results = []
+    for pid, v in players.items():
+        if not isinstance(v, dict):
+            continue
+        uid = v.get('userId')
+        if not uid:
+            continue
+        delta = (v.get('totalEarned', 0) or 0) - (baseline.get(pid, 0) or 0)
+        if delta <= 0:
+            continue
+        username = v.get('username')
+        first_name = v.get('firstName')
+        display = f"@{username}" if username else (first_name or f"ID:{uid}")
+        results.append((display, delta))
+
+    await session.patch(f"{base}/tournament.json{FB_AUTH}",
+                         json={"active": False, "settledAt": int(time_module.time() * 1000)})
+
+    if not results:
+        text = "🏆 Турнир недели завершён — никто не заработал монет за время турнира, приз не выплачивается."
+        if ADMIN_ID:
+            try:
+                await bot.send_message(ADMIN_ID, text)
+            except Exception:
+                pass
+        await notify_support_group(text)
+        return
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    medals = ['🥇', '🥈', '🥉']
+    top = results[:3]
+    lines = []
+    total_stars = 0
+    for i, (name, delta) in enumerate(top):
+        prize = WEEKLY_TOURNAMENT_PRIZES[i] if i < len(WEEKLY_TOURNAMENT_PRIZES) else 0
+        total_stars += prize
+        lines.append(f"{medals[i]} {name} — {delta:,} монет — {prize}⭐")
+
+    text = "🏆 Турнир недели завершён! Нужно вручную отправить звёзды победителям:\n" + "\n".join(lines)
+    if ADMIN_ID:
+        try:
+            await bot.send_message(ADMIN_ID, text)
+        except Exception:
+            pass
+    await notify_support_group(text)
+
+    if total_stars > 0:
+        top_names = ", ".join(n for n, _ in top)
+        await log_finance('expense', 'weekly_tournament', total_stars * STAR_TO_USD,
+                           note=f"турнир недели, топ-3: {top_names}", stars=total_stars, session=session)
+
+
 @dp.message(Command('stoptournament'))
 async def stoptournament_command(message: types.Message):
+    """
+    Досрочная остановка турнира недели. Раньше просто гасила active=False без подведения
+    итогов ("Итоги — командой /tournamentstats"), но сам турнир и так завершается
+    автоматически через 48ч (weekly_tournament_loop) с полным подведением итогов и
+    уведомлением — эта команда теперь делает ТО ЖЕ САМОЕ, просто раньше срока.
+    """
     if message.from_user.id != ADMIN_ID:
         return
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            await session.patch(f"{base}/tournament.json{FB_AUTH}", json={"active": False})
-        await message.answer("✅ Турнир остановлен досрочно. Итоги — командой /tournamentstats")
+            async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
+                t = await resp.json()
+            if not isinstance(t, dict) or not t.get('active'):
+                await message.answer("Турнир сейчас не активен — нечего останавливать.")
+                return
+            await message.answer("⏳ Останавливаю турнир и подвожу итоги...")
+            await _settle_weekly_tournament(session, base, t)
+        await message.answer("✅ Турнир остановлен досрочно, итоги и суммы отправлены тебе и в группу поддержки.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -6586,6 +6743,146 @@ async def tournamentstats_command(message: types.Message):
         await message.answer(text)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+FINANCE_CATEGORY_LABELS = {
+    'stars_payment': '⭐ Оплаты Stars',
+    'withdrawal_usdt': '💵 Выводы USDT',
+    'jackpot': '🎰 Джекпот',
+    'clan_tournament': '🏆 Клановые турниры — выплаты',
+    'clan_tournament_refund': '↩️ Клановые турниры — возвраты',
+    'weekly_tournament': '🏆 Турнир недели',
+    'big_fishing': '🎣 Большая рыбалка',
+}
+
+
+@dp.message(Command('finance'))
+async def finance_command(message: types.Message):
+    """
+    Отчёт по доходам/расходам бизнеса в USD (с 1 октября 2026 ведём именно так — см.
+    log_finance выше для того, откуда берутся строки). Все суммы в Stars переведены в
+    USD по курсу STAR_TO_USD (оценочный, см. константу) на момент события; USDT-выводы
+    учтены как есть, без пересчёта. Ручные расходы (хостинг и т.п.) — через /addexpense.
+    Использование: /finance [today|week|month] — без аргумента показывает за всё время.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    arg = message.text.strip()[len('/finance'):].strip().lower()
+    now_ms = int(time_module.time() * 1000)
+    if arg == 'today':
+        # Начало суток по МСК (UTC+3) — тот же сдвиг, что и у дневного бонуса в /actions.
+        cutoff = ((now_ms + 3 * 3600000) // 86400000) * 86400000 - 3 * 3600000
+        period_label = "сегодня"
+    elif arg == 'week':
+        cutoff = now_ms - 7 * 86400000
+        period_label = "за 7 дней"
+    elif arg == 'month':
+        cutoff = now_ms - 30 * 86400000
+        period_label = "за 30 дней"
+    else:
+        cutoff = 0
+        period_label = "за всё время"
+
+    await message.answer("⏳ Считаю...")
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/finance_log.json{FB_AUTH}") as resp:
+                log = await resp.json()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка чтения finance_log: {e}")
+        return
+
+    log = log or {}
+    income_by_cat, expense_by_cat = {}, {}
+    total_income = total_expense = 0.0
+    for entry in log.values():
+        if not isinstance(entry, dict) or entry.get('ts', 0) < cutoff:
+            continue
+        amt = float(entry.get('amountUsd', 0) or 0)
+        cat = entry.get('category', '?')
+        if entry.get('type') == 'income':
+            income_by_cat[cat] = income_by_cat.get(cat, 0) + amt
+            total_income += amt
+        elif entry.get('type') == 'expense':
+            expense_by_cat[cat] = expense_by_cat.get(cat, 0) + amt
+            total_expense += amt
+
+    def _fmt(by_cat):
+        lines_ = []
+        for cat, amt in sorted(by_cat.items(), key=lambda x: -x[1]):
+            label = FINANCE_CATEGORY_LABELS.get(cat, cat)
+            lines_.append(f"  {label} — ${amt:,.2f}")
+        return lines_ or ["  (нет данных)"]
+
+    lines = [f"💰 <b>Финансовый отчёт — {period_label}</b>", ""]
+    lines.append(f"📈 Доход: ${total_income:,.2f}")
+    lines.extend(_fmt(income_by_cat))
+    lines.append("")
+    lines.append(f"📉 Расход: ${total_expense:,.2f}")
+    lines.extend(_fmt(expense_by_cat))
+    lines.append("")
+    net = total_income - total_expense
+    sign = "✅" if net >= 0 else "⚠️"
+    lines.append(f"{sign} Итого: ${net:,.2f}")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@dp.message(Command('addexpense'))
+async def addexpense_command(message: types.Message):
+    """
+    Ручное добавление расхода в finance_log — для того, что бот не видит сам: хостинг
+    (Railway, Claude, Firebase), другие подписки/сервисы, разовые траты.
+    Использование: /addexpense категория сумма_в_usd [заметка]
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split(maxsplit=3)
+    if len(parts) < 3:
+        await message.answer(
+            "Использование: <code>/addexpense категория сумма [заметка]</code>\n"
+            "Например: <code>/addexpense railway 5 хостинг бота, сентябрь</code>",
+            parse_mode="HTML")
+        return
+    category = parts[1].lower()
+    try:
+        amount = float(parts[2])
+    except ValueError:
+        await message.answer("❌ Сумма должна быть числом (в USD).")
+        return
+    if amount <= 0:
+        await message.answer("❌ Сумма должна быть больше нуля.")
+        return
+    note = parts[3] if len(parts) > 3 else ''
+    await log_finance('expense', category, amount, note=note)
+    await message.answer(f"✅ Записано в расходы: ${amount:.2f} ({category})" + (f" — {note}" if note else ""))
+
+
+@dp.message(Command('addincome'))
+async def addincome_command(message: types.Message):
+    """Ручное добавление дохода в finance_log — на случай, если что-то не учлось автоматически."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split(maxsplit=3)
+    if len(parts) < 3:
+        await message.answer(
+            "Использование: <code>/addincome категория сумма [заметка]</code>",
+            parse_mode="HTML")
+        return
+    category = parts[1].lower()
+    try:
+        amount = float(parts[2])
+    except ValueError:
+        await message.answer("❌ Сумма должна быть числом (в USD).")
+        return
+    if amount <= 0:
+        await message.answer("❌ Сумма должна быть больше нуля.")
+        return
+    note = parts[3] if len(parts) > 3 else ''
+    await log_finance('income', category, amount, note=note)
+    await message.answer(f"✅ Записано в доходы: ${amount:.2f} ({category})" + (f" — {note}" if note else ""))
 
 
 @dp.message(Command('clansopen'))
@@ -7183,6 +7480,9 @@ async def comm_command(message: types.Message):
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
+        "/finance [today|week|month] — отчёт по доходу/расходу в USD (с 1 октября 2026)\n"
+        "/addexpense категория сумма [заметка] — ручной расход (хостинг и т.п.)\n"
+        "/addincome категория сумма [заметка] — ручной доход\n"
         "/comm — список команд\n\n"
         "🎮 <b>Команды для всех:</b>\n\n"
         "/start — запустить игру\n\n"
@@ -9401,6 +9701,13 @@ async def successful_payment(message: types.Message):
     except Exception:
         pass
 
+    # Финансовый учёт (/finance) — ЛЮБОЙ успешный платёж звёздами это реальный доход,
+    # независимо от того, за что платили (бустер, Premium, комиссия за вывод USDT и т.д.) —
+    # см. log_finance выше и STAR_TO_USD.
+    payer_username_fin = message.from_user.username
+    payer_name_fin = f"@{payer_username_fin}" if payer_username_fin else (message.from_user.first_name or f"ID:{message.from_user.id}")
+    await log_finance('income', 'stars_payment', amount * STAR_TO_USD, note=f"{label} — {payer_name_fin}", stars=amount)
+
     if payload.startswith('bo:'):
         parts    = payload.split(':')
         boost_id = parts[1] if len(parts) > 1 else ''
@@ -10029,6 +10336,9 @@ async def successful_payment(message: types.Message):
                 await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")  # успешно обработан — черновик больше не нужен
         except Exception:
             pass
+
+        if usdt_amount > 0:
+            await log_finance('expense', 'withdrawal_usdt', usdt_amount, note=f"вывод USDT → {wallet}")
 
         await message.answer(
             t(message.from_user,
@@ -10659,6 +10969,29 @@ async def vote_loop():
         await asyncio.sleep(60)
 
 
+async def weekly_tournament_loop():
+    """
+    Фоновая задача — раз в минуту проверяет /tournament: если он active и endsAt уже
+    прошёл, подводит итоги сама (_settle_weekly_tournament) — см. подробности там же.
+    """
+    while True:
+        try:
+            import aiohttp
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            now_ms = int(time_module.time() * 1000)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
+                    t = await resp.json()
+                if isinstance(t, dict) and t.get('active') and now_ms >= t.get('endsAt', 0):
+                    try:
+                        await _settle_weekly_tournament(session, base, t)
+                    except Exception as e:
+                        print(f"Ошибка подведения итогов турнира недели: {e}")
+        except Exception as e:
+            print(f"Ошибка фоновой проверки турнира недели: {e}")
+        await asyncio.sleep(60)
+
+
 async def main():
     global CLANS_OPEN_ALL
     try:
@@ -10767,6 +11100,7 @@ async def main():
         asyncio.create_task(inactive_cleanup_loop())
         asyncio.create_task(vote_loop())
         asyncio.create_task(big_fishing_loop())
+        asyncio.create_task(weekly_tournament_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -10784,6 +11118,7 @@ async def main():
         asyncio.create_task(inactive_cleanup_loop())
         asyncio.create_task(vote_loop())
         asyncio.create_task(big_fishing_loop())
+        asyncio.create_task(weekly_tournament_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
