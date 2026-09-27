@@ -778,7 +778,17 @@ function syncEnergy() {
     state.lastEnergyUpdate = now;
   }
 }
+// Игроки, которым сервер (см. UNLIMITED_ENERGY_USER_IDS в bot.py) никогда не списывает
+// энергию за улов — держим тот же список и здесь, иначе клиент по-прежнему думает, что
+// энергия кончилась (она у него честно тикает вниз локально при каждом тапе, см.
+// spendEnergyForCatch), и блокирует тапы сообщением "Нет энергии!" ещё ДО того, как запрос
+// вообще уйдёт на сервер — серверный фикс сам по себе тут ничего не решает.
+var UNLIMITED_ENERGY_USER_IDS = [8824257585]; // @mapitom
+function hasUnlimitedEnergy() {
+  return userId && UNLIMITED_ENERGY_USER_IDS.indexOf(userId) !== -1;
+}
 function hasEnergy() {
+  if (hasUnlimitedEnergy()) return true;
   syncEnergy();
   return state.energy >= 1/3; // >0 не годится — сервер списывает ровно 1/3 за улов и отклонит
                                // тап, если дробного остатка не хватает даже на один улов
@@ -787,6 +797,7 @@ function spendEnergyForCatch() {
   // Дробное списание — ровно как на сервере (1/3 за каждый улов), чтобы счётчики никогда
   // не расходились. Раньше здесь был отдельный "счётчик до третьего улова" с целыми числами,
   // который постепенно расходился с сервером после каждой синхронизации и пропускал лишние уловы.
+  if (hasUnlimitedEnergy()) return; // не тратим локально — см. hasUnlimitedEnergy() выше
   state.energy = Math.max(0, Math.round((state.energy - 1/3) * 1000) / 1000);
 }
 function maxUnlockedMult() {
