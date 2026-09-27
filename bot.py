@@ -423,6 +423,12 @@ ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]           # монет за улов п
 AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда, монет В МИНУТУ (не в секунду — см. index.html: autoPerMin, деление elapsed/1000/60)
 ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
 PREMIUM_AUTO_MULT = 1.25
+
+# Игроки, которым тапы НИКОГДА не тратят энергию (решение Саши, навсегда) — регенерация
+# по времени всё равно продолжает идти как обычно, просто расход при улове им не
+# засчитывается. Используется только в process_actions (a_type == 'catch'), ID числовые
+# и постоянные — юзернейм для этого не годится, он может смениться.
+UNLIMITED_ENERGY_USER_IDS = {8824257585}  # @mapitom
 MISC_BUFFER_PER_MIN = 200   # запас на доставку/лотерею/квесты/ежедневный бонус, * множитель локации
 
 # Максимальная цена самой редкой/дорогой рыбы в каждой локации (BASE_PRICES из index.html) —
@@ -4605,7 +4611,8 @@ async def process_actions(request):
         mult = LOCATION_MULT.get(loc, 1)
 
         if a_type == 'catch':
-            if energy < 1/3:
+            has_unlimited_energy = real_user_id in UNLIMITED_ENERGY_USER_IDS
+            if not has_unlimited_energy and energy < 1/3:
                 rejected += 1
                 rejected_energy += 1  # отдельно от rejected — чтобы клиент не пугал
                 # игрока формулировкой "инвентарь устарел", когда причина просто в том,
@@ -4613,7 +4620,8 @@ async def process_actions(request):
                 # в index.html — теперь показывает точную причину, если ВСЕ отклонения
                 # в батче объясняются нехваткой энергии).
                 continue
-            energy -= 1/3
+            if not has_unlimited_energy:
+                energy -= 1/3
             lv = upg_levels.get(loc, {}) if isinstance(upg_levels.get(loc), dict) else {}
             rod_level = max(0, min(int(lv.get('rod', 0) or 0), len(ROD_TAP) - 1))
             earned = round(ROD_TAP[rod_level] * mult * 10) / 10
