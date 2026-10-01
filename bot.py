@@ -9618,10 +9618,14 @@ async def players_command(message: types.Message):
         if not data:
             await message.answer("Пока нет игроков.")
             return
-        players = sorted(data.values(), key=lambda x: x.get('caught',0), reverse=True)
+        # .values() сам по себе теряет ключ (pid вида "tg_12345") — а именно в нём лежит
+        # реальный ID игрока, когда поля userId в самой записи нет (старые/битые записи,
+        # из-за которых раньше такие игроки подписывались безликим "Рыбак #N", хотя их ID
+        # было видно напрямую в базе). Поэтому сортируем и подписываем по парам (pid, p).
+        players = sorted(data.items(), key=lambda kv: kv[1].get('caught', 0), reverse=True)
         locs = {'pond':'🌿','river':'🏞','tropics':'🌴','deep':'🌊','space':'🚀'}
         lines = []
-        for i, p in enumerate(players, 1):
+        for i, (pid, p) in enumerate(players, 1):
             num = p.get('num','?')
             coins = p.get('coins', 0)
             caught = p.get('caught', 0)
@@ -9629,6 +9633,8 @@ async def players_command(message: types.Message):
             username = p.get('username','')
             first_name = p.get('firstName','')
             user_id = p.get('userId', 0)
+            if not user_id and isinstance(pid, str) and pid.startswith('tg_') and pid[3:].isdigit():
+                user_id = pid[3:]
             if username:
                 identity = f"@{username}"
             elif first_name:
