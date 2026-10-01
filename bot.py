@@ -1235,6 +1235,73 @@ async def clear_pending_knives(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+# TTL-кэш готового топ-10 турнирной таблицы — см. tournament_top() ниже. Защищает от
+# повторного полного чтения leaderboard, если много игроков открывают вкладку "Лидеры"
+# почти одновременно (а пока турнир активен, это постоянная ситуация).
+_TOURNAMENT_TOP_CACHE = {"ts": 0, "data": None}
+TOURNAMENT_TOP_CACHE_TTL_MS = 30000  # 30 секунд
+
+
+async def tournament_top(request):
+    """
+    Топ-10 турнирной таблицы (прирост totalEarned с начала турнира) — считается здесь,
+    на сервере, вместо того чтобы КАЖДЫЙ клиент тянул к себе весь leaderboard (5600+
+    записей) только ради этого списка из 10 строк. Раньше index.html делал это сам
+    через firebaseDB.ref('leaderboard').once('value') при каждом открытии вкладки
+    "Лидеры", пока активен турнир (а он активен почти всегда) — это оказалось ОСНОВНЫМ
+    источником трафика (Downloads) в Firebase, в разы больше всего остального вместе
+    взятого (113 ГБ/мес при ~5600 игроках). Та же логика уже была у /tournamentstats
+    (админ-команда) — здесь просто то же самое, но отдаётся игровому клиенту и с
+    коротким TTL-кэшем, чтобы не читать leaderboard целиком на каждый запрос.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+
+    now_ms = int(time_module.time() * 1000)
+    cached = _TOURNAMENT_TOP_CACHE.get("data")
+    if cached is not None and (now_ms - _TOURNAMENT_TOP_CACHE.get("ts", 0)) < TOURNAMENT_TOP_CACHE_TTL_MS:
+        return web.json_response(cached, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
+                tourn = await resp.json()
+            tourn = tourn or {}
+            active = bool(tourn.get('active')) and tourn.get('endsAt', 0) > now_ms
+            result = {'ok': True, 'active': active, 'endsAt': tourn.get('endsAt', 0), 'top': []}
+
+            if active:
+                baseline = tourn.get('baseline') or {}
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+                    lb = await resp.json()
+                lb = lb or {}
+                entries = []
+                for pid, v in lb.items():
+                    if not isinstance(v, dict) or not v.get('userId'):
+                        continue
+                    delta = (v.get('totalEarned', 0) or 0) - (baseline.get(pid, 0) or 0)
+                    if delta > 0:
+                        entries.append({
+                            'id': pid,
+                            'playerName': v.get('playerName', ''),
+                            'firstName': v.get('firstName', ''),
+                            'username': v.get('username', ''),
+                            'num': v.get('num'),
+                            'premiumUntil': v.get('premiumUntil', 0),
+                            'delta': delta,
+                        })
+                entries.sort(key=lambda e: e['delta'], reverse=True)
+                result['top'] = entries[:10]
+
+            _TOURNAMENT_TOP_CACHE["data"] = result
+            _TOURNAMENT_TOP_CACHE["ts"] = now_ms
+            return web.json_response(result, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+
 async def social_tasks_list(request):
     """
     Список активных «социальных» заданий (вступи в группу рекламодателя за монеты) —
@@ -11653,6 +11720,8 @@ async def main():
     app.router.add_options('/referral_market_list', referral_market_list)
     app.router.add_post('/social_tasks_list', social_tasks_list)
     app.router.add_options('/social_tasks_list', social_tasks_list)
+    app.router.add_post('/tournament_top', tournament_top)
+    app.router.add_options('/tournament_top', tournament_top)
     app.router.add_post('/claim_social_task', claim_social_task)
     app.router.add_options('/claim_social_task', claim_social_task)
     app.router.add_post('/jackpot_broadcast', jackpot_broadcast)

@@ -5614,36 +5614,28 @@ function renderLeaders() {
   }
 
   var myPid = getPlayerId();
-  firebaseDB.ref('tournament').once('value', function(tSnap) {
-    var tourn = tSnap.val();
-    var tournamentLive = !!(tourn && tourn.active && tourn.endsAt > Date.now());
-    var baseline = (tourn && tourn.baseline) || {};
 
-    // Турнирный расчёт — ВСЕГДА по полному leaderboard, независимо от того, кто
-    // топ-50 по caught. Раньше турнирная таблица строилась из того же среза, что и
-    // обычный рейтинг ловцов (top-50 по caught), из-за чего игроки, зарабатывающие
-    // в основном рефералами (мало личных уловов) и потому не входящие в top-50 по
-    // caught, вообще не могли попасть в турнирную таблицу — даже с реальным
-    // приростом totalEarned выше, чем у половины участников. Сервер (/tournamentstats
-    // в bot.py) всегда читал leaderboard целиком, без этого фильтра — расхождение
-    // между тем, что видел админ в боте, и тем, что видели игроки в игре.
-    if (tournamentLive) {
-      firebaseDB.ref('leaderboard').once('value', function(fullSnap) {
-        var allEntries = [];
-        fullSnap.forEach(function(child) { var v=child.val(); if (v && v.userId) allEntries.push({id:child.key, data:v}); });
-
-        var tEntries = allEntries.map(function(e) {
-          return {id:e.id, data:e.data, delta:((e.data&&e.data.totalEarned)||0)-(baseline[e.id]||0)};
-        }).filter(function(e){ return e.delta > 0; });
-        tEntries.sort(function(a,b){ return b.delta - a.delta; });
-
-        var msLeft = tourn.endsAt - Date.now();
+  // Турнирная секция — считается на СЕРВЕРЕ (/tournament_top в bot.py), а не тут.
+  // Раньше при каждом открытии вкладки "Лидеры", пока активен турнир, клиент тянул
+  // ВЕСЬ leaderboard (5600+ записей) только ради топ-10 по приросту totalEarned —
+  // это оказалось основным источником трафика (Downloads) в Firebase, в разы больше
+  // всего остального вместе взятого. Сервер и так уже считал то же самое для
+  // /tournamentstats (админ-команда) — теперь он отдаёт готовый топ-10 всем клиентам
+  // через короткий TTL-кэш, вместо того чтобы каждый клиент качал всё сам.
+  if (typeof BOT_API_URL !== 'undefined') {
+    fetch(BOT_API_URL + '/tournament_top', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var el = document.getElementById('tournament-section');
+        if (!el) return;
+        if (!res || !res.ok || !res.active) { el.innerHTML = ''; return; }
+        var msLeft = res.endsAt - Date.now();
         var th = Math.floor(msLeft/3600000), tm = Math.floor((msLeft%3600000)/60000);
-
         var tHtml = '<div class="card" style="background:linear-gradient(135deg,#3a0f5c,#5c1a8e);border:1.5px solid #b794f6;margin-bottom:10px">'
           +'<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:2px">🏆 '+t('Турнир недели','Weekly tournament')+'</div>'
           +'<div style="font-size:11px;color:#e1bee7;margin-bottom:10px">⏱ '+t('Осталось:','Left:')+' '+th+t('ч ','h ')+tm+t('м','m')+'</div>';
 
+        var tEntries = res.top || [];
         if (tEntries.length === 0) {
           tHtml += '<div style="font-size:12px;color:#d1a8f0;text-align:center;padding:8px">'+t('Пока никто не заработал монет в турнире 🪙','No one has earned coins in the tournament yet 🪙')+'</div>';
         } else {
@@ -5651,8 +5643,8 @@ function renderLeaders() {
           for (var ti=0; ti<Math.min(10, tEntries.length); ti++) {
             var te = tEntries[ti];
             var isMeT = te.id === myPid;
-            var tName = te.data.playerName || te.data.firstName || (te.data.username?'@'+te.data.username:'🎣 '+t('Рыбак','Angler')+' #'+(te.data.num||'?'));
-            if ((te.data.premiumUntil||0) > Date.now()) tName = '👑 '+tName;
+            var tName = te.playerName || te.firstName || (te.username?'@'+te.username:'🎣 '+t('Рыбак','Angler')+' #'+(te.num||'?'));
+            if ((te.premiumUntil||0) > Date.now()) tName = '👑 '+tName;
             var tRank = ti<3 ? tMedals[ti] : '#'+(ti+1);
             tHtml += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;'+(isMeT?'background:rgba(255,215,0,.15);border-radius:8px':'')+'">'
               +'<div style="font-size:12px;min-width:26px;text-align:center">'+tRank+'</div>'
@@ -5662,11 +5654,11 @@ function renderLeaders() {
           }
         }
         tHtml += '</div>';
-        document.getElementById('tournament-section').innerHTML = tHtml;
-      });
-    }
+        el.innerHTML = tHtml;
+      }).catch(function(){});
+  }
 
-    firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
+  firebaseDB.ref('leaderboard').orderByChild('caught').limitToLast(50).once('value', function(snap) {
       var entries = [];
       snap.forEach(function(child) { var v=child.val(); if (v && v.userId) entries.push({id:child.key, data:v}); });
       entries.sort(function(a,b){ return (b.data&&b.data.caught||0) - (a.data&&a.data.caught||0); });
@@ -5707,7 +5699,6 @@ function renderLeaders() {
 
       document.getElementById('leaders-list').innerHTML = html;
     });
-  });
 }
 function clearNotifLog() {
   try {
