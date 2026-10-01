@@ -1276,8 +1276,13 @@ async def social_tasks_list(request):
     # самое новое задание должно быть ПЕРВЫМ в списке, отодвигая старые вниз. Раньше
     # порядок был "как отдал Firebase" — это фактически по возрастанию ts (старые сверху),
     # и новое задание всегда попадало в конец списка, а не в начало, как хотелось.
+    now_ms = int(time_module.time() * 1000)
     for task_id, t in sorted(tasks.items(), key=lambda kv: kv[0], reverse=True):
         if not isinstance(t, dict) or not t.get('active'):
+            continue
+        # Истёкшее задание (expires_at в прошлом) не показываем — не трогаем active в
+        # Firebase, т.к. /listsocial должен по-прежнему видеть его и отличать от удалённых.
+        if t.get('expires_at') and now_ms >= t.get('expires_at'):
             continue
         result.append({
             'id': task_id,
@@ -1328,6 +1333,8 @@ async def claim_social_task(request):
 
     if not task or not isinstance(task, dict) or not task.get('active'):
         return web.json_response({'error': 'задание не найдено или неактивно'}, status=400, headers=CORS)
+    if task.get('expires_at') and int(time_module.time() * 1000) >= task.get('expires_at'):
+        return web.json_response({'error': 'срок действия задания истёк'}, status=400, headers=CORS)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -3982,6 +3989,10 @@ MAX_UPGRADE_LEVEL = 5
 TRANSPORT_COST = {'bike': 0, 'moped': 5000, 'car': 50000, 'truck': 300000}
 TRANSPORT_CAPACITY = {'bike': 5, 'moped': 15, 'car': 40, 'truck': 100, 'rentalTruck': 200}
 TRANSPORT_REPAIR_COST = {'bike': 50, 'moped': 500, 'car': 5000, 'truck': 30000}
+# Срок жизни соц.задания (/addsocial, /addsocialbot, /addsociallink) — по истечении
+# задание перестаёт отдаваться игроку (social_tasks_list) и приниматься в клейм
+# (claim_social_task), даже если admin не удалил его вручную через /removesocial.
+SOCIAL_TASK_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000  # 30 суток
 DAILY_REWARDS = [10, 25, 50, 100, 200, 400, 1000]
 LOCATION_UNLOCK_COST = {'pond': 0, 'river': 100000, 'tropics': 3000000, 'deep': 9000000, 'space': 33000000}
 LOCATION_ORDER_LIST = ['pond', 'river', 'tropics', 'deep', 'space']
@@ -7728,8 +7739,11 @@ async def addsocial_command(message: types.Message):
     label = parts[3].strip()
 
     import aiohttp, time
+    from datetime import datetime, timezone, timedelta
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time.time() * 1000)
     task_id = f"task_{int(time.time())}"
+    expires_at = now_ms + SOCIAL_TASK_LIFETIME_MS
     try:
         # Проверяем, что бот реально в этой группе, прежде чем сохранять задание
         await bot.get_chat(chat_id)
@@ -7739,9 +7753,11 @@ async def addsocial_command(message: types.Message):
     try:
         async with aiohttp.ClientSession() as session:
             await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
-                "link": link, "chat_id": chat_id, "reward": reward, "label": label, "active": True
+                "link": link, "chat_id": chat_id, "reward": reward, "label": label, "active": True,
+                "expires_at": expires_at
             })
-        await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
+        until = datetime.fromtimestamp(expires_at/1000, tz=timezone.utc).strftime('%d.%m.%Y')
+        await message.answer(f"✅ Задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>\nАктивно до {until} (30 суток)", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -7783,15 +7799,19 @@ async def addsocialbot_command(message: types.Message):
     label = parts[4].strip()
 
     import aiohttp, time
+    from datetime import datetime, timezone
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time.time() * 1000)
     task_id = f"task_{int(time.time())}"
+    expires_at = now_ms + SOCIAL_TASK_LIFETIME_MS
     try:
         async with aiohttp.ClientSession() as session:
             await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
                 "type": "bot", "link": link, "verify_url": verify_url, "verify_key": verify_key,
-                "reward": reward, "label": label, "active": True
+                "reward": reward, "label": label, "active": True, "expires_at": expires_at
             })
-        await message.answer(f"✅ Бот-задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
+        until = datetime.fromtimestamp(expires_at/1000, tz=timezone.utc).strftime('%d.%m.%Y')
+        await message.answer(f"✅ Бот-задание добавлено: {label} (+{reward}🪙)\nID: <code>{task_id}</code>\nАктивно до {until} (30 суток)", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -7828,14 +7848,19 @@ async def addsociallink_command(message: types.Message):
     label = parts[2].strip()
 
     import aiohttp, time
+    from datetime import datetime, timezone
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time.time() * 1000)
     task_id = f"task_{int(time.time())}"
+    expires_at = now_ms + SOCIAL_TASK_LIFETIME_MS
     try:
         async with aiohttp.ClientSession() as session:
             await session.put(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
-                "type": "link", "link": link, "reward": reward, "label": label, "active": True
+                "type": "link", "link": link, "reward": reward, "label": label, "active": True,
+                "expires_at": expires_at
             })
-        await message.answer(f"✅ Задание-ссылка добавлено (без проверки): {label} (+{reward}🪙)\nID: <code>{task_id}</code>", parse_mode="HTML")
+        until = datetime.fromtimestamp(expires_at/1000, tz=timezone.utc).strftime('%d.%m.%Y')
+        await message.answer(f"✅ Задание-ссылка добавлено (без проверки): {label} (+{reward}🪙)\nID: <code>{task_id}</code>\nАктивно до {until} (30 суток)", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -7927,11 +7952,23 @@ async def listsocial_command(message: types.Message):
         if not tasks:
             await message.answer("Нет социальных заданий.")
             return
+        now_ms = int(time_module.time() * 1000)
         lines = ["📋 Социальные задания:\n"]
         for tid, t in tasks.items():
-            status = "🟢" if t.get('active') else "🔴"
+            expires_at = t.get('expires_at')
+            expired = bool(expires_at) and now_ms >= expires_at
+            if expired:
+                status = "⏳"
+            else:
+                status = "🟢" if t.get('active') else "🔴"
             kind = "🤖" if t.get('type') == 'bot' else "🔗" if t.get('type') == 'link' else "👥"
-            lines.append(f"{status}{kind} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙)")
+            until = ""
+            if expires_at:
+                from datetime import datetime, timezone
+                until = f" — до {datetime.fromtimestamp(expires_at/1000, tz=timezone.utc).strftime('%d.%m.%Y')}"
+                if expired:
+                    until += " (истёк)"
+            lines.append(f"{status}{kind} `{tid}` — {t.get('label')} (+{t.get('reward')}🪙){until}")
         await message.answer("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -7952,6 +7989,64 @@ async def removesocial_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             await session.delete(f"{base}/social_tasks/{task_id}.json{FB_AUTH}")
         await message.answer(f"✅ Задание {task_id} удалено.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('renewsocial'))
+async def renewsocial_command(message: types.Message):
+    """
+    Продлевает СУЩЕСТВУЮЩЕЕ соц.задание (тот же task_id) на новый срок — в отличие от
+    создания заново через /addsocial.../addsocialbot/addsociallink, НЕ сбрасывает историю
+    клеймов (saves/{pid}/socialClaimed/{task_id}): кто уже получил награду за это задание
+    раньше, повторно её не получит — продлеваем именно же активность задания для тех, кто
+    ещё не выполнил, а не даём всем забрать награду второй раз.
+    Формат: /renewsocial task_ID [дней]  (по умолчанию 30 суток)
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "Использование:\n<code>/renewsocial task_ID [дней]</code>\n\n"
+            "ID смотри через /listsocial. По умолчанию — 30 суток от текущего момента.\n"
+            "Клеймы, которые уже были сделаны по этому заданию, не сбрасываются — "
+            "кто уже забрал награду, повторно её не получит.",
+            parse_mode="HTML"
+        )
+        return
+    task_id = args[1]
+    days = 30
+    if len(args) > 2:
+        try:
+            days = int(args[2])
+            if days <= 0:
+                raise ValueError
+        except ValueError:
+            await message.answer("❌ Срок должен быть положительным числом дней.")
+            return
+
+    import aiohttp, time
+    from datetime import datetime, timezone
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/social_tasks/{task_id}.json{FB_AUTH}") as resp:
+                task = await resp.json()
+            if not task or not isinstance(task, dict):
+                await message.answer(f"❌ Задание <code>{task_id}</code> не найдено. ID смотри через /listsocial.", parse_mode="HTML")
+                return
+            now_ms = int(time.time() * 1000)
+            expires_at = now_ms + days * 86400000
+            await session.patch(f"{base}/social_tasks/{task_id}.json{FB_AUTH}", json={
+                "active": True, "expires_at": expires_at
+            })
+        until = datetime.fromtimestamp(expires_at/1000, tz=timezone.utc).strftime('%d.%m.%Y')
+        await message.answer(
+            f"✅ Задание <code>{task_id}</code> продлено до {until} ({days} суток).\n"
+            f"Уже выполнившие его раньше повторно награду не получат.",
+            parse_mode="HTML"
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -7998,6 +8093,7 @@ async def comm_command(message: types.Message):
         "/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ — соц.задание-ссылка БЕЗ проверки (сразу по клику)\n"
         "/listsocial — список соц.заданий\n"
         "/removesocial ID — удалить соц.задание\n"
+        "/renewsocial ID [дней] — продлить соц.задание (тот же ID, без сброса уже сделанных клеймов, по умолчанию 30 суток)\n"
         "/campaignstats [НАЗВАНИЕ] — статистика по рекламным кампаниям\n"
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
