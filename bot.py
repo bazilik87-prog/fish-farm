@@ -5738,11 +5738,32 @@ async def process_actions(request):
             }
             saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
             bonus_rejected_counted = {'daily': False, 'quest': False, 'comeback': False}
+            # Для /actionlog — реальные зачисленные суммы по каждому источнику, а не только
+            # родовая метка действия. daily_bonus/quest_bonus/comeback_bonus сами по себе
+            # давали в логе только маленькую метку без суммы, а та же пачка почти всегда
+            # тихо довозит ЕЩЁ и накопленный офлайн-автодоход/проценты по вкладам (см.
+            # fresh_auto_earned и interest ниже) — из-за этого одна строка "comeback_bonus"
+            # могла означать и +500, и +32,586 разом, без разбивки (жалоба: "нихрена не
+            # понимаю"). Сбрасываются на каждой попытке retry — после успешного break
+            # остаются значения именно той попытки, что реально записалась.
+            log_auto_earned = 0.0
+            log_deposit_interest = 0.0
+            log_daily_reward = 0.0
+            log_quest_reward = 0.0
+            log_comeback_reward = 0.0
             for save_attempt in range(6):
                 async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
                     setag = sresp.headers.get("ETag")
                     fresh_sv = await sresp.json()
                 fresh_sv = fresh_sv or {}
+                # Сбрасываем на каждой попытке — честно пересчитываем всю пачку заново от
+                # fresh_sv, поэтому только значения ПОСЛЕДНЕЙ (успешной) попытки должны попасть
+                # в лог, а не сумма по всем retry.
+                log_auto_earned = 0.0
+                log_deposit_interest = 0.0
+                log_daily_reward = 0.0
+                log_quest_reward = 0.0
+                log_comeback_reward = 0.0
                 save_base_coins = float(fresh_sv.get('coins', 0) or 0)  # для точного диагностического
                 # лога ниже — раньше там ошибочно использовался sv (снимок из НАЧАЛА запроса,
                 # до всех retry), из-за чего /actionlog показывал ложные ⚠️ РАСХОЖДЕНИЕ при
@@ -5769,6 +5790,7 @@ async def process_actions(request):
                 if fresh_auto_earned > 0:
                     coins = round((coins + fresh_auto_earned) * 100) / 100
                     total_earned = round((total_earned + fresh_auto_earned) * 100) / 100
+                    log_auto_earned = fresh_auto_earned
 
                 # Автозакрытие созревших вкладов — тем же принципом: список берём заново из
                 # fresh_sv (не из snapshot начала запроса), поверх него накатываем
@@ -5794,6 +5816,7 @@ async def process_actions(request):
                         dep_amount = float(dep.get('amount', 0) or 0)
                         interest = round(dep_amount * rate * (dep.get('termDays', 0) / DEPOSIT_YEAR_DAYS) * 100) / 100
                         coins = round((coins + dep_amount + interest) * 100) / 100
+                        log_deposit_interest = round((log_deposit_interest + interest) * 100) / 100
                         # Проценты по вкладу — не "заработок" в игровом смысле (тапы/автодоход),
                         # поэтому в totalEarned не идут — так было и в старой версии этого кода.
                     else:
@@ -5833,6 +5856,7 @@ async def process_actions(request):
                         bonus_fields['dailyLastClaim'] = now_ms
                         response_daily_day = bonus_fields['dailyDay']
                         response_daily_last_claim = now_ms
+                        log_daily_reward = daily_reward
 
                 if pending_quest_bonus:
                     fresh_quest_bonus_date = fresh_sv.get('questBonusDate') or ''
@@ -5846,6 +5870,7 @@ async def process_actions(request):
                         coins = round((coins + quest_reward) * 100) / 100
                         total_earned = round((total_earned + quest_reward) * 100) / 100
                         bonus_fields['questBonusDate'] = today_str
+                        log_quest_reward = quest_reward
 
                 if pending_comeback_bonus:
                     fresh_comeback_claimed_at = fresh_sv.get('comebackClaimedAt') or 0
@@ -5860,6 +5885,7 @@ async def process_actions(request):
                         coins = round((coins + comeback_reward) * 100) / 100
                         total_earned = round((total_earned + comeback_reward) * 100) / 100
                         bonus_fields['comebackClaimedAt'] = now_ms
+                        log_comeback_reward = comeback_reward
                     elif not bonus_rejected_counted['comeback']:
                         rejected += 1
                         bonus_rejected_counted['comeback'] = True
@@ -5981,6 +6007,28 @@ async def process_actions(request):
                             summary.append(f"🎁 claim +{amt:,.0f} — реф.бонус от {d.get('from', '?')}")
                         else:
                             summary.append(f"🎁 claim +{amt:,.0f} — {d.get('source', '?')}")
+                # Та же проблема, что решили выше для claim_bonuses — у daily_bonus/quest_bonus/
+                # comeback_bonus родовая метка ("comeback_bonus") ничего не говорит о сумме, а
+                # главное, та же пачка почти всегда тихо довозит ЕЩЁ и накопленный офлайн-
+                # автодоход/проценты по вкладам (fresh_auto_earned/interest выше, считаются на
+                # КАЖДОМ /actions, а не только при этих бонусах) — из-за чего одна строка
+                # "comeback_bonus" в логе могла означать и +500, и +32,586 разом, без разбивки
+                # (жалоба Sasha: "нихрена не понимаю??????", реальный случай — игрок 8568819489).
+                # Убираем родовые метки, пишем реально зачисленные суммы по каждому источнику
+                # отдельно — бонус и автодоход/вклад больше никогда не сливаются в одну строку.
+                summary = [s for s in summary if not (s == 'daily_bonus' or s.startswith('daily_bonus x')
+                                                       or s == 'quest_bonus' or s.startswith('quest_bonus x')
+                                                       or s == 'comeback_bonus' or s.startswith('comeback_bonus x'))]
+                if log_daily_reward > 0:
+                    summary.append(f"🎁 daily_bonus +{log_daily_reward:,.0f}")
+                if log_quest_reward > 0:
+                    summary.append(f"📋 quest_bonus +{log_quest_reward:,.0f}")
+                if log_comeback_reward > 0:
+                    summary.append(f"🔁 comeback_bonus +{log_comeback_reward:,.0f}")
+                if log_auto_earned > 0:
+                    summary.append(f"💤 офлайн-автодоход +{log_auto_earned:,.0f}")
+                if log_deposit_interest > 0:
+                    summary.append(f"🏦 вклад: проценты +{log_deposit_interest:,.0f}")
                 if summary:
                     log_entry["details"] = summary
                 await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json=log_entry)
