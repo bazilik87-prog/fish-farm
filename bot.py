@@ -524,7 +524,19 @@ def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
     best_loc = _best_unlocked_location(ulocs)
     max_fish_price = LOCATION_MAX_FISH_PRICE.get(best_loc, 6)
     max_sale_per_fish = max_fish_price * MARKET_PRICE_MAX_MULT * FILET_SELL_MULT
-    sellable_fish = min(max_catches, IMMEDIATE_SELL_ALLOWANCE + elapsed_sec * SELL_THROUGHPUT_PER_SEC)
+    # IMMEDIATE_SELL_ALLOWANCE раньше был БЕЗУСЛОВНЫМ допущением "у игрока всегда есть
+    # 200 рыбы на продажу прямо сейчас" — не завязанным на реальный склад (unsoldCaught) из
+    # прошлого подтверждённого сейва. Из-за этого /sync мог пропустить крупный прирост монет
+    # (до IMMEDIATE_SELL_ALLOWANCE * пиковая цена филе на локации) ДАЖЕ игроку с минимальной
+    # прокачкой и без единой реально подтверждённой продажи такого объёма в /actions.
+    # Подтверждённый случай: ID 1285969153 (Пруд, Удочка 3, без крупных sell в логе) получил
+    # потолок ~24,431, из которых ~24,000 — именно это ничем не обеспеченное допущение.
+    # Теперь burst-допущение ограничено тем, что у игрока РЕАЛЬНО лежит на складе на момент
+    # прошлого сейва, а не фиксированной константой — честный игрок с большим стоком
+    # по-прежнему получает прежний широкий потолок, а не любой ценой 200 "из воздуха".
+    actual_unsold_stock = float(prev_save.get('unsoldCaught', 0) or 0)
+    pre_existing_sellable = min(IMMEDIATE_SELL_ALLOWANCE, actual_unsold_stock)
+    sellable_fish = min(max_catches, pre_existing_sellable + elapsed_sec * SELL_THROUGHPUT_PER_SEC)
     market_ceiling = sellable_fish * max_sale_per_fish
 
     tap_ceiling = max_catches * max_tap
