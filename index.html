@@ -1611,7 +1611,7 @@ function renderContent() {
   else if (currentTab==='boosts') renderBoosts();
   else if (currentTab==='leaders') { if (!leadersLoaded) renderLeaders(); }
   else if (currentTab==='locations') renderLocations();
-  else if (currentTab==='clan') { renderClan(); checkClanTester(); }
+  else if (currentTab==='clan') { renderClan(); checkClanStatus(); }
   else {
     if (settingsSubpage==='instructions') showInstructions();
     else if (settingsSubpage==='notiflog') showNotifLog();
@@ -4471,9 +4471,7 @@ function uploadScore() {
   });
 }
 
-// ── Клан (вкладка видна всем; реально работает пока только у тестовых аккаунтов —
-// остальные видят тизер "в разработке", чтобы разогреть интерес до релиза) ──
-var clanTester = false;
+// ── Клан ──
 var clanChecked = false;
 var myClan = null;
 var myClanInvites = [];
@@ -4487,7 +4485,7 @@ var clanTourState = {loading: false, isCaptain: false, tournaments: []};
 var clanTourBrowseState = {loading: false, isCaptain: false, myClanId: null, tournaments: []};
 var clanTourLiveTimer = null;
 
-function checkClanTester() {
+function checkClanStatus() {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
   fetch(BOT_API_URL + '/clan_status', {
     method: 'POST',
@@ -4496,7 +4494,6 @@ function checkClanTester() {
   }).then(function(r){ return r.json(); }).then(function(res){
     clanChecked = true;
     if (!res || !res.ok) return;
-    clanTester = !!res.isTester;
     myClan = res.clan || null;
     myClanInvites = res.invites || [];
     myClanJoinRequest = res.myJoinRequest || null;
@@ -4687,19 +4684,6 @@ function renderClan() {
 
   if (!clanChecked) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
-    document.getElementById('content').innerHTML = html;
-    return;
-  }
-
-  if (!clanTester) {
-    html += '<div class="card" style="text-align:center;padding:18px">'
-      +'<div style="font-size:32px;margin-bottom:8px">🚧</div>'
-      +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:8px">'+t('Клановая система в разработке','Clan system in development')+'</div>'
-      +'<div style="font-size:12px;color:#90caf9;line-height:1.6">'+t(
-        'Скоро сможешь создать свой клан, приглашать друзей и соревноваться в клановых турнирах. Следи за новостями! 🐟',
-        'Soon you\'ll be able to create your own clan, invite friends and compete in clan tournaments. Stay tuned! 🐟'
-      )+'</div>'
-      +'</div>';
     document.getElementById('content').innerHTML = html;
     return;
   }
@@ -5168,7 +5152,7 @@ function buyClanSlot() {
       tg.openInvoice(invLink, function(status){
         if (status === 'paid') {
           showNotif(t('✅ Место открыто!','✅ Slot unlocked!'));
-          checkClanTester();
+          checkClanStatus();
         }
       });
     }).catch(function(e){ showNotif(t('❌ Ошибка: ','❌ Error: ')+e.message); });
@@ -5188,7 +5172,7 @@ function kickClanMember(userId) {
         return;
       }
       showNotif(t('Игрок удалён из клана','Player removed from the clan'));
-      checkClanTester();
+      checkClanStatus();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }
 
@@ -5229,7 +5213,7 @@ function fetchClanTournamentsMine() {
     clanTourState.isCaptain = !!res.isCaptain;
     clanTourState.tournaments = res.tournaments || [];
     // Не перерисовываем поверх поля ввода ставки — фоновый (в т.ч. периодический) ответ
-    // может прилететь прямо во время печати и оборвать ввод, как и в checkClanTester(). И не
+    // может прилететь прямо во время печати и оборвать ввод, как и в checkClanStatus(). И не
     // перерисовываем, если игрок вообще ушёл с вкладки «Клан» — иначе фоновый тик подменяет
     // содержимое другой открытой вкладки экраном турниров.
     var activeInputId = document.activeElement && document.activeElement.id;
@@ -7020,8 +7004,8 @@ function startGame() {
       checkTournament();
       setInterval(checkTournament, 60000);
       setInterval(updateTournamentBanner, 30000);
-      checkClanTester();
-      setInterval(checkClanTester, 60000);
+      checkClanStatus();
+      setInterval(checkClanStatus, 60000);
       setInterval(updateClanTournamentBanner, 30000);
       checkVote();
       setInterval(checkVote, 30000);

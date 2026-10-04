@@ -29,48 +29,6 @@ FIREBASE_DB_SECRET = os.getenv("FIREBASE_DB_SECRET", "")
 # которые теперь можно спокойно ужесточать для обычных клиентов (игры в браузере), не боясь сломать бота.
 FB_AUTH = ("?auth=" + FIREBASE_DB_SECRET) if FIREBASE_DB_SECRET else ""
 
-# Клановая фича в разработке — видна и доступна только тестовым аккаунтам, пока не
-# обкатана на живых данных. ADMIN_ID попадает в список тестеров автоматически, остальные
-# добавляются через CLAN_TEST_USER_IDS (числовой Telegram id через запятую) ИЛИ через
-# CLAN_TEST_USERNAMES (username через запятую, без @, регистр не важен) в переменных
-# окружения Railway — без правки кода можно добавить/убрать тестера. Юзернеймы удобнее,
-# когда числовой id тестера неизвестен — сверяются с username из проверенной подписи
-# Telegram initData, а не из тела запроса. Когда фича готова для всех — убираем все
-# проверки is_clan_tester(...) одним заходом по коду, ничего не переставляя местами.
-CLAN_TESTERS = set()
-if ADMIN_ID:
-    CLAN_TESTERS.add(ADMIN_ID)
-for _clan_tester_part in os.getenv("CLAN_TEST_USER_IDS", "").split(","):
-    _clan_tester_part = _clan_tester_part.strip()
-    if _clan_tester_part.isdigit():
-        CLAN_TESTERS.add(int(_clan_tester_part))
-
-CLAN_TEST_USERNAMES = set()
-for _clan_tester_username in os.getenv("CLAN_TEST_USERNAMES", "").split(","):
-    _clan_tester_username = _clan_tester_username.strip().lstrip("@").lower()
-    if _clan_tester_username:
-        CLAN_TEST_USERNAMES.add(_clan_tester_username)
-
-# Общий рубильник «кланы открыты для всех» — включается/выключается командой /clansopen
-# on|off (без редеплоя), значение дублируется в Firebase config/clans_open_all, чтобы не
-# потерять его при рестарте процесса (см. загрузку в main()). Пока False — доступ только
-# по спискам CLAN_TESTERS/CLAN_TEST_USERNAMES выше.
-CLANS_OPEN_ALL = False
-
-
-def is_clan_tester(user_id, username=None) -> bool:
-    if CLANS_OPEN_ALL:
-        return True
-    try:
-        if int(user_id) in CLAN_TESTERS:
-            return True
-    except (TypeError, ValueError):
-        pass
-    if username and str(username).strip().lstrip("@").lower() in CLAN_TEST_USERNAMES:
-        return True
-    return False
-
-
 CLAN_NAME_MIN = 2
 CLAN_NAME_MAX = 20
 
@@ -85,7 +43,7 @@ async def _cache_player_lang(session, base, pid, telegram_language_code):
     """
     Сохраняет упрощённый язык игрока ('ru' или 'en') в saves/{pid}/langCode — вызывается
     там, где сервер и так получил свежий language_code от Telegram (сейчас — /clan_status,
-    он опрашивается фронтом каждые 60 секунд у КАЖДОГО игрока, не только у тестеров кланов,
+    он опрашивается фронтом каждые 60 секунд у КАЖДОГО игрока,
     поэтому язык кэшируется практически для всех активных игроков). Нужно это для пушей
     «третьим лицам» (см. _player_lang) — в момент такой рассылки нет живого Telegram-апдейта
     ОТ получателя, поэтому t() тут не применить, а language_code Telegram присылает только
@@ -921,11 +879,6 @@ async def create_invoice(request):
             # Платное расширение клана — капитан открывает 3-8 слот за Stars.
             # Цена по формуле 10 + 5*(n-2) для n=3..8, что упрощается до 5*n.
             user_id = real_user_id
-            # Ник берём из проверенной подписи initData, а не из тела запроса — так же,
-            # как во всех остальных клановых эндпоинтах (тело запроса клиенту доверять нельзя,
-            # к тому же фронт этот параметр вообще не присылал — из-за этого и был баг).
-            if not is_clan_tester(user_id, real_user_verified.get('username')):
-                return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
             import aiohttp as _aiohttp
             fb_base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             pid = f"tg_{user_id}"
@@ -962,8 +915,6 @@ async def create_invoice(request):
             # clan_tournaments появляется только по факту оплаты (в successful_payment,
             # ветка ctc:), а не здесь, чтобы не плодить турниры-сироты от брошенных счетов.
             user_id = real_user_id
-            if not is_clan_tester(user_id, real_user_verified.get('username')):
-                return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
             try:
                 amount = int(data.get('amount', 0))
             except (TypeError, ValueError):
@@ -1001,8 +952,6 @@ async def create_invoice(request):
             # (matching). Сторона определяется тем, к какой роли относится СВОЙ клан прямо
             # сейчас — capitан её отдельно не выбирает.
             user_id = real_user_id
-            if not is_clan_tester(user_id, real_user_verified.get('username')):
-                return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
             tournament_id = str(data.get('tournament_id', '')).strip()
             if not tournament_id:
                 return web.json_response({'error': 'invalid tournament'}, status=400, headers=CORS)
@@ -1051,8 +1000,6 @@ async def create_invoice(request):
             # при создании). Запись фактически меняется только в successful_payment (ctа:),
             # чтобы брошенный счёт не переводил турнир в matching без реальной оплаты.
             user_id = real_user_id
-            if not is_clan_tester(user_id, real_user_verified.get('username')):
-                return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
             tournament_id = str(data.get('tournament_id', '')).strip()
             if not tournament_id:
                 return web.json_response({'error': 'invalid tournament'}, status=400, headers=CORS)
@@ -1626,12 +1573,12 @@ async def _notify_new_open_tournament(session, base, t):
     Турнир опубликован (funding -> open) — «клич» ВООБЩЕ ВСЕМ зарегистрированным игрокам,
     КРОМЕ клана-инициатора: провокационное уведомление в духе «дайте им отпор», чтобы
     игрок открыл вкладку «Клан», увидел турнир в общем списке и, может, принял вызов —
-    а для тех, кто ещё не в клане (или это вообще не тестер CLAN_TESTERS), это заодно и
+    а для тех, кто ещё не в клане, это заодно и
     тизер самой клановой системы: пусть видят, что где-то там уже идёт битва за звёзды.
     Участников клана-инициатора не трогаем — они уже получили другое уведомление
     («ваш капитан создал турнир, скинься») в момент оплаты первого взноса.
     Раньше рассылалось только участникам ДРУГИХ кланов (через /clans.json) — пока клановая
-    фича доступна единицам тестеров, «другие кланы» почти пусты, и клич до всех остальных
+    фича была доступна единицам тестеров, «другие кланы» были почти пусты, и клич до всех остальных
     игроков просто не доходил (см. разбор с админом — то самое «уведомление приходит
     только тем, кто в клане»). Теперь сначала обходим клановых игроков (как раньше — они
     могут сразу принять вызов), а следом добираем ВСЕХ остальных из leaderboard, кого ещё
@@ -1683,7 +1630,7 @@ async def _notify_new_open_tournament(session, base, t):
             await _send_taunt(pid_m, uid)
 
     # Теперь добираем ВСЕХ остальных зарегистрированных игроков (включая тех, кто вообще
-    # не в клане/не тестер) — та же логика прохода по leaderboard.json, что в /broadcast.
+    # не в клане) — та же логика прохода по leaderboard.json, что в /broadcast.
     try:
         async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
             all_players = await resp.json()
@@ -2538,10 +2485,10 @@ async def _mutate_clan_members(session, base, clan_id, mutate_fn):
 
 async def clan_status(request):
     """
-    Тестовый эндпоинт клановой фичи. Говорит фронту, показывать ли вкладку "Клан"
-    этому игроку (is_clan_tester) — обычным игрокам всегда возвращает isTester:false,
-    так что даже прямой запрос к этому пути ничего не открывает раньше времени.
-    Если у тестера уже есть клан — сразу отдаёт его данные, чтобы вкладка не мигала
+    Статус клановой фичи для игрока. Поле isTester всегда True — оставлено ради
+    закэшированных в Telegram старых версий index.html, которые без него показывали
+    заглушку «в разработке». Новый фронт его не читает.
+    Если у игрока уже есть клан — сразу отдаёт его данные, чтобы вкладка не мигала
     пустым состоянием при открытии. Если клана нет — вместо этого отдаёт список
     активных входящих приглашений (см. /clan_invite и /clan_invite_respond).
     """
@@ -2567,8 +2514,7 @@ async def clan_status(request):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
 
-    # Этот эндпоинт опрашивается фронтом раз в 60 секунд у ЛЮБОГО игрока (не только
-    # тестеров кланов) — удобная точка, чтобы кэшировать его язык для пушей «третьим
+    # Этот эндпоинт опрашивается фронтом раз в 60 секунд у ЛЮБОГО игрока — удобная точка, чтобы кэшировать его язык для пушей «третьим
     # лицам» (см. _cache_player_lang). Best-effort, не должно мешать основному ответу.
     try:
         async with aiohttp.ClientSession() as lang_session:
@@ -2576,8 +2522,6 @@ async def clan_status(request):
     except Exception:
         pass
 
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'ok': True, 'isTester': False, 'clan': None, 'invites': []}, headers=CORS)
 
     clan = None
     invites = []
@@ -2645,9 +2589,6 @@ async def clan_status(request):
 async def clan_create(request):
     """
     Создание клана — создатель сразу становится капитаном и единственным участником.
-    Доступно только тестовым аккаунтам из CLAN_TESTERS/CLAN_TEST_USERNAMES; для остальных
-    фронт даже не показывает кнопку, но и сам эндпоинт на всякий случай отказывает, если
-    до него всё же достучаться напрямую.
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -2667,8 +2608,6 @@ async def clan_create(request):
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     name = str(data.get('name', '')).strip()
     # Только латинские буквы и цифры — без пробелов, кириллицы и спецсимволов.
@@ -2820,8 +2759,6 @@ async def clan_referrals(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     try:
         offset = max(0, int(data.get('offset', 0)))
@@ -2924,8 +2861,6 @@ async def clan_search_players(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     query = str(data.get('query', '')).strip().lstrip('@').lower()
     if len(query) < 2:
@@ -3020,8 +2955,6 @@ async def clan_invite(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     target_user_id = str(data.get('target_user_id', '')).strip()
     if not target_user_id or not target_user_id.isdigit():
@@ -3110,8 +3043,6 @@ async def clan_invite_respond(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     clan_id = str(data.get('clan_id', '')).strip()
     action = str(data.get('action', '')).strip()
@@ -3239,8 +3170,6 @@ async def clan_top(request):
     real_user_id = real_user_top.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user_top.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -3310,8 +3239,6 @@ async def clan_join_request(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     clan_id = str(data.get('clan_id', '')).strip()
     if not clan_id:
@@ -3401,8 +3328,6 @@ async def clan_join_request_respond(request):
     real_user_id = real_user_jrr.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user_jrr.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     target_user_id = str(data.get('target_user_id', '')).strip()
     action = str(data.get('action', '')).strip()
@@ -3527,8 +3452,6 @@ async def clan_kick(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     target_user_id = str(data.get('target_user_id', '')).strip()
     if not target_user_id or not target_user_id.isdigit():
@@ -3616,8 +3539,6 @@ async def clan_leave(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -3702,8 +3623,6 @@ async def clan_disband(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -3778,8 +3697,6 @@ async def clan_tournament_fix(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     tournament_id = str(data.get('tournament_id', '')).strip()
     if not tournament_id:
@@ -3828,8 +3745,6 @@ async def clan_tournaments_mine(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -3949,8 +3864,6 @@ async def clan_tournaments_open(request):
     real_user_id = real_user.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    if not is_clan_tester(real_user_id, real_user.get('username')):
-        return web.json_response({'error': 'feature not available'}, status=403, headers=CORS)
 
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -7568,39 +7481,6 @@ async def addincome_command(message: types.Message):
     await message.answer(f"✅ Записано в доходы: ${amount:.2f} ({category})" + (f" — {note}" if note else ""))
 
 
-@dp.message(Command('clansopen'))
-async def clansopen_command(message: types.Message):
-    """
-    Открывает/закрывает клановую систему для ВСЕХ игроков разом — переключает
-    CLANS_OPEN_ALL, который is_clan_tester() проверяет раньше списков тестеров.
-    Значение дублируется в Firebase (config/clans_open_all) и подхватывается заново
-    при старте процесса (см. main()), чтобы рестарт/редеплой не сбрасывал переключатель.
-    """
-    global CLANS_OPEN_ALL
-    if message.from_user.id != ADMIN_ID:
-        return
-    arg = message.text.strip()[len('/clansopen'):].strip().lower()
-    if arg not in ('on', 'off'):
-        status = "🟢 открыты для всех игроков" if CLANS_OPEN_ALL else "🔒 доступны только тестерам (CLAN_TEST_USER_IDS/CLAN_TEST_USERNAMES)"
-        await message.answer(
-            f"Сейчас кланы: {status}\n\n"
-            "Использование:\n<code>/clansopen on</code> — открыть кланы для ВСЕХ игроков\n"
-            "<code>/clansopen off</code> — вернуть доступ только тестерам",
-            parse_mode="HTML"
-        )
-        return
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    new_value = (arg == 'on')
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/config/clans_open_all.json{FB_AUTH}", json=new_value)
-        CLANS_OPEN_ALL = new_value
-        await message.answer("🟢 Кланы открыты для всех игроков!" if new_value else "🔒 Кланы снова доступны только тестерам.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
-
-
 @dp.message(Command('clantournaments'))
 async def clantournaments_command(message: types.Message):
     """
@@ -8244,7 +8124,6 @@ async def comm_command(message: types.Message):
         "/starttournament — запустить турнир недели (48ч, рассылка всем)\n"
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
-        "/clansopen on|off — открыть/закрыть клановую систему для ВСЕХ игроков\n"
         "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
@@ -11768,16 +11647,6 @@ async def weekly_tournament_loop():
 
 
 async def main():
-    global CLANS_OPEN_ALL
-    try:
-        import aiohttp
-        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/config/clans_open_all.json{FB_AUTH}") as resp:
-                CLANS_OPEN_ALL = bool(await resp.json())
-    except Exception as e:
-        print(f"Не удалось загрузить config/clans_open_all при старте, остаётся False: {e}")
-
     try:
         import aiohttp
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
