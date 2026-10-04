@@ -4036,6 +4036,7 @@ def rare_fish_status(now_ms=None):
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
+MARKET_REVERSION = 0.02  # доля разрыва до базовой цены, закрываемая за один шаг (30с) — см. get_market_prices
 WEATHER_PRICE_MULT = {'sunny': 1.0, 'cloudy': 1.1, 'rain': 1.25, 'storm': 1.5, 'perfect': 0.9}
 # Точная копия весов из WEATHER_TYPES в index.html — единственное место, где теперь
 # решается смена погоды по истечении срока (раньше это делал ЛЮБОЙ клиент, у которого
@@ -4252,16 +4253,32 @@ async def get_market_prices():
         except Exception:
             pass
 
-        cur = (data or {}).get('cur') or {} if isinstance(data, dict) else {}
+        # Случайное блуждание ведём по "сырой" цене raw — БЕЗ погоды, а погоду применяем
+        # только к итоговой cur. Раньше погода умножалась на уже сохранённую цену каждые
+        # 30с и копилась (60 раз за полчаса облачности), а сдвиг (random() - 0.48) тянул
+        # вверх — в итоге все цены месяцами стояли на потолке ×3.3 от базовой (замер 04.10).
+        # Теперь шаг симметричный и с возвратом к базовой (MARKET_REVERSION): в среднем
+        # ~×1.1 с учётом погоды, обычно от ×0.6 до ×1.9.
+        raw_prev = data.get('raw') if isinstance(data, dict) else None
+        if not isinstance(raw_prev, dict):
+            # Первый запуск после перехода на raw — стартуем от текущей cur без погоды:
+            # первый шаг срежет цены до потолка raw (×2 от базовой), дальше они сползут
+            # к базовым за ~5-10 минут, а не обвалятся с ×3.3 до ×1 мгновенно.
+            cur_prev = data.get('cur') if isinstance(data, dict) else None
+            if not isinstance(cur_prev, dict):
+                cur_prev = {}
+            raw_prev = {n: v / weather_mult for n, v in cur_prev.items()}
+        new_raw = {}
         new_cur = {}
         for name, base_price in BASE_PRICES.items():
-            p = cur.get(name, base_price)
-            chg = (random.random() - 0.48) * 0.3
-            nv = max(base_price * 0.3, min(base_price * 3, p * (1 + chg)))
-            nv = nv * weather_mult
-            nv = max(base_price * 0.3, min(base_price * 4, nv))
-            new_cur[name] = round(nv * 100) / 100
-        await session.put(f"{base}/market/prices.json{FB_AUTH}", json={'cur': new_cur, 'ts': now_ms})
+            p = raw_prev.get(name, base_price)
+            chg = (random.random() - 0.5) * 0.3
+            nv = p * (1 + chg) + MARKET_REVERSION * (base_price - p)
+            nv = max(base_price * 0.5, min(base_price * 2, nv))
+            new_raw[name] = round(nv * 10000) / 10000
+            shown = max(base_price * 0.3, min(base_price * 4, nv * weather_mult))
+            new_cur[name] = round(shown * 100) / 100
+        await session.put(f"{base}/market/prices.json{FB_AUTH}", json={'cur': new_cur, 'raw': new_raw, 'ts': now_ms})
         return new_cur
 
 
