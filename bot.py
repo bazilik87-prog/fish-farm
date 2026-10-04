@@ -515,11 +515,24 @@ def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
     upg_levels = prev_save.get('upgLevels') or {}
     max_tap, max_auto, max_mult = _max_tap_power_and_auto(ulocs, upg_levels, is_premium)
 
-    max_energy = 150 if is_premium else 100
-    prev_energy = prev_save.get('energy')
-    prev_energy = max_energy if prev_energy is None else min(float(prev_energy), max_energy)
+    # РАНЬШЕ сюда добавлялась ЕЩЁ и вся ТЕКУЩАЯ энергия (prev_energy) — расчёт был
+    # "сколько успеет наловить ПОЛНОЙ шкалой энергии прямо сейчас". Проблема: energy в
+    # сейве не тратится от самого вызова /sync — сервер просто сохраняет то значение,
+    # которое прислал клиент. Если клиент на каждом вызове докладывает "энергия полная"
+    # (она и не расходуется, если это спам-скрипт, а не реальная игра), ТО КАЖДЫЙ
+    # повторный /sync — хоть через 30 секунд после предыдущего — снова видел "полную"
+    # энергию и снова выдавал ПОЛНЫЙ тап-потолок заново, без учёта того, что этот же
+    # потолок уже выдавался минуту назад. Подтверждённый случай: ID 8533159836, 04.10,
+    # 4 вызова /sync за 15 минут, каждый зачислил РОВНО потолок (3596/4729/7208/6413) —
+    # итог +25,881 монет и вывод 25,000 в USDT сразу следом. Теперь тап-потолок зависит
+    # ТОЛЬКО от энергии, реально регенерировавшей за elapsed_ms — тем же принципом, что
+    # уже применяется к auto_ceiling/misc_buffer ниже. Легитимный долгий оффлайн (дни)
+    # по-прежнему даёт большой потолок (regen за несколько дней намного больше 100), а
+    # повторный спам через секунды/минуты больше не "видит" одну и ту же полную шкалу
+    # заново. Реальный оффлайн-доход за отсутствие при этом не затрагивается вообще —
+    # он считается отдельно в /actions (fresh_auto_earned), этот потолок там не участвует.
     regen_energy = elapsed_sec / ENERGY_REGEN_SEC
-    max_catches = (prev_energy + regen_energy) * 3
+    max_catches = regen_energy * 3
 
     best_loc = _best_unlocked_location(ulocs)
     max_fish_price = LOCATION_MAX_FISH_PRICE.get(best_loc, 6)
