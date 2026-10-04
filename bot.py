@@ -407,11 +407,14 @@ async def is_premium(user_id):
 LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
 # Сам пул джекпота растёт и сбрасывается ТОЧНО как раньше (стартует/сбрасывается на 50,
 # диапазон 50-1000 — см. все места с литералом 50 рядом с jackpot). JACKPOT_WIN_THRESHOLD —
-# НЕ пол пула, а порог ВЫИГРЫШНОСТИ: пока накопленный джекпот меньше этой суммы, приз
-# 'jackpot' просто не попадает в пул призов лотереи (см. pick_lottery_prize) — выиграть
-# его физически нельзя, хотя сама цифра на экране может быть и ниже. С 100 до 200 шанс
-# 0.1% (как и было), с 200+ — 1% (как и было) — эти веса не менялись.
-JACKPOT_WIN_THRESHOLD = 100
+# НЕ пол пула, а порог ВЫИГРЫШНОСТИ для платной ⭐-крутки и бесплатной Premium-крутки:
+# пока накопленный джекпот меньше этой суммы, приз 'jackpot' просто не попадает в пул
+# призов лотереи (см. pick_lottery_prize) — выиграть его физически нельзя, хотя сама
+# цифра на экране может быть и ниже. У рекламной крутки свой, более высокий порог —
+# см. AD_JACKPOT_WIN_THRESHOLD и ad_can_win_jackpot в lottery_spin. Выше своего порога
+# шанс приза 'jackpot' внутри pick_lottery_prize — флэт 1%, для всех видов круток.
+JACKPOT_WIN_THRESHOLD = 125
+AD_JACKPOT_WIN_THRESHOLD = 150
 DEPOSIT_MIN_AMOUNT = 50000
 DEPOSIT_RATES = {15: 0.08, 30: 0.12}  # срок в днях -> ставка ГОДОВЫХ (не за весь срок!)
 DEPOSIT_YEAR_DAYS = 365
@@ -4130,11 +4133,11 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True):
     рекламу сама его не растит (решение Саши — реклама ничего не вкладывает в пул,
     только доступна раз в час без всякой платы). Но с 28.09.2026 реклама всё же МОЖЕТ
     выиграть уже накопленный джекпот — вызывающий код (lottery_spin) передаёт
-    include_jackpot=True для рекламы, только когда jackpot>=200, то есть реклама видит
-    исключительно "старший" пул (вес 1.616162), а промежуточный диапазон 100-200
-    (вес 0.16016) для неё по-прежнему недоступен — джекпот в этом диапазоне копится
-    почти сразу после чужого выигрыша, и отдавать его бесплатной рекламе на этом этапе
-    было бы слишком щедро по отношению к платящим игрокам, которые его растили.
+    include_jackpot=True для рекламы, только когда jackpot>=AD_JACKPOT_WIN_THRESHOLD
+    (150) — выше порога для платных/Premium-круток (JACKPOT_WIN_THRESHOLD, 125), так
+    как реклама сама в пул ничего не вкладывает, и отдавать его бесплатно сразу после
+    чужого выигрыша было бы слишком щедро по отношению к платящим игрокам, которые
+    этот джекпот растили.
     """
     import random
     c1 = round(300 * mult)
@@ -4153,11 +4156,13 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True):
     ]
     # Пока накопленный джекпот меньше порога — его вообще не добавляем в пул призов,
     # то есть выиграть его физически нельзя (вес 0 и "weight: 0.0001" дали бы то же самое,
-    # но явное условие понятнее). Выше порога — веса ТЕ ЖЕ, что были всегда: 0.1% от 100
-    # до 200, 1% от 200 и выше (проверено: 0.16016/(160+0.16016)≈0.001, 1.616162/(160+1.616162)≈0.01).
+    # но явное условие понятнее). Выше порога — флэт 1% шанс (раньше было 0.1% в
+    # промежуточном диапазоне и 1% только от 200+ — теперь полный 1% сразу от порога,
+    # т.е. от JACKPOT_WIN_THRESHOLD=125 для ⭐/Premium и от AD_JACKPOT_WIN_THRESHOLD=150
+    # для рекламы; проверено: 1.616162/(160+1.616162)≈0.01).
     if include_jackpot and jackpot >= JACKPOT_WIN_THRESHOLD:
         prizes.append({'kind': 'jackpot', 'amount': int(jackpot), 'label': f'⭐ ДЖЕКПОТ {int(jackpot)} Stars',
-                        'weight': 1.616162 if jackpot >= 200 else 0.16016})
+                        'weight': 1.616162})
     total = sum(p['weight'] for p in prizes)
     r = random.random() * total
     acc = 0
@@ -4606,11 +4611,12 @@ async def lottery_spin(request):
                         mult = m
 
                 if prize is None:
-                    # Реклама тоже может выиграть джекпот, но только "старший" пул (от 200⭐,
-                    # см. докстринг pick_lottery_prize) — при jackpot<200 для неё как и раньше
-                    # include_jackpot=False. grow_jackpot ниже (via=='premium') рекламу не
-                    # включает — она джекпот не растит, только пользуется уже накопленным.
-                    ad_can_win_jackpot = jackpot >= 200
+                    # Реклама тоже может выиграть джекпот, но только от AD_JACKPOT_WIN_THRESHOLD
+                    # (150⭐, см. докстринг pick_lottery_prize) — выше, чем для платных/Premium-
+                    # круток (JACKPOT_WIN_THRESHOLD, 125⭐). grow_jackpot ниже (via=='premium')
+                    # рекламу не включает — она джекпот не растит, только пользуется уже
+                    # накопленным.
+                    ad_can_win_jackpot = jackpot >= AD_JACKPOT_WIN_THRESHOLD
                     prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via != 'ad' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
 
                 merged = dict(sv)
@@ -6424,7 +6430,7 @@ async def jackpot_broadcast(request):
     except Exception:
         current_jackpot = None
     current_jackpot = current_jackpot or 50
-    # Порог тут — JACKPOT_WIN_THRESHOLD (100), не 50: пул может лежать и ниже 100, но
+    # Порог тут — JACKPOT_WIN_THRESHOLD (125), не 50: пул может лежать и ниже 125, но
     # РЕАЛЬНЫЙ выигрыш (который сюда приходит для ретрансляции) физически не может быть
     # меньше порога выигрышности — см. pick_lottery_prize.
     if not isinstance(amount, (int, float)) or amount < JACKPOT_WIN_THRESHOLD or abs(amount - current_jackpot) > 1:
