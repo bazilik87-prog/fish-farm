@@ -4756,6 +4756,33 @@ BASE_PRICES = {
     'Кальмар': 3, 'Осьминог': 8, 'Акула': 20, 'Кит': 60,
     'Пришелец': 10, 'НЛО': 30, 'Галактика': 80, 'Звезда': 250,
 }
+# Какие виды рыбы водятся в какой локации (FISH в index.html) — продавать можно только
+# рыбу той локации, где идёт продажа. Раньше сервер проверял лишь, что вид вообще
+# существует, и карася с Пруда можно было продать как «Звезду» из Космоса.
+FISH_BY_LOC = {
+    'pond':    ('Карась', 'Красноперка', 'Лещ', 'Щука'),
+    'river':   ('Окунь', 'Выдра', 'Крокодил', 'Гиппо'),
+    'tropics': ('Тропик', 'Попугай', 'Змея', 'Бабочка'),
+    'deep':    ('Кальмар', 'Осьминог', 'Акула', 'Кит'),
+    'space':   ('Пришелец', 'НЛО', 'Галактика', 'Звезда'),
+}
+FISH_PER_PACK = 10  # пачка филе/сушёной делается из 10 рыб (startCutting/startDrying в index.html)
+TRUCK_RENTAL_MS = 12 * 3600 * 1000
+# До этого момента ещё верим старому клиентскому boosts.truckRental (не больше 12 ч вперёд) —
+# чтобы аренды, начатые до перехода на серверный truckRentalUntil, не оборвались.
+TRUCK_RENTAL_LEGACY_UNTIL_MS = 1791406800000  # 08.10.2026 00:00 МСК
+
+
+def truck_rental_until(sv, now_ms):
+    """До какого момента у игрока действует аренда грузовика — по серверному полю."""
+    until = int((sv or {}).get('truckRentalUntil') or 0)
+    if now_ms < TRUCK_RENTAL_LEGACY_UNTIL_MS:
+        legacy = (sv.get('boosts') or {}).get('truckRental') if isinstance(sv.get('boosts'), dict) else 0
+        if isinstance(legacy, (int, float)) and legacy <= now_ms + TRUCK_RENTAL_MS:
+            until = max(until, int(legacy))
+    return until
+
+
 UPGRADE_COSTS = {
     'rod':   [200, 800, 3000, 10000, 30000],
     'net':   [500, 2000, 8000, 30000, 100000],
@@ -5820,6 +5847,8 @@ async def process_actions(request):
     prices_cache = None
     rejected = 0
     legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
+    truck_tickets_used = 0     # см. use_truck_ticket
+    response_truck = {}        # truckTickets / truckRentalUntil после записи — для клиента
     rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
     claim_result = None
     # Старые аккаунты (до переименования полей в клиенте) хранят этот же список под именем
@@ -5999,13 +6028,16 @@ async def process_actions(request):
                 qty = int(act.get('qty', 0))
             except (TypeError, ValueError):
                 qty = 0
-            if name not in BASE_PRICES or qty < 1 or qty > 200:
+            if name not in FISH_BY_LOC.get(loc, ()) or kind not in ('fresh', 'filet', 'dried') or qty < 1 or qty > 200:
                 rejected += 1
                 continue
-            if qty > unsold + 0.001:  # небольшой допуск на округление энергии/улова
+            # Пачка филе/сушёной — это 10 рыб, и списываем столько же (раньше списывалась 1,
+            # и любую рыбу можно было «продать как филе» по ×5 без разделки).
+            fish_needed = qty * (FISH_PER_PACK if kind in ('filet', 'dried') else 1)
+            if fish_needed > unsold + 0.001:  # небольшой допуск на округление энергии/улова
                 rejected += 1
                 continue
-            unsold = max(0, unsold - qty)
+            unsold = max(0, unsold - fish_needed)
             if prices_cache is None:
                 prices_cache = await get_market_prices()
             unit = prices_cache.get(name, BASE_PRICES[name])
@@ -6042,10 +6074,11 @@ async def process_actions(request):
             if rate is None or qty < 1 or qty > 5000:
                 rejected += 1
                 continue
-            if qty > unsold + 0.001:
+            fish_needed = qty * (FISH_PER_PACK if kind in ('filet', 'dried') else 1)
+            if fish_needed > unsold + 0.001:
                 rejected += 1
                 continue
-            unsold = max(0, unsold - qty)
+            unsold = max(0, unsold - fish_needed)
             earned = round(qty * rate * mult * 100) / 100
             coins += earned
             total_earned += earned
@@ -6177,7 +6210,7 @@ async def process_actions(request):
             claimed_transport = act.get('transport')
             owned = set(unlocked_transports) | {'bike'}  # уже с учётом legacy utrans, см. выше
             if claimed_transport == 'rentalTruck':
-                truck_rental_active = (sv.get('boosts') or {}).get('truckRental', 0) > now_ms
+                truck_rental_active = truck_rental_until(sv, now_ms) > now_ms
                 capacity = TRANSPORT_CAPACITY['rentalTruck'] if truck_rental_active else TRANSPORT_CAPACITY['bike']
             elif claimed_transport in owned and claimed_transport in TRANSPORT_CAPACITY:
                 capacity = TRANSPORT_CAPACITY[claimed_transport]
@@ -6192,6 +6225,11 @@ async def process_actions(request):
                 continue
             coins -= cost
             spent_accum += cost
+
+        elif a_type == 'use_truck_ticket':
+            # Билет на аренду грузовика (12 ч) — сами билеты и срок аренды теперь считает
+            # сервер (truckTickets / truckRentalUntil), см. retry-цикл записи ниже.
+            truck_tickets_used += 1
 
         elif a_type == 'buy_transport':
             tr_id = act.get('transport')
@@ -6684,6 +6722,15 @@ async def process_actions(request):
                     **other_fields,
                     **bonus_fields
                 })
+                # Билеты — от СВЕЖЕГО сейва на каждой попытке: лотерея и бонус клана могли
+                # параллельно добавить билет. Если билетов не хватает — тратим сколько есть.
+                fresh_tickets = int(fresh_sv.get('truckTickets') or 0)
+                used_now = min(truck_tickets_used, max(0, fresh_tickets))
+                if used_now:
+                    merged['truckTickets'] = fresh_tickets - used_now
+                    merged['truckRentalUntil'] = max(now_ms, truck_rental_until(fresh_sv, now_ms)) + used_now * TRUCK_RENTAL_MS
+                response_truck = {'truckTickets': int(merged.get('truckTickets') or 0),
+                                  'truckRentalUntil': truck_rental_until(merged, now_ms)}
                 async with session.put(saves_url, json=merged, headers=save_headers) as sput:
                     if sput.status == 412:
                         continue  # кто-то записал раньше нас — перечитываем свежий баланс и повторяем
@@ -6808,7 +6855,8 @@ async def process_actions(request):
         'dailyLastClaim': response_daily_last_claim,
         'rejected': rejected,
         'rejectedEnergy': rejected_energy,
-        'claimed': claim_result
+        'claimed': claim_result,
+        **response_truck
     }, headers=CORS)
 
 
@@ -10982,21 +11030,44 @@ async def broadcast_command(message: types.Message):
     raw = message.text or message.caption or ''
     text = raw.strip()[len('/broadcast'):].strip()
     document_id = message.document.file_id if message.document else None
+    # Жирный текст: форматирование Telegram (выделить → Жирный) приходит как entities, и
+    # message.html_text уже превращает его в HTML (с экранированием < > &). Плюс ручной
+    # вариант **текст** → <b>текст</b>. Тот же HTML пишем и в новости — игра показывает
+    # их через innerHTML, так что жирный будет и там.
+    import re as _re
+    html = _re.sub(r'^\s*/broadcast(@\w+)?\s*', '', message.html_text or '')
+    html = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html, flags=_re.S).strip()
     if not text:
         await message.answer(
             "Использование:\n<code>/broadcast Текст сообщения</code>\n\nПример:\n<code>/broadcast 🎉 Новое обновление! Заходи в игру!</code>\n\n"
             "Можно приложить файл (например, PDF) — тогда команда идёт ПОДПИСЬЮ к файлу, "
-            "и файл разошлётся вместе с текстом каждому игроку.",
+            "и файл разошлётся вместе с текстом каждому игроку.\n\n"
+            "Жирный: выдели текст и нажми «Жирный» (Cmd+B) или оберни в **звёздочки**.",
             parse_mode="HTML"
         )
         return
     # Caption у медиа-сообщений в Telegram ограничен 1024 символами (у обычного
     # текстового сообщения — 4096) — длинный текст просто не пройдёт как подпись к
     # файлу. Обрезаем с пометкой, а не роняем всю рассылку ошибкой на первом же игроке.
-    caption = text
+    caption, caption_mode = html, "HTML"
     if document_id and len(caption) > 1024:
-        caption = caption[:1000].rstrip() + '… (полный текст — в Новостях в игре)'
-    await message.answer("⏳ Рассылка начата...")
+        # Обрезать HTML на середине тега нельзя — Telegram отклонит разметку. Для длинной
+        # подписи берём простой текст без форматирования.
+        caption, caption_mode = text[:1000].rstrip() + '… (полный текст — в Новостях в игре)', None
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    # Пробное сообщение админу: если разметка сломана, Telegram откажет здесь — и рассылка
+    # не начнётся, вместо того чтобы молча не дойти ни до одного игрока.
+    try:
+        if document_id:
+            await bot.send_document(message.chat.id, document=document_id, caption=caption, parse_mode=caption_mode, reply_markup=keyboard)
+        else:
+            await bot.send_message(message.chat.id, html, parse_mode="HTML", reply_markup=keyboard)
+    except Exception as e:
+        await message.answer(f"❌ Рассылка не начата — Telegram не принял оформление: {e}")
+        return
+    await message.answer("👆 Так увидят игроки.\n⏳ Рассылка начата...")
     import aiohttp
     from datetime import datetime, timezone
     try:
@@ -11006,7 +11077,7 @@ async def broadcast_command(message: types.Message):
         now = datetime.now(timezone.utc)
         news_key = now.strftime('%Y%m%d_%H%M%S')
         news_entry = {
-            'text': text,
+            'text': html,
             'ts': int(now.timestamp() * 1000),
             'date': now.strftime('%d.%m.%Y %H:%M')
         }
@@ -11031,9 +11102,6 @@ async def broadcast_command(message: types.Message):
         total = 0
         success = 0
         failed = 0
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-        ]])
         for v in data.values():
             user_id = v.get('userId')
             if not user_id:
@@ -11044,9 +11112,9 @@ async def broadcast_command(message: types.Message):
                     # file_id переиспользуем как есть — Telegram не требует заново
                     # загружать байты файла на каждого получателя, одного file_id
                     # (полученного из сообщения админа) достаточно для всей рассылки.
-                    await bot.send_document(user_id, document=document_id, caption=caption, reply_markup=keyboard)
+                    await bot.send_document(user_id, document=document_id, caption=caption, parse_mode=caption_mode, reply_markup=keyboard)
                 else:
-                    await bot.send_message(user_id, text, reply_markup=keyboard)
+                    await bot.send_message(user_id, html, parse_mode="HTML", reply_markup=keyboard)
                 success += 1
             except Exception:
                 failed += 1
@@ -11415,6 +11483,34 @@ async def successful_payment(message: types.Message):
                         await asyncio.sleep(0.5 * (attempt + 1))
             if not done:
                 await _alert_payment_fulfillment_failed(user_id, label, f"energy PATCH не прошёл после 3 попыток: {last_err}")
+        elif boost_id == 'truckRental':
+            # Аренда грузовика за ⭐ — срок теперь хранит сервер (saves/{pid}/truckRentalUntil,
+            # +12 ч, продлевает активную аренду), иначе вместимость при заказе соли/ножей
+            # проверялась бы по клиентскому boosts.truckRental, который игрок пишет сам.
+            # pending_boosts — как раньше, чтобы игра у себя тоже включила аренду.
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
+                now_ms_tr = int(time_module.time() * 1000)
+                async with aiohttp.ClientSession() as session:
+                    for _ in range(6):
+                        async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                            etag = resp.headers.get("ETag")
+                            sv_tr = await resp.json() or {}
+                        merged_tr = dict(sv_tr)
+                        merged_tr['truckRentalUntil'] = max(now_ms_tr, truck_rental_until(sv_tr, now_ms_tr)) + TRUCK_RENTAL_MS
+                        headers = {"If-Match": etag} if etag else {}
+                        async with session.put(saves_url, json=merged_tr, headers=headers) as put_resp:
+                            if put_resp.status == 412:
+                                continue
+                            if put_resp.status not in (200, 204):
+                                raise RuntimeError(f"saves PUT failed: {put_resp.status}")
+                            break
+                    else:
+                        raise RuntimeError("too many conflicts")
+                    await session.put(f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}", json=now_ms_tr)
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
         elif boost_id.startswith('weather_'):
             # Платная смена погоды — раньше плательщик сам писал weather.set() у себя
             # в клиенте с СВОИМ Date.now(). Теперь пишет сервер, серверным временем —
