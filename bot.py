@@ -1110,7 +1110,22 @@ async def health(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
-ONLINE_WINDOW_MS = 5 * 60 * 1000  # окно "онлайн" — 5 минут с последнего /actions (leaderboard.ts)
+ONLINE_WINDOW_MS = 5 * 60 * 1000
+_ONLINE_SEEN = {}  # pid -> время последнего /actions или /sync (мс), см. online_count
+
+# Общий кэш всего leaderboard для экранов, где он нужен целиком (биржа рефералов,
+# поиск игроков для клана, список кланов). Каждое полное чтение — ~1.2 МБ трафика
+# Firebase, а экраны открывают многие игроки подряд.
+_LB_CACHE = {'ts': 0, 'data': None}
+
+
+async def get_leaderboard_cached(session, base, max_age_ms=60000):
+    now_ms = int(time_module.time() * 1000)
+    if _LB_CACHE['data'] is None or now_ms - _LB_CACHE['ts'] > max_age_ms:
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            data = await resp.json()
+        _LB_CACHE.update(ts=now_ms, data=data or {})
+    return _LB_CACHE['data']  # окно "онлайн" — 5 минут с последнего /actions (leaderboard.ts)
 
 
 async def online_count(request):
@@ -1122,18 +1137,15 @@ async def online_count(request):
     """
     if request.method == 'OPTIONS':
         return web.json_response({}, headers=CORS)
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    # Раньше здесь каждый раз скачивался ВЕСЬ leaderboard (~1.2 МБ), а вкладка «Настройки»
+    # дёргала этот эндпоинт при каждой перерисовке — дважды в секунду, пока игрок на ней.
+    # Это и был основной расход трафика Firebase (подтверждено 06.10.2026). Теперь считаем
+    # по памяти процесса: _ONLINE_SEEN обновляется на каждом /actions и /sync. После
+    # рестарта бота цифра 5 минут «набирается» заново — это нормально.
     now_ms = int(time_module.time() * 1000)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                players = await resp.json()
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-    players = players or {}
-    count = sum(1 for v in players.values() if isinstance(v, dict) and (now_ms - (v.get('ts') or 0)) <= ONLINE_WINDOW_MS)
-    return web.json_response({'ok': True, 'online': count}, headers=CORS)
+    for k in [k for k, ts in _ONLINE_SEEN.items() if now_ms - ts > ONLINE_WINDOW_MS]:
+        _ONLINE_SEEN.pop(k, None)
+    return web.json_response({'ok': True, 'online': len(_ONLINE_SEEN)}, headers=CORS)
 
 
 async def referral_market_list(request):
@@ -1163,8 +1175,7 @@ async def referral_market_list(request):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                players = await resp.json()
+            players = await get_leaderboard_cached(session, base)
             async with session.get(f"{base}/referrals/used.json{FB_AUTH}") as resp2:
                 used = await resp2.json()
             async with session.get(f"{base}/banned.json{FB_AUTH}") as resp3:
@@ -3638,9 +3649,7 @@ async def clan_search_players(request):
             if not isinstance(clan_data, dict) or clan_data.get('captainId') != real_user_id:
                 return web.json_response({'error': 'приглашать может только капитан'}, status=403, headers=CORS)
 
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as lresp:
-                all_lb = await lresp.json()
-            all_lb = all_lb or {}
+            all_lb = await get_leaderboard_cached(session, base)
 
             starts, contains = [], []
             for t_pid, lb in all_lb.items():
@@ -3934,8 +3943,7 @@ async def clan_top(request):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/clans.json{FB_AUTH}") as cresp:
                 all_clans = await cresp.json()
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as lresp:
-                all_players = await lresp.json()
+            all_players = await get_leaderboard_cached(session, base)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -5712,6 +5720,7 @@ async def process_actions(request):
     actions = data.get('actions')
     if not isinstance(actions, list) or len(actions) > 500:
         return web.json_response({'error': 'invalid actions'}, status=400, headers=CORS)
+    _ONLINE_SEEN[f"tg_{real_user_id}"] = int(time_module.time() * 1000)  # для online_count
 
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -6832,6 +6841,7 @@ async def sync_state(request):
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{real_user_id}"
 
+    _ONLINE_SEEN[pid] = int(time_module.time() * 1000)  # для online_count
     try:
         req_coins = float(data.get('coins', 0) or 0)
         req_caught = int(data.get('caught', 0) or 0)
