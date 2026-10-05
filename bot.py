@@ -662,6 +662,56 @@ async def deduct_coin_balance(user_id, amount):
         return False
 
 
+# Пруд — "обучающая" локация по выводу: пока у игрока не открыта Река, суммарно за всё
+# время он может вывести не больше POND_WITHDRAW_LIFETIME_CAP монет (= $3 по курсу Пруда),
+# дальше — только после открытия Реки (решение Саши, 05.10.2026, чтобы подтолкнуть к
+# переходу на Реку). Считается с нуля с момента введения — старые выводы не учитываются
+# (у ~190 старых записей withdrawals_log всё равно нет user_id). Счётчик лежит отдельно,
+# в pond_withdrawn/tg_{id}, а не в saves/{pid}, куда клиент пишет сам через update().
+POND_WITHDRAW_LIFETIME_CAP = 200000
+
+
+async def get_pond_withdrawn(user_id):
+    """Сколько монет игрок уже вывел с Пруда (в рамках POND_WITHDRAW_LIFETIME_CAP).
+    При сбое чтения возвращает None — вызывающий код должен отказать, а не считать 0."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/pond_withdrawn/tg_{user_id}.json{FB_AUTH}") as resp:
+                if resp.status != 200:
+                    return None
+                used = await resp.json()
+        return float(used or 0)
+    except Exception:
+        return None
+
+
+async def change_pond_withdrawn(user_id, delta):
+    """
+    Атомарно меняет счётчик вывода с Пруда на delta (ETag + retry, как deduct_coin_balance).
+    Возвращает 'ok' | 'error'.
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    url = f"{base}/pond_withdrawn/tg_{user_id}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(6):
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    current = float(await resp.json() or 0)
+                new_value = max(0.0, current + delta)
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(url, json=new_value, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    return 'ok' if put_resp.status in (200, 204) else 'error'
+        return 'error'
+    except Exception:
+        return 'error'
+
+
 async def create_invoice(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -695,6 +745,19 @@ async def create_invoice(request):
             # локации по формуле mult^2 (см. комментарий выше про Stars-за-USDT).
             if loc_mult == 1:
                 max_withdraw = 25000
+                # Общий лимит вывода с Пруда — см. POND_WITHDRAW_LIFETIME_CAP. Проверяем только
+                # здесь; после оплаты (successful_payment) вывод уже не блокируем, а лишь учитываем.
+                pond_used = await get_pond_withdrawn(user_id)
+                if pond_used is None:
+                    return web.json_response({'error': 'не удалось проверить лимит вывода, попробуй позже'}, status=503, headers=CORS)
+                pond_left = int(POND_WITHDRAW_LIFETIME_CAP - pond_used)
+                if pond_left < 1000:
+                    is_ru = str(real_user_verified.get('language_code') or '').startswith('ru')
+                    msg = (f'Лимит вывода с Пруда ({POND_WITHDRAW_LIFETIME_CAP:,} монет) исчерпан. Открой Реку, чтобы выводить дальше 🏞'
+                           if is_ru else
+                           f'Pond withdrawal limit ({POND_WITHDRAW_LIFETIME_CAP:,} coins) reached. Unlock the River to keep withdrawing 🏞')
+                    return web.json_response({'error': msg, 'code': 'pond_limit'}, status=400, headers=CORS)
+                max_withdraw = min(max_withdraw, pond_left)
             elif loc_mult == 2:
                 max_withdraw = 50000
             else:
@@ -10945,6 +11008,19 @@ async def successful_payment(message: types.Message):
         wallet   = parts[3]
         username = parts[4] if len(parts) > 4 else ''
 
+        # Лимит вывода с Пруда (POND_WITHDRAW_LIFETIME_CAP) проверяется при создании счёта
+        # (create_invoice). Здесь, после оплаты, вывод НЕ блокируем, даже если несколько
+        # счетов, открытых параллельно, вместе выходят за лимит (решение Саши, 05.10.2026) —
+        # просто учитываем сумму в счётчике атомарно, без потолка.
+        pond_reserved = False
+        if await get_location_mult(user_id) == 1:
+            pond_reserved = await change_pond_withdrawn(user_id, int(coins)) == 'ok'
+            if not pond_reserved:
+                await _alert_payment_fulfillment_failed(
+                    user_id, "Обмен на USDT",
+                    detail=f"вывод проходит, но счётчик лимита Пруда не обновился (+{coins} монет) — "
+                           f"поправь pond_withdrawn/tg_{user_id} вручную")
+
         # Критическая проверка: реально списываем монеты с баланса в Firebase.
         # Если у игрока не хватает монет (баланс изменился/был подделан с момента создания счёта) —
         # НЕ отправляем админу запрос на выплату USDT (это самое важное — блокировка происходит
@@ -10954,6 +11030,9 @@ async def successful_payment(message: types.Message):
         balance_before = await get_coin_balance(user_id)
         deducted = await deduct_coin_balance(user_id, int(coins))
         if not deducted:
+            if pond_reserved:
+                # Монеты не списались — вывода не будет, освобождаем зарезервированный лимит Пруда.
+                await change_pond_withdrawn(user_id, -int(coins))
             await message.answer(t(message.from_user,
                 "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за комиссию не возвращаются автоматически — напиши администратору.",
                 "❌ Insufficient coin balance at payment time. Stars fee isn't auto-refunded — please contact the admin."))

@@ -809,6 +809,9 @@ function maxUnlockedMult() {
   }
   return best;
 }
+// Общий лимит вывода с Пруда за всё время — то же число, что POND_WITHDRAW_LIFETIME_CAP в bot.py
+// (проверяет и резервирует сервер, здесь только для текста в Банке и инструкции).
+var POND_WITHDRAW_LIFETIME_CAP = 200000;
 function maxWithdrawCap() {
   // Потолок растёт как mult^2 для честного Stars-за-GRAM на всех локациях, КРОМЕ
   // Реки — там оставлен как на (старом) Пруду (50,000) по отдельной просьбе, и
@@ -3555,6 +3558,9 @@ function renderBank() {
       +'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма обмена (монеты):','Exchange amount (coins):')+'</div>'
       +'<div style="font-size:11px;color:#666;margin-bottom:6px">'+t('От 1,000 до ','From 1,000 to ')+maxWithdrawCap().toLocaleString('ru-RU')+t(' монет за один вывод',' coins per withdrawal')+'</div>'
+      +(maxUnlockedMult()===1
+        ? '<div style="font-size:11px;color:#FFD700;background:#1a1a0a;border-radius:8px;padding:6px 8px;margin-bottom:8px">🌿 '+t('С Пруда можно вывести всего до ','From the Pond you can withdraw up to ')+POND_WITHDRAW_LIFETIME_CAP.toLocaleString('ru-RU')+t(' монет за всё время. Дальше — открой 🏞 Реку!',' coins in total. After that — unlock the 🏞 River!')+'</div>'
+        : '')
       +'<div style="display:flex;gap:8px;margin-bottom:12px">'
         +'<input id="ex-amount" type="number" min="1000" max="'+Math.min(maxWithdrawCap(),coins)+'" value="'+Math.min(1000,coins)+'" style="flex:1;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:16px;color:#fff;outline:none" oninput="updateBankPreview()">'
         +'<button class="btn" onclick="setBankMax()">'+t('Макс','Max')+'</button>'
@@ -3659,6 +3665,7 @@ function exchangeCoins() {
   }).then(function(r){
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
+    if(!res.ok && res.data && res.data.code==='pond_limit') { showNotif('🌿 '+res.data.error); return; }
     if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
@@ -5964,7 +5971,8 @@ function showInstructions() {
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$1.50</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
       +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:$1.50</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
     +'</table>'
-    +t('(комиссия указана обычная/Premium; курс — монет за $1.50 USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $1.50 USDT). USDT (TON) is sent manually within 24h.')+'<br><br>'
+    +t('(комиссия указана обычная/Premium; курс — монет за $1.50 USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $1.50 USDT). USDT (TON) is sent manually within 24h.')+'<br>'
+    +'🌿 '+t('Пруд — обучающая локация: с него можно вывести всего до ','The Pond is a training location: you can withdraw up to ')+POND_WITHDRAW_LIFETIME_CAP.toLocaleString('ru-RU')+t(' монет за всё время. Чтобы выводить дальше, открой 🏞 Реку.',' coins from it in total. To keep withdrawing, unlock the 🏞 River.')+'<br><br>'
     +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Открытие — ⭐1 (бесплатно для Premium). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Opening costs ⭐1 (free for Premium). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Срок','Term')+'</td><td style="padding:3px 4px;text-align:right">'+t('Ставка','Rate')+'</td></tr>'
