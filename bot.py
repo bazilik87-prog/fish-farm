@@ -8480,6 +8480,117 @@ async def clanforce_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+# Игра перестала сама слать lottery_coins/grant_* 19.08.2026 (лотерея ушла на сервер).
+# До этой даты (+2 дня на старые версии в кэше Telegram) такие записи в action_logs —
+# честные призы; после — только подделанные запросы. Используется в /scanexploits.
+LEGACY_PRIZE_CLIENT_GONE_MS = 1787259600000  # 21.08.2026 00:00 МСК
+
+
+@dp.message(Command('scanexploits'))
+async def scanexploits_command(message: types.Message):
+    """
+    Ищет по журналу действий (action_logs) ВСЕХ игроков старые команды призов лотереи
+    (LEGACY_CLIENT_PRIZE_ACTIONS) после того, как игра перестала их слать, — то есть
+    накрутку через дыру, закрытую 05.10.2026. Плюс новые попытки из suspicious_actions.
+    Долго (тысячи запросов к Firebase) — работает фоном и присылает итог отдельным сообщением.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("⏳ Сканирую журнал действий всех игроков — это займёт несколько минут, пришлю итог отдельным сообщением.")
+    _spawn_bg(_scanexploits_run(message.chat.id))
+
+
+async def _scanexploits_run(chat_id):
+    import aiohttp, re
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pattern = re.compile(r'^(' + '|'.join(LEGACY_CLIENT_PRIZE_ACTIONS) + r')(?: x(\d+))?$')
+    msk = timezone(timedelta(hours=3))
+    started = time_module.time()
+    found = {}  # pid -> {'n': всего команд, 'entries': записей, 'maxPerEntry', 'byType': {}, 'first', 'last'}
+    scanned = 0
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/action_logs.json?shallow=true{FB_AUTH.replace('?', '&')}") as resp:
+                pids = list((await resp.json() or {}).keys())
+            sem = asyncio.Semaphore(8)
+
+            async def scan(pid):
+                nonlocal scanned
+                async with sem:
+                    try:
+                        async with session.get(f"{base}/action_logs/{pid}.json{FB_AUTH}") as r:
+                            logs = await r.json()
+                    except Exception:
+                        return
+                scanned += 1
+                if not isinstance(logs, dict):
+                    return
+                for entry in logs.values():
+                    if not isinstance(entry, dict) or (entry.get('ts') or 0) < LEGACY_PRIZE_CLIENT_GONE_MS:
+                        continue
+                    hits = 0
+                    for d in entry.get('details') or []:
+                        m = pattern.match(str(d).strip())
+                        if not m:
+                            continue
+                        n = int(m.group(2) or 1)
+                        hits += n
+                        f = found.setdefault(pid, {'n': 0, 'entries': 0, 'maxPerEntry': 0, 'byType': {}, 'first': entry['ts'], 'last': entry['ts']})
+                        f['byType'][m.group(1)] = f['byType'].get(m.group(1), 0) + n
+                    if hits:
+                        f = found[pid]
+                        f['n'] += hits
+                        f['entries'] += 1
+                        f['maxPerEntry'] = max(f['maxPerEntry'], hits)
+                        f['first'] = min(f['first'], entry['ts'])
+                        f['last'] = max(f['last'], entry['ts'])
+
+            await asyncio.gather(*[scan(p) for p in pids])
+
+            async with session.get(f"{base}/suspicious_actions.json{FB_AUTH}") as resp:
+                attempts = await resp.json() or {}
+            names = {}
+            for pid in set(found) | set(attempts if isinstance(attempts, dict) else {}):
+                try:
+                    async with session.get(f"{base}/leaderboard/{pid}.json{FB_AUTH}") as resp:
+                        lb = await resp.json() or {}
+                except Exception:
+                    lb = {}
+                uname = lb.get('username')
+                names[pid] = f"@{uname}" if uname else (lb.get('playerName') or lb.get('firstName') or '')
+    except Exception as e:
+        await bot.send_message(chat_id, f"❌ Сканирование прервалось: {e}")
+        return
+
+    fmt_d = lambda ms: datetime.fromtimestamp(ms / 1000, tz=msk).strftime('%d.%m %H:%M')
+    lines = [f"🔎 Проверено игроков: {scanned} из {len(pids)} за {int(time_module.time() - started)} с.",
+             f"Ищу старые команды призов лотереи после {fmt_d(LEGACY_PRIZE_CLIENT_GONE_MS)} (тогда игра перестала их слать сама)."]
+    if not found:
+        lines.append("\n✅ В журнале действий накрутки через старые команды не найдено.")
+    else:
+        lines.append(f"\n🚨 Найдено игроков: {len(found)}")
+        for pid, f in sorted(found.items(), key=lambda kv: kv[1]['n'], reverse=True):
+            types_s = ', '.join(f"{k} ×{v}" for k, v in sorted(f['byType'].items(), key=lambda kv: -kv[1]))
+            lines.append(f"\n• {names.get(pid) or ''} ID {pid[3:]} — {types_s}\n"
+                         f"  записей: {f['entries']}, максимум за раз: {f['maxPerEntry']}, {fmt_d(f['first'])} – {fmt_d(f['last'])}")
+    if isinstance(attempts, dict) and attempts:
+        lines.append(f"\n🛡 Попытки после закрытия дыры (отклонены): {len(attempts)}")
+        for pid, a in sorted(attempts.items(), key=lambda kv: -int((kv[1] or {}).get('legacyPrize') or 0)):
+            if isinstance(a, dict):
+                lines.append(f"• {names.get(pid) or ''} ID {pid[3:]} — {a.get('legacyPrize', 0)} команд, последняя {fmt_d(a.get('lastTs') or 0)}")
+    lines.append("\nℹ️ В журнале хранится не вся история, а последние записи каждого игрока — очень старые действия могли не сохраниться.")
+
+    chunk = ''
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3900:
+            await bot.send_message(chat_id, chunk)
+            chunk = ''
+        chunk += line + '\n'
+    if chunk:
+        await bot.send_message(chat_id, chunk)
+
+
 @dp.message(Command('clanxp'))
 async def clanxp_command(message: types.Message):
     """Ручная поправка опыта клана: /clanxp ID_клана ±число (например, -250).
@@ -8979,6 +9090,7 @@ async def comm_command(message: types.Message):
         "/tournamentstats — рейтинг турнира\n"
         "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
         "/clanxp ID ±N — посмотреть или поправить опыт клана\n"
+        "/scanexploits — найти накрутку через старые команды лотереи (по журналу всех игроков)\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
