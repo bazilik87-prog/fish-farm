@@ -435,6 +435,9 @@ function upgCost(u, level) {
 
 var SALT_PRICE  = {pond:1,  river:2,  tropics:5,  deep:15,  space:50};
 var KNIFE_PRICE = {pond:3,  river:6,  tropics:15, deep:45,  space:150};
+// Цена за штуку с учётом скидки уровня клана (8 ур.: −20%) — сервер считает так же (buy_supplies).
+function saltUnitPrice() { return Math.round((SALT_PRICE[state.currentLoc]||1)*(1-clanBonus('suppliesPct',0)/100)*100)/100; }
+function knifeUnitPrice() { return Math.round((KNIFE_PRICE[state.currentLoc]||3)*(1-clanBonus('suppliesPct',0)/100)*100)/100; }
 
 var DAILY = [10,25,50,100,200,400,1000];
 
@@ -763,7 +766,7 @@ function getLoc(id) {
 // от того, в какой локации он физически стоит в момент получения награды
 var ENERGY_REGEN_SEC = 126; // 3.5 часа на полный бак (100 энергии)
 function getEnergyMax() {
-  return isPremiumActive() ? 150 : 100;
+  return (isPremiumActive() ? 150 : 100) + clanBonus('maxEnergy', 0);
 }
 function syncEnergy() {
   var max = getEnergyMax();
@@ -887,7 +890,7 @@ function delivTime(tr) {
   var d=getDur(tr.id);
   var m=d>=75?1:d>=50?1.2:d>=25?1.5:2;
   var speedBoost=(state.boosts.turboSpeed>Date.now())?0.5:1; // ×2 скорость = ×0.5 время
-  return Math.round(tr.time*m*speedBoost);
+  return Math.round(tr.time*m*speedBoost*(1-clanBonus('deliveryPct',0)/100));
 }
 
 // ── Цены ─────────────────────────────────────────────
@@ -1348,7 +1351,7 @@ function calcStats() {
   var lm=getLoc().tapMult||1;
   state.tapPower=Math.round(ROD_TAP[rodBought]*lm*10)/10;
   var premiumMult=isPremiumActive()?1.25:1;
-  state.autoPerMin=Math.round(auto*lm*premiumMult*10)/10;
+  state.autoPerMin=Math.round(auto*lm*premiumMult*(1+clanBonus('autoPct',0)/100)*10)/10;
 }
 function catchChance() {
   var rod=null;
@@ -1993,10 +1996,10 @@ function renderMarket() {
       }
       html += '🪙'+fmt(selEarn)+' · ⏱ '+fmtTime(dt)+'</div>';
       // Заказ соли на обратный путь
-      var saltPrice = SALT_PRICE[state.currentLoc]||1;
+      var saltPrice = saltUnitPrice();
       var curSaltOrder = Math.min(state.saltOrder||0, tr.capacity);
       var saltCost = curSaltOrder * saltPrice;
-      var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+      var knifePrice = knifeUnitPrice();
       var curKnifeOrder = Math.min(state.knifeOrder||0, tr.capacity);
       var knifeCost = curKnifeOrder * knifePrice;
       html+='<div style="background:#0a1a2a;border-radius:8px;padding:10px;margin-bottom:10px">'
@@ -2967,10 +2970,10 @@ function renderDriver() {
 
   // Соль и ножи
   if (dSel) {
-    var dSaltPrice=SALT_PRICE[state.currentLoc]||1;
+    var dSaltPrice=saltUnitPrice();
     var dCurSalt=state.driverSaltOrder||0;
     var dSaltCost=dCurSalt*dSaltPrice;
-    var dKnifePrice=KNIFE_PRICE[state.currentLoc]||3;
+    var dKnifePrice=knifeUnitPrice();
     var dCurKnife=state.driverKnifeOrder||0;
     var dKnifeCost=dCurKnife*dKnifePrice;
     html+='<div style="background:#0a0a1e;border-radius:8px;padding:10px;margin-top:8px;margin-bottom:10px">'
@@ -3209,7 +3212,7 @@ function displayServerLotteryPrize(prize) {
       window._lastFishGrantAt = Date.now();
       for (var fi=0; fi<prize.amount; fi++) {
         var rf=randFish();
-        pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000});
+        pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000*clanBonus('fishLifeH',1)});
       }
       state.caught += prize.amount;
     } else if (prize.kind === 'salt') {
@@ -4491,6 +4494,52 @@ var clanInvitedIds = {}; // общий для рефералов и поиска
 var clanTourState = {loading: false, isCaptain: false, tournaments: []};
 var clanTourBrowseState = {loading: false, isCaptain: false, myClanId: null, tournaments: []};
 var clanTourLiveTimer = null;
+var clanShowAllLevels = false;
+var clanBoostPickerOpen = false;
+
+// ── Уровни клана ── Таблица здесь только для показа. Что реально действует и сколько
+// осталось забрать, решает сервер: myClan.progress.me (см. clan_level_bonuses и
+// _clan_progress_view в bot.py) — при правке бонусов менять ОБА места.
+var CLAN_LEVEL_XP = [0, 600, 1800, 4000, 8000, 14000, 24000, 40000, 64000, 100000];
+var CLAN_LEVEL_TABLE = [
+  ['Значок клана в рейтинге', 'Clan badge in the leaderboard'],
+  ['⚡ Энергия без рекламы +25 (Premium +50), 1 раз в день · 🎫 1 билет на грузовик в неделю', '⚡ Energy without ads +25 (Premium +50), once a day · 🎫 1 truck ticket per week'],
+  ['💰 Автодоход +5% · 🐟 Рыба живёт 2 ч', '💰 Passive income +5% · 🐟 Fish live 2 h'],
+  ['🎰 1 бесплатная крутка в день · 🚀 1 бустер на выбор в неделю', '🎰 1 free spin per day · 🚀 1 booster of your choice per week'],
+  ['💰 Автодоход +10% · ⚡ Энергия 2 раза в день · 🔋 Запас энергии +10', '💰 Passive income +10% · ⚡ Energy twice a day · 🔋 Max energy +10'],
+  ['🎫 2 билета в неделю · 🐟 Рыба живёт 2,5 ч · 🚚 Доставка на 10% быстрее', '🎫 2 tickets per week · 🐟 Fish live 2.5 h · 🚚 Delivery 10% faster'],
+  ['💰 Автодоход +15% · 🎰 10 круток в неделю · 🔋 Запас энергии +20', '💰 Passive income +15% · 🎰 10 spins per week · 🔋 Max energy +20'],
+  ['⚡ Энергия 3 раза в день · 🚚 Доставка на 20% быстрее · 🧂🔪 Соль и ножи на 20% дешевле', '⚡ Energy 3 times a day · 🚚 Delivery 20% faster · 🧂🔪 Salt and knives 20% cheaper'],
+  ['💰 Автодоход +20% · 🎫 3 билета в неделю · 🎰 Крутка каждые 12 ч · 🐟 Рыба живёт 3 ч', '💰 Passive income +20% · 🎫 3 tickets per week · 🎰 A spin every 12 h · 🐟 Fish live 3 h'],
+  ['💰 Автодоход +25% · ⚡ Энергия 4 раза в день · 🔋 Запас +30 · 🚀 2 бустера в неделю · 👑 «Легенда»', '💰 Passive income +25% · ⚡ Energy 4 times a day · 🔋 Max +30 · 🚀 2 boosters per week · 👑 Legend']
+];
+var CLAN_FREE_BOOSTS = [
+  {id:'doubleTap', emoji:'⚡', ru:'Авто-буст', en:'Auto-boost'},
+  {id:'turboDry', emoji:'🌡', ru:'Мгновенная сушка', en:'Instant drying'},
+  {id:'luckyRod', emoji:'🎣', ru:'Удачная рыбалка', en:'Lucky fishing'},
+  {id:'turboSpeed', emoji:'🏎', ru:'Турбо скорость', en:'Turbo speed'},
+  {id:'turboPack', emoji:'📦', ru:'Мгновенная упаковка', en:'Instant packing'},
+  {id:'instantDelivery', emoji:'🚀', ru:'Мгновенная доставка', en:'Instant delivery'}
+];
+
+// Действующий бонус уровня клана (0/1 — если игрок не в клане, на Пруду или бонусы
+// ещё не начали действовать). Вызывается и до загрузки клана — тогда просто def.
+function clanBonus(key, def) {
+  var b = (typeof myClan !== 'undefined' && myClan && myClan.progress && myClan.progress.me) ? myClan.progress.me.bonuses : null;
+  return (b && b[key] !== undefined && b[key] !== null) ? b[key] : def;
+}
+
+// Целое число опыта с разделителями тысяч (общий fmt() даёт «9350.0» и «14.0k»).
+function fmtXp(n) {
+  return Math.floor(n||0).toLocaleString(LANG === 'en' ? 'en-US' : 'ru-RU');
+}
+
+function fmtWaitMs(ms) {
+  var min = Math.max(1, Math.ceil((ms||0) / 60000));
+  var h = Math.floor(min / 60), m = min % 60;
+  if (h >= 24) { var d = Math.floor(h / 24); h = h % 24; return d + t('д ','d ') + h + t('ч','h'); }
+  return h > 0 ? (h + t('ч ','h ') + m + t('м','m')) : (m + t(' мин',' min'));
+}
 
 function checkClanStatus() {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
@@ -4502,6 +4551,7 @@ function checkClanStatus() {
     clanChecked = true;
     if (!res || !res.ok) return;
     myClan = res.clan || null;
+    if (typeof calcStats === 'function') calcStats(); // бонус клана к автодоходу мог измениться
     myClanInvites = res.invites || [];
     myClanJoinRequest = res.myJoinRequest || null;
     updateClanTournamentBanner();
@@ -4737,16 +4787,205 @@ function renderClan() {
   document.getElementById('content').innerHTML = html;
 }
 
+function renderClanProgress() {
+  var pg = myClan && myClan.progress;
+  if (!pg) return '';
+  var html = '';
+  // Уровень и прогресс
+  var from = pg.levelXp || 0, next = pg.nextXp;
+  var pct = next ? Math.max(0, Math.min(100, (pg.xp - from) / (next - from) * 100)) : 100;
+  html += '<div class="card">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-size:14px;font-weight:700;color:#FFD700">🛡 '+t('Уровень клана ','Clan level ')+pg.level+(pg.legend?' · 👑 '+t('Легенда','Legend'):'')+'</div>'
+      +'<div style="font-size:11px;color:#90caf9">'+fmtXp(Math.floor(pg.xp))+(next?' / '+fmtXp(next):'')+' XP</div>'
+    +'</div>'
+    +'<div class="bar-bg" style="height:8px;margin-top:8px"><div class="bar-fill" style="height:8px;width:'+pct+'%;background:linear-gradient(90deg,#c99a00,#FFD700)"></div></div>'
+    +'<div style="font-size:11px;color:#666;margin-top:6px">'+(next ? t('До ','To level ')+(pg.level+1)+t(' уровня: ',': ')+fmtXp(Math.ceil(next - pg.xp))+' XP' : t('Максимальный уровень!','Max level!'))+'</div>'
+    +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Опыт: улов участников (1 XP за 100 рыб на Пруду, за 50 на Реке, до ','XP: members\' catch (1 XP per 100 fish on the Pond, per 50 on the River, up to ')+pg.fishXpDailyCap+t(' в день), 1 XP за каждую ⭐, клановые битвы.',' a day), 1 XP per ⭐, clan battles.')+'</div>'
+    +'</div>';
+
+  // Клан месяца
+  var mo = pg.month || {};
+  var lead = mo.leader;
+  html += '<div class="card">'
+    +'<div style="font-size:13px;font-weight:700;color:#fff">🏆 '+t('Клан месяца','Clan of the Month')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Ваш клан за месяц: ','Your clan this month: ')+fmtXp(Math.floor(mo.xp||0))+' XP'+(mo.rank?' · #'+mo.rank+t(' из ',' of ')+mo.clans:'')+'</div>'
+    +(lead && !lead.isMine ? '<div style="font-size:12px;color:#90caf9;margin-top:2px">'+t('Лидер: ','Leader: ')+'«'+lead.name+'» — '+fmtXp(Math.floor(lead.xp))+' XP</div>' : '')
+    +(lead && lead.isMine ? '<div style="font-size:12px;color:#6ddc6d;margin-top:2px">🥇 '+t('Ваш клан сейчас лидирует!','Your clan is leading!')+'</div>' : '')
+    +'<div style="font-size:11px;color:#666;margin-top:6px">'+t('Победитель месяца: по ','Monthly winner: ')+mo.rewardStars+t('⭐ каждому, кто в клане с начала месяца или 14 дней и сам принёс ',' ⭐ to every member who has been in the clan since the start of the month or 14 days and brought ')+mo.minXp+t(' XP за месяц.',' XP this month.')+'</div>'
+    +'</div>';
+
+  // Бонусы игрока
+  var me = pg.me || {};
+  html += '<div class="card"><div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">🎁 '+t('Бонусы клана','Clan bonuses')+'</div>';
+  if (me.reason === 'pond') {
+    html += '<div style="font-size:12px;color:#FFD700">🔒 '+t('Бонусы клана со 2 уровня работают на Реке и дальше. Открой 🏞 Реку!','Clan bonuses from level 2 work on the River and beyond. Unlock the 🏞 River!')+'</div>';
+  } else if (me.reason === 'new') {
+    var from2 = me.bonusFromMs ? new Date(me.bonusFromMs).toLocaleString() : '';
+    html += '<div style="font-size:12px;color:#ffb74d">⏳ '+t('Бонусы начнут действовать через 3 дня после вступления','Bonuses start 3 days after joining')+(from2?': '+from2:'')+'</div>';
+  } else if (pg.level < 2) {
+    html += '<div style="font-size:12px;color:#90caf9">'+t('Бонусы откроются на 2 уровне клана.','Bonuses unlock at clan level 2.')+'</div>';
+  } else {
+    var cl = me.claims || {};
+    var rows = [
+      {kind:'energy', label:'⚡ '+t('Энергия +','Energy +')+(me.premium?50:25)},
+      {kind:'ticket', label:'🎫 '+t('Билет на грузовик','Truck ticket')},
+      {kind:'spin', label:'🎰 '+t('Крутка лотереи','Lottery spin')},
+      {kind:'boost', label:'🚀 '+t('Бустер на выбор','Booster of choice')}
+    ];
+    var any = false;
+    for (var i=0; i<rows.length; i++) {
+      var c = cl[rows[i].kind];
+      if (!c || !c.limit) continue;
+      any = true;
+      var per = c.period === 'day' ? t(' в день',' a day') : c.period === 'week' ? t(' в неделю',' a week') : t(' раз в 12 ч',' every 12 h');
+      var status = c.left > 0
+        ? (c.period === '12h' ? t('доступно','available') : t('осталось ','left ')+c.left+' / '+c.limit)
+        : (c.waitMs ? t('через ','in ')+fmtWaitMs(c.waitMs) : '');
+      var btn = c.left > 0
+        ? '<button class="btn btn-gold" style="padding:5px 12px;font-size:12px" onclick="claimClanBonus(\''+rows[i].kind+'\')">'+t('Забрать','Claim')+'</button>'
+        : '<button class="btn" style="padding:5px 12px;font-size:12px;opacity:.5" disabled>'+t('Забрать','Claim')+'</button>';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #1a2a3a">'
+        +'<div><div style="font-size:13px;color:#fff">'+rows[i].label+'</div><div style="font-size:11px;color:#90caf9">'+c.limit+per+' · '+status+'</div></div>'
+        +btn+'</div>';
+      if (rows[i].kind === 'boost' && clanBoostPickerOpen && c.left > 0) {
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 0">';
+        for (var b=0; b<CLAN_FREE_BOOSTS.length; b++) {
+          var fb = CLAN_FREE_BOOSTS[b];
+          html += '<button class="btn" style="font-size:11px;background:#0a3a1a" onclick="claimClanBoost(\''+fb.id+'\')">'+fb.emoji+' '+t(fb.ru, fb.en)+'</button>';
+        }
+        html += '</div>';
+      }
+    }
+    if (!any) html += '<div style="font-size:12px;color:#90caf9">'+t('Кнопки бонусов появятся с ростом уровня.','Claim buttons appear as the clan levels up.')+'</div>';
+    var b2 = me.bonuses || {};
+    var passive = [];
+    if (b2.autoPct) passive.push('💰 '+t('Автодоход +','Passive income +')+b2.autoPct+'%');
+    if (b2.maxEnergy) passive.push('🔋 '+t('Запас энергии +','Max energy +')+b2.maxEnergy);
+    if (b2.fishLifeH > 1) passive.push('🐟 '+t('Рыба живёт ','Fish live ')+String(b2.fishLifeH).replace('.', t(',', '.'))+t(' ч',' h'));
+    if (b2.deliveryPct) passive.push('🚚 '+t('Доставка быстрее на ','Delivery faster by ')+b2.deliveryPct+'%');
+    if (b2.suppliesPct) passive.push('🧂🔪 '+t('Соль и ножи дешевле на ','Salt and knives cheaper by ')+b2.suppliesPct+'%');
+    if (passive.length) html += '<div style="font-size:11px;color:#6ddc6d;margin-top:8px;line-height:1.7">'+t('Действуют всегда: ','Always active: ')+passive.join(' · ')+'</div>';
+  }
+  html += '<button class="btn btn-full" style="margin-top:10px;background:#0f3460;font-size:12px" onclick="clanShowAllLevels=!clanShowAllLevels;renderClan()">'+(clanShowAllLevels?'▲ ':'▼ ')+t('Все уровни и бонусы','All levels and bonuses')+'</button>';
+  if (clanShowAllLevels) {
+    html += '<div style="margin-top:8px">';
+    for (var lv=0; lv<CLAN_LEVEL_TABLE.length; lv++) {
+      var reached = pg.level >= lv+1;
+      html += '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #1a2a3a;font-size:11px;'+(reached?'':'opacity:.6')+'">'
+        +'<div style="min-width:44px;color:'+(reached?'#FFD700':'#90caf9')+'">'+(reached?'✅ ':'')+(lv+1)+'</div>'
+        +'<div style="min-width:52px;color:#90caf9">'+fmtXp(CLAN_LEVEL_XP[lv])+'</div>'
+        +'<div style="flex:1;color:#fff">'+t(CLAN_LEVEL_TABLE[lv][0], CLAN_LEVEL_TABLE[lv][1])+(lv>=1?'<span style="color:#666"> · '+t('с Реки','from River')+'</span>':'')+'</div>'
+        +'</div>';
+    }
+    html += '<div style="font-size:11px;color:#666;margin-top:6px">'+t('Бонусы накопительные. Бонусы со 2 уровня работают на Реке и дальше, через 3 дня после вступления.','Bonuses stack. Bonuses from level 2 work on the River and beyond, 3 days after joining.')+'</div></div>';
+  }
+  html += '</div>';
+
+  // Вклад участников
+  var cap = pg.fishXpDailyCap || 30;
+  var contrib = pg.contrib || [];
+  html += '<div class="card"><div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">📊 '+t('Вклад участников','Member contributions')+'</div>'
+    +'<div style="display:flex;font-size:10px;color:#90caf9;padding:4px 0;border-bottom:1px solid #1565c0">'
+      +'<div style="flex:1">'+t('Участник','Member')+'</div>'
+      +'<div style="width:52px;text-align:right">'+t('Сегодня','Today')+'</div>'
+      +'<div style="width:52px;text-align:right">'+t('Месяц','Month')+'</div>'
+      +'<div style="width:56px;text-align:right">'+t('Всего','Total')+'</div>'
+      +'<div style="width:22px;text-align:right">🏆</div>'
+    +'</div>';
+  for (var k=0; k<contrib.length; k++) {
+    var r = contrib[k];
+    var mark = r.monthQualifies ? '✅' : '⏳';
+    var hint = r.monthQualifies ? '' : (!r.monthTimeOk ? t('мало дней в клане','not enough days in clan') : t('нужно ','needs ')+(pg.month.minXp||200)+' XP');
+    html += '<div style="display:flex;align-items:center;font-size:11px;padding:5px 0;border-bottom:1px solid #1a2a3a">'
+      +'<div style="flex:1;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.name||('@'+(r.username||'')))+(hint?'<div style="font-size:9px;color:#666">'+hint+'</div>':'')+'</div>'
+      +'<div style="width:52px;text-align:right;color:'+(r.today>=cap?'#6ddc6d':'#90caf9')+'">'+Math.floor(r.today)+'/'+cap+'</div>'
+      +'<div style="width:52px;text-align:right;color:#fff">'+fmtXp(Math.floor(r.month))+'</div>'
+      +'<div style="width:56px;text-align:right;color:#90caf9">'+fmtXp(Math.floor(r.total))+'</div>'
+      +'<div style="width:22px;text-align:right">'+mark+'</div>'
+      +'</div>';
+  }
+  html += '<div style="font-size:10px;color:#666;margin-top:6px">'+t('«Сегодня» — опыт за улов из ','"Today" — XP from fishing out of ')+cap+t(' возможных. 🏆 — проходит ли участник по условиям награды «Клана месяца».',' possible. 🏆 — whether the member qualifies for the Clan of the Month reward.')+'</div></div>';
+  return html;
+}
+
+function claimClanBonus(kind) {
+  if (kind === 'spin') { spinClanLottery(); return; }
+  if (kind === 'boost') { clanBoostPickerOpen = !clanBoostPickerOpen; renderClan(); return; }
+  postClanClaim({kind: kind});
+}
+
+function claimClanBoost(boostId) {
+  clanBoostPickerOpen = false;
+  postClanClaim({kind: 'boost', boost: boostId});
+}
+
+function postClanClaim(body) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  body.init_data = tg.initData;
+  fetch(BOT_API_URL + '/clan_claim', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; }); })
+    .then(function(res){
+      var d = res.data || {};
+      if (!res.ok) {
+        if (res.status === 429) showNotif('⏳ '+t('Уже забрано, следующий через ','Already claimed, next in ')+fmtWaitMs(d.retry_after_ms));
+        else showNotif('❌ '+(d.error || t('Не удалось забрать бонус','Couldn\'t claim the bonus')));
+        checkClanStatus();
+        return;
+      }
+      // Сервер уже записал выдачу в сейв — синхронизируем локальное состояние, иначе
+      // следующее сохранение игры перезаписало бы энергию/билеты старым значением.
+      if (d.kind === 'energy') {
+        state.energy = d.energy;
+        state.lastEnergyUpdate = Date.now();
+        showNotif('⚡ '+t('Энергия пополнена!','Energy refilled!'));
+      } else if (d.kind === 'ticket') {
+        state.truckTickets = d.truckTickets;
+        showNotif('🎫 '+t('Билет на грузовик получен!','Truck ticket received!'));
+      } else if (d.kind === 'boost') {
+        checkPendingBoosts();
+        showNotif('🚀 '+t('Бустер активирован!','Booster activated!'));
+      }
+      updateUI(); save();
+      checkClanStatus();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function spinClanLottery() {
+  spinLotteryServer('clan');
+  setTimeout(checkClanStatus, 1500);
+}
+
+function transferClanCaptain(userId) {
+  if (!confirm(t('Передать капитанство этому игроку? Ты станешь обычным участником.','Make this player the captain? You will become a regular member.'))) return;
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_transfer_captain', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData, target_user_id: userId})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) { showNotif('❌ '+(res.data && res.data.error || t('не удалось передать','failed to transfer'))); return; }
+      showNotif('👑 '+t('Капитанство передано','Captaincy transferred'));
+      checkClanStatus();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
 function renderClanMain(html) {
   html += '<button class="btn btn-full" style="background:#6a4520;margin-bottom:10px" onclick="openClanTournaments()">🏆 '+t('Турниры','Tournaments')+'</button>';
 
   var created = myClan.createdAt ? new Date(myClan.createdAt).toLocaleDateString() : '';
   html += '<div class="card">'
-    +'<div style="font-size:16px;font-weight:700;color:#fff">🛡️ '+myClan.name+'</div>'
+    +'<div style="font-size:16px;font-weight:700;color:'+(myClan.progress&&myClan.progress.legend?'#FFD700':'#fff')+'">🛡️ '+myClan.name+(myClan.progress?' <span class="badge" style="background:#6a4520;color:#FFD700">'+t('Ур. ','Lvl ')+myClan.progress.level+'</span>':'')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Участников:','Members:')+' '+(myClan.membersCount||1)+' / '+(myClan.maxMembers||2)+'</div>'
     +(myClan.isCaptain ? '<div style="font-size:12px;color:#FFD700;margin-top:4px">👑 '+t('Ты капитан клана','You are the captain')+'</div>' : '')
     +(created ? '<div style="font-size:11px;color:#666;margin-top:6px">'+t('Создан:','Created:')+' '+created+'</div>' : '')
     +'</div>';
+
+  html += renderClanProgress();
 
   html += '<div class="card"><div style="font-size:12px;color:#90caf9;margin-bottom:8px">'+t('Участники','Members')+'</div>';
   var members = myClan.members || [];
@@ -4762,7 +5001,10 @@ function renderClanMain(html) {
     if (myClan.isCaptain && !isCap) {
       actionHtml = isLocked
         ? '<div style="font-size:10px;color:#ffb74d;text-align:right;max-width:110px">🔒 '+t('взнос в турнире','stake in tournament')+'</div>'
-        : '<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>';
+        : '<div style="display:flex;flex-direction:column;gap:4px">'
+          +'<button class="btn" style="padding:4px 10px;font-size:11px;background:#5a1a1a" onclick="kickClanMember('+m.userId+')">✖ '+t('Удалить','Remove')+'</button>'
+          +(myClan.hasUnresolvedTournament ? '' : '<button class="btn" style="padding:4px 10px;font-size:11px;background:#6a4520" onclick="transferClanCaptain('+m.userId+')">👑 '+t('Передать','Make captain')+'</button>')
+          +'</div>';
     }
     html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a2a3a">'
       +'<div>'
@@ -4947,7 +5189,7 @@ function renderClanBrowse(html) {
     for (var i=0; i<clanBrowseState.clans.length; i++) {
       var c = clanBrowseState.clans[i];
       html += '<div class="card">'
-        +'<div style="font-size:14px;font-weight:700;color:#fff">🛡️ '+c.name+'</div>'
+        +'<div style="font-size:14px;font-weight:700;color:'+((c.level||1)>=10?'#FFD700':'#fff')+'">🛡️ '+c.name+' <span class="badge" style="background:#6a4520;color:#FFD700">'+t('Ур. ','Lvl ')+(c.level||1)+'</span></div>'
         +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Участников:','Members:')+' '+c.membersCount+' / '+c.maxMembers+' · '+t('заработано:','earned:')+' 🪙'+fmt(c.totalEarned)+'</div>'
         +'<button class="btn btn-gold btn-full" style="margin-top:10px" onclick="knockClan(\''+c.id+'\')">🚪 '+t('Постучаться','Knock')+'</button>'
         +'</div>';
@@ -5679,7 +5921,8 @@ function renderLeaders() {
           +'<div style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:#90caf9">'+rank+'</div>'
           +'<div style="flex:1">'
           +'<div style="font-size:13px;font-weight:600;color:'+(isMe?'#FFD700':'#fff')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">'+name+(isMe?t(' (ты)',' (you)'):'')+'</div>'
-          +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' '+t('монет','coins')+'</div>'
+          +'<div style="font-size:11px;color:#90caf9">'+loc+' · 🪙'+fmt(e.data.coins)+' '+t('монет','coins')
+            +(e.data.clanId ? ' · <span style="color:'+((e.data.clanLevel||1)>=10?'#FFD700;font-weight:700':'#ffb74d')+'">🛡'+(e.data.clanLevel||1)+((e.data.clanLevel||1)>=10?' 👑':'')+'</span>' : '')+'</div>'
           +'</div>'
           +'<div style="font-size:14px;font-weight:700;color:#6ddc6d">🐟'+fmt(e.data.caught)+'</div>'
           +'</div>';
@@ -6012,6 +6255,7 @@ function showInstructions() {
     +'<b style="color:#fff">'+t('👑 Premium','👑 Premium')+'</b><br>'+t('Подписка ⭐300/мес (в разделе Настройки) — автопродление каждые 30 дней. Даёт: +25% к автодоходу, +50% к максимуму энергии (150 вместо 100), +50 энергии за рекламу вместо +25, реже межстраничная реклама при ловле (раз в 200 уловов вместо 100), бесплатный ежедневный ремонт транспорта, комиссию банка 3⭐ вместо 5⭐ (обе × множитель локации), защиту стрика ежедневного бонуса (окно 72ч вместо 48ч), бесплатную крутку лотереи раз в день и корону 👑 у имени в таблице лидеров.','Subscription ⭐300/mo (in the Settings section) — auto-renews every 30 days. Gives: +25% auto-income, +50% max energy (150 instead of 100), +50 energy per ad instead of +25, less frequent interstitial ads while fishing (every 200 catches instead of 100), free daily transport repair, bank fee 3⭐ instead of 5⭐ (both × location multiplier), daily bonus streak protection (72h window instead of 48h), one free lottery spin per day, and a 👑 crown next to your name on the leaderboard.')+'<br><br>'
     +'<b style="color:#fff">'+t('🏆 Турнир недели','🏆 Weekly tournament')+'</b><br>'+t('Периодически администратор запускает турнир на 48 часов — побеждает тот, кто заработает больше всего монет за это время (учитывается прирост, а не общий баланс — у новичков есть реальные шансы!). Пока турнир активен, наверху появляется баннер с обратным отсчётом, а в разделе 🏆 Лидеры — отдельная таблица участников. Топ-3 получают призы в ⭐ Stars.','Periodically the admin starts a 48-hour tournament — the winner is whoever earns the most coins during that time (gains are counted, not total balance — newcomers have a real shot!). While the tournament is active, a countdown banner appears at the top, and the 🏆 Leaders section shows a separate standings table. Top 3 get ⭐ Stars prizes.')+'<br><br>'
     +'<b style="color:#fff">'+t('🛡️ Клановые турниры','🛡️ Clan tournaments')+'</b><br>'+t('Создай клан (до 8 игроков) во вкладке 🛡️ Клан и пригласи друзей. Капитан объявляет турнир и вносит взнос ⭐ за себя — остальные в клане подключаются и платят такой же взнос. Турнир публикуется в общем списке, и любой другой клан может принять вызов, собрав такой же состав и внеся такую же ставку. Дальше 48 часов идёт гонка — считается общий улов рыбы обеих команд, у кого больше — тот победил. Победители забирают банк за вычетом комиссии (≈1.8× ставки на игрока). Клан может вести сразу несколько таких турниров параллельно — с разными соперниками одновременно, не дожидаясь окончания текущей гонки. Пока в турнире есть неразрешённый взнос — распустить клан, выйти из него или исключить оплатившего участника нельзя.','Create a clan (up to 8 players) in the 🛡️ Clan tab and invite friends. The captain starts a tournament and pays a ⭐ stake for themselves — clanmates then join in and pay the same stake. The tournament is published to the public list, and any other clan can accept the challenge by matching the team size and stake. Then it\'s a 48-hour race — total fish caught by both teams is compared, higher wins. Winners split the pot minus a fee (≈1.8× the stake per player). A clan can run several such tournaments at once — racing different opponents in parallel, without waiting for the current race to finish. While a tournament is unresolved you can\'t disband the clan, leave it, or kick a member who has already paid in.')+'<br><br>'
+    +'<b style="color:#fff">'+t('🛡 Уровни клана','🛡 Clan levels')+'</b><br>'+t('Клан копит опыт: улов участников (1 XP за 100 рыб на Пруду и за 50 на Реке, до 30 XP в день с человека), 1 XP за каждую потраченную звезду (кроме комиссии за вывод) и клановые битвы (+100 за участие, +300 за победу). 10 уровней — от 600 до 100 000 XP. Бонусы уровней: энергия без рекламы, билеты на грузовик, бесплатные крутки и бустеры, автодоход до +25%, дольше живёт рыба, быстрее доставка, дешевле соль и ножи. Бонусы со 2 уровня работают на Реке и дальше и начинают действовать через 3 дня после вступления. Каждый месяц клан с наибольшим опытом становится «Кланом месяца» — его активные участники получают по 50⭐. Капитан может передать капитанство другому участнику.','A clan earns XP: members\' catch (1 XP per 100 fish on the Pond and per 50 on the River, up to 30 XP a day per member), 1 XP per Star spent (except withdrawal fees) and clan battles (+100 for taking part, +300 for a win). 10 levels — from 600 to 100,000 XP. Level bonuses: energy without ads, truck tickets, free spins and boosters, up to +25% passive income, longer fish life, faster delivery, cheaper salt and knives. Bonuses from level 2 work on the River and beyond and start 3 days after joining. Every month the clan with the most XP becomes the Clan of the Month — its active members get 50⭐ each. The captain can hand over captaincy to another member.')+'<br><br>'
     +'<b style="color:#fff">'+t('👋 Бонус за возвращение','👋 Comeback bonus')+'</b><br>'+t('Если не заходил в игру 3+ дней — при следующем входе получишь монеты в подарок: 3-6 дней отсутствия — 🪙200, 7-13 дней — 🪙500, 14+ дней — 🪙1000.','If you haven\'t logged in for 3+ days — your next visit gives you a coin gift: 3-6 days away — 🪙200, 7-13 days — 🪙500, 14+ days — 🪙1000.')+'<br>'
     +'<b style="color:#ff3b30">'+t('⚠️ Если не заходить в игру 60 дней подряд — аккаунт и весь прогресс удаляются без возможности восстановления.','⚠️ If you don\'t open the game for 60 days in a row — your account and all progress are permanently deleted and cannot be restored.')+'</b><br><br>'
     +'<b style="color:#fff">'+t('🏆 Таблица лидеров','🏆 Leaderboard')+'</b><br>'+t('Топ игроков по количеству пойманной рыбы. Имя задаётся при первом входе — можно изменить в настройках.','Top players by number of fish caught. Your name is set on first login — can be changed in settings.')+'</div></div>'
@@ -6264,7 +6508,7 @@ function tapOcean(e) {
   checkAdMilestone();
   spendEnergyForCatch();
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
-  pushLiveFish({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000});
+  pushLiveFish({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000*clanBonus('fishLifeH',1)});
   unlockFish();
   // Квест: улов
   var isRare = (FISH[state.currentLoc]||[]).indexOf(f) > 0;
@@ -6297,7 +6541,7 @@ function changeKnifeOrder(delta) {
 }
 function setMaxKnifeOrder() {
   var tr=getTr();
-  var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+  var knifePrice = knifeUnitPrice();
   var maxAffordable = Math.floor(state.coins / knifePrice);
   var maxKnife = Math.max(0, tr.capacity - (state.saltOrder||0));
   state.knifeOrder = Math.max(0, Math.min(maxKnife, maxAffordable));
@@ -6318,7 +6562,7 @@ function changeSaltOrder(delta) {
 }
 function setMaxSaltOrder() {
   var tr=getTr();
-  var saltPrice = SALT_PRICE[state.currentLoc]||1;
+  var saltPrice = saltUnitPrice();
   var maxAffordable = Math.floor(state.coins / saltPrice);
   var maxSalt = Math.max(0, tr.capacity - (state.knifeOrder||0));
   state.saltOrder = Math.max(0, Math.min(maxSalt, maxAffordable));
@@ -6424,10 +6668,10 @@ function sendDelivery() {
   }
   var secs=delivTime(tr);
   var saltOrder=state.saltOrder||0;
-  var saltPrice=SALT_PRICE[state.currentLoc]||1;
+  var saltPrice=saltUnitPrice();
   var saltCost=saltOrder*saltPrice;
   var knifeOrder=state.knifeOrder||0;
-  var knifePrice=KNIFE_PRICE[state.currentLoc]||3;
+  var knifePrice=knifeUnitPrice();
   var knifeCost=knifeOrder*knifePrice;
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
@@ -6504,7 +6748,7 @@ function changeDriverSaltOrder(delta) {
 }
 function setMaxDriverSaltOrder() {
   var dtr=getTr(state.driverTransport);
-  var saltPrice = SALT_PRICE[state.currentLoc]||1;
+  var saltPrice = saltUnitPrice();
   var maxAffordable = Math.floor(state.coins / saltPrice);
   var maxSalt = Math.max(0, dtr.capacity - (state.driverKnifeOrder||0));
   state.driverSaltOrder = Math.max(0, Math.min(maxSalt, maxAffordable));
@@ -6518,7 +6762,7 @@ function changeDriverKnifeOrder(delta) {
 }
 function setMaxDriverKnifeOrder() {
   var dtr=getTr(state.driverTransport);
-  var knifePrice = KNIFE_PRICE[state.currentLoc]||3;
+  var knifePrice = knifeUnitPrice();
   var maxAffordable = Math.floor(state.coins / knifePrice);
   var maxKnife = Math.max(0, dtr.capacity - (state.driverSaltOrder||0));
   state.driverKnifeOrder = Math.max(0, Math.min(maxKnife, maxAffordable));
@@ -6589,10 +6833,10 @@ function sendDriverDelivery() {
 
   // Соль и ножи для водителя
   var saltOrder=state.driverSaltOrder||0;
-  var saltPrice=SALT_PRICE[state.currentLoc]||1;
+  var saltPrice=saltUnitPrice();
   var saltCost=saltOrder*saltPrice;
   var knifeOrder=state.driverKnifeOrder||0;
-  var knifePrice=KNIFE_PRICE[state.currentLoc]||3;
+  var knifePrice=knifeUnitPrice();
   var knifeCost=knifeOrder*knifePrice;
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;

@@ -405,7 +405,7 @@ IMMEDIATE_SELL_ALLOWANCE = 200
 SELL_THROUGHPUT_PER_SEC = 100 / 1200
 
 
-def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
+def _max_tap_power_and_auto(ulocs, upg_levels, is_premium, auto_mult=1.0):
     """
     Возвращает (max_tap_power, max_auto_per_min, max_location_mult) — самые щедрые
     из ВСЕХ разлоченных локаций игрока (на случай, если он переключался между ними
@@ -439,7 +439,7 @@ def _max_tap_power_and_auto(ulocs, upg_levels, is_premium):
             lvl = int(lv.get(upg_id, 0) or 0)
             lvl = max(0, min(lvl, 5))
             auto += per_level * lvl
-        auto = auto * mult * premium_mult
+        auto = auto * mult * premium_mult * auto_mult
         if auto > max_auto:
             max_auto = auto
     return max_tap, max_auto, max_mult
@@ -458,7 +458,7 @@ def _best_unlocked_location(ulocs):
     return best_loc
 
 
-def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
+def compute_earning_ceiling(prev_save, is_premium, elapsed_ms, auto_mult=1.0):
     """
     Верхний потолок правдоподобного увеличения coins/caught за elapsed_ms с последнего
     подтверждённого сервером состояния. Специально щедрый (лучше не заблокировать
@@ -471,7 +471,7 @@ def compute_earning_ceiling(prev_save, is_premium, elapsed_ms):
     elapsed_sec = max(0, elapsed_ms) / 1000
     ulocs = prev_save.get('ulocs') or ['pond']
     upg_levels = prev_save.get('upgLevels') or {}
-    max_tap, max_auto, max_mult = _max_tap_power_and_auto(ulocs, upg_levels, is_premium)
+    max_tap, max_auto, max_mult = _max_tap_power_and_auto(ulocs, upg_levels, is_premium, auto_mult)
 
     # РАНЬШЕ сюда добавлялась ЕЩЁ и вся ТЕКУЩАЯ энергия (prev_energy) — расчёт был
     # "сколько успеет наловить ПОЛНОЙ шкалой энергии прямо сейчас". Проблема: energy в
@@ -1546,6 +1546,7 @@ def _clan_public(clan_id, clan_data, real_user_id):
         'isCaptain': clan_data.get('captainId') == real_user_id,
         'createdAt': clan_data.get('createdAt', 0),
         'members': _clan_members_list(members),
+        'level': clan_data.get('level', 1),
     }
 
 
@@ -1886,6 +1887,9 @@ async def _start_tournament_race(session, base, tournament_id):
                     await bot.send_message(uid, text)
                 except Exception:
                     pass
+            # Опыт кланам за битву — только сейчас, когда гонка реально стартовала:
+            # за отменённую битву (с ручным возвратом взносов) опыт не начисляется вовсе.
+            await clan_award_tournament_start(session, base, tdata)
             return tdata
     return None
 
@@ -2398,6 +2402,12 @@ async def _settle_tournament(session, base, tournament_id):
             if put_resp.status not in (200, 204):
                 return None
 
+            if winner_clan_id:
+                try:
+                    await clan_add_xp(session, base, winner_clan_id, flat=CLAN_TOUR_WIN_XP)
+                except Exception as e:
+                    print(f"clan win xp {winner_clan_id}: {e}")
+
             init_name = tdata.get('initiatorClanName', '')
             acc_name = tdata.get('acceptedByClanName', '')
             number = tdata.get('number')
@@ -2546,6 +2556,514 @@ async def _mutate_clan_members(session, base, clan_id, mutate_fn):
     return None
 
 
+# ── Уровни кланов (решение Саши, октябрь 2026) ─────────────────────────────────
+# Опыт клана живёт отдельно от clans/{id} — в clan_xp/{clanId}: {xp, months:{YYYY-MM},
+# members:{pid:{total, months, day, dayFish, newbieDone}}}. Так частые начисления за
+# улов (каждый /actions) не переписывают весь документ клана с составом и не дерутся
+# с вступлениями/исключениями за один ETag. Счётчики забранных бонусов — в
+# clan_claims/{pid}, тоже серверный путь (как pond_withdrawn), а не saves/{pid}, куда
+# клиент пишет сам.
+CLAN_LEVEL_XP = [0, 600, 1800, 4000, 8000, 14000, 24000, 40000, 64000, 100000]  # порог уровней 1..10
+CLAN_FISH_PER_XP_POND = 100        # рыб на 1 XP на Пруду
+CLAN_FISH_PER_XP_RIVER = 50        # рыб на 1 XP на Реке и дальше
+CLAN_FISH_XP_DAILY_CAP = 30        # максимум XP за улов от одного участника в сутки (МСК)
+CLAN_BONUS_DELAY_MS = 3 * 24 * 3600 * 1000   # бонусы начинают действовать через 3 дня после вступления
+CLAN_NEWBIE_XP = 100               # новичок принёс клану первые 100 XP ...
+CLAN_NEWBIE_BONUS_XP = 50          # ... и клан получает +50 (один раз за всю жизнь игрока)
+CLAN_TOUR_PARTICIPATION_XP = 100   # клановая битва стартовала — обоим кланам
+CLAN_TOUR_WIN_XP = 300             # победа в клановой битве
+CLAN_MONTH_REWARD_STARS = 50       # «Клан месяца» — каждому подходящему участнику
+CLAN_MONTH_MIN_XP = 200            # ... кто сам принёс клану за месяц не меньше
+CLAN_MONTH_MIN_DAYS = 14           # ... и в клане с начала месяца или не меньше 14 дней
+CLAN_FREE_BOOSTS = ('doubleTap', 'turboDry', 'luckyRod', 'turboSpeed', 'turboPack', 'instantDelivery')
+# Покупки, за которые XP за звёзды НЕ начисляется в момент оплаты: комиссия за вывод
+# не считается вообще, а взносы в клановые битвы — только при старте гонки (см.
+# clan_award_tournament_start), чтобы за отменённую битву с возвратом опыт не остался.
+CLAN_STARS_XP_EXCLUDED_PREFIXES = ('ex:', 'ctc:', 'ctp:', 'cta:')
+MSK_OFFSET_MS = 3 * 3600 * 1000
+
+_BG_TASKS = set()
+
+
+def _spawn_bg(coro):
+    """Фоновая задача без ожидания. Держим ссылку, иначе asyncio может собрать её сборщиком
+    мусора до завершения (известная особенность create_task)."""
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+
+
+def _msk_dt(now_ms):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp((now_ms + MSK_OFFSET_MS) / 1000, tz=timezone.utc)
+
+
+def _msk_day_key(now_ms):
+    return _msk_dt(now_ms).strftime('%Y-%m-%d')
+
+
+def _msk_week_key(now_ms):
+    y, w, _ = _msk_dt(now_ms).isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def _msk_month_key(now_ms):
+    return _msk_dt(now_ms).strftime('%Y-%m')
+
+
+def _msk_next_day_ms(now_ms):
+    """Сколько мс до следующей полуночи по Москве."""
+    d = _msk_dt(now_ms)
+    return int(((24 - d.hour) * 3600 - d.minute * 60 - d.second) * 1000 - d.microsecond / 1000)
+
+
+def _msk_next_week_ms(now_ms):
+    """Сколько мс до ближайшего понедельника 00:00 по Москве."""
+    days_left = 7 - _msk_dt(now_ms).weekday()  # weekday(): пн=0
+    return _msk_next_day_ms(now_ms) + (days_left - 1) * 24 * 3600 * 1000
+
+
+def _msk_month_bounds_ms(month_key):
+    """(начало, конец) календарного месяца по Москве в мс UTC."""
+    from datetime import datetime, timezone
+    y, m = (int(x) for x in month_key.split('-'))
+    start = datetime(y, m, 1, tzinfo=timezone.utc)
+    end = datetime(y + (m == 12), (m % 12) + 1, 1, tzinfo=timezone.utc)
+    return int(start.timestamp() * 1000) - MSK_OFFSET_MS, int(end.timestamp() * 1000) - MSK_OFFSET_MS
+
+
+def clan_level_for_xp(xp):
+    level = 1
+    for i, threshold in enumerate(CLAN_LEVEL_XP):
+        if (xp or 0) >= threshold:
+            level = i + 1
+    return level
+
+
+def clan_level_bonuses(level):
+    """
+    Действующие бонусы клана на уровне level (накопительно). Уровень 0 — «нет
+    бонусов» (не в клане / бонусы ещё не действуют). spinMode: 'day' — spinLimit
+    круток в сутки, 'week' — spinLimit в неделю, '12h' — одна крутка раз в 12 часов.
+    Таблица продублирована в index.html (CLAN_LEVEL_TABLE) только для показа.
+    """
+    b = {'energyPerDay': 0, 'ticketsPerWeek': 0, 'autoPct': 0, 'fishLifeH': 1,
+         'spinMode': None, 'spinLimit': 0, 'boostsPerWeek': 0, 'maxEnergy': 0,
+         'deliveryPct': 0, 'suppliesPct': 0, 'legend': False}
+    if level >= 2:
+        b.update(energyPerDay=1, ticketsPerWeek=1)
+    if level >= 3:
+        b.update(autoPct=5, fishLifeH=2)
+    if level >= 4:
+        b.update(spinMode='day', spinLimit=1, boostsPerWeek=1)
+    if level >= 5:
+        b.update(autoPct=10, energyPerDay=2, maxEnergy=10)
+    if level >= 6:
+        b.update(ticketsPerWeek=2, fishLifeH=2.5, deliveryPct=10)
+    if level >= 7:
+        b.update(autoPct=15, spinMode='week', spinLimit=10, maxEnergy=20)
+    if level >= 8:
+        b.update(energyPerDay=3, deliveryPct=20, suppliesPct=20)
+    if level >= 9:
+        b.update(autoPct=20, ticketsPerWeek=3, spinMode='12h', spinLimit=1, fishLifeH=3)
+    if level >= 10:
+        b.update(autoPct=25, energyPerDay=4, maxEnergy=30, boostsPerWeek=2, legend=True)
+    return b
+
+
+_CLAN_CTX_CACHE = {}  # (clan_id, pid) -> (ts_ms, xp, joinedAt|None)
+_CLAN_CTX_TTL_MS = 60000
+
+
+def _clan_ctx_invalidate(clan_id):
+    for key in [k for k in _CLAN_CTX_CACHE if k[0] == clan_id]:
+        _CLAN_CTX_CACHE.pop(key, None)
+
+
+async def clan_bonus_ctx(session, base, pid, sv, now_ms=None):
+    """
+    Состояние игрока в клане для начисления опыта и бонусов. Возвращает dict:
+    clanId (None, если не в клане), member, xp, level, eligible (бонусы со 2 уровня
+    действуют: открыта Река И прошло CLAN_BONUS_DELAY_MS с вступления), reason
+    ('pond' | 'new' | None) и bonuses — то, что реально действует сейчас. Сбой чтения
+    Firebase = «бонусов нет» (безопасно для экономики), а не исключение.
+    """
+    if now_ms is None:
+        now_ms = int(time_module.time() * 1000)
+    ctx = {'clanId': None, 'member': False, 'xp': 0.0, 'level': 0, 'eligible': False,
+           'reason': None, 'joinedAt': None, 'bonuses': clan_level_bonuses(0)}
+    clan_id = (sv or {}).get('clanId')
+    if not clan_id:
+        return ctx
+    key = (clan_id, pid)
+    cached = _CLAN_CTX_CACHE.get(key)
+    if cached and now_ms - cached[0] < _CLAN_CTX_TTL_MS:
+        xp, joined_at = cached[1], cached[2]
+    else:
+        try:
+            async with session.get(f"{base}/clan_xp/{clan_id}/xp.json{FB_AUTH}") as r1:
+                xp = float(await r1.json() or 0)
+            async with session.get(f"{base}/clans/{clan_id}/members/{pid}/joinedAt.json{FB_AUTH}") as r2:
+                joined_at = await r2.json()
+        except Exception:
+            return ctx
+        _CLAN_CTX_CACHE[key] = (now_ms, xp, joined_at)
+    if joined_at is None:
+        return ctx  # clanId в сейве устарел — игрок уже не в этом клане
+    ulocs = (sv or {}).get('ulocs') or ['pond']
+    river_open = any(l != 'pond' for l in ulocs if l in LOCATION_MULT)
+    level = clan_level_for_xp(xp)
+    ctx.update(clanId=clan_id, member=True, xp=xp, level=level, joinedAt=joined_at)
+    if not river_open:
+        ctx['reason'] = 'pond'
+    elif now_ms - int(joined_at or 0) < CLAN_BONUS_DELAY_MS:
+        ctx['reason'] = 'new'
+    else:
+        ctx['eligible'] = True
+        ctx['bonuses'] = clan_level_bonuses(level)
+    return ctx
+
+
+async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, flat=0.0, now_ms=None):
+    """
+    Атомарно (ETag + retry) начисляет опыт клану. fish_xp — опыт за улов участника pid,
+    режется дневным потолком CLAN_FISH_XP_DAILY_CAP; stars — опыт за звёзды участника
+    pid (без потолка); flat — опыт клану целиком, без участника (битвы, бонус за
+    новичка, ручная поправка /clanxp — может быть отрицательным). Возвращает dict
+    {gained, oldLevel, newLevel} или None при сбое записи.
+    """
+    if now_ms is None:
+        now_ms = int(time_module.time() * 1000)
+    day, month = _msk_day_key(now_ms), _msk_month_key(now_ms)
+    url = f"{base}/clan_xp/{clan_id}.json{FB_AUTH}"
+    newbie_crossed = False
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            data = await resp.json()
+        data = dict(data) if isinstance(data, dict) else {}
+        old_xp = float(data.get('xp') or 0)
+        months = dict(data.get('months') or {})
+        members = dict(data.get('members') or {})
+        member_gain = 0.0
+        newbie_crossed = False
+        if pid:
+            m = dict(members.get(pid) or {})
+            if fish_xp > 0:
+                if m.get('day') != day:
+                    m['day'], m['dayFish'] = day, 0.0
+                room = max(0.0, CLAN_FISH_XP_DAILY_CAP - float(m.get('dayFish') or 0))
+                add = min(float(fish_xp), room)
+                m['dayFish'] = round(float(m.get('dayFish') or 0) + add, 4)
+                member_gain += add
+            member_gain += max(0.0, float(stars or 0))
+            if member_gain > 0:
+                before = float(m.get('total') or 0)
+                m['total'] = round(before + member_gain, 4)
+                m_months = dict(m.get('months') or {})
+                m_months[month] = round(float(m_months.get(month) or 0) + member_gain, 4)
+                m['months'] = m_months
+                if not m.get('newbieDone') and before < CLAN_NEWBIE_XP <= m['total']:
+                    m['newbieDone'] = True
+                    newbie_crossed = True
+            members[pid] = m
+        gain = member_gain + float(flat or 0)
+        if gain == 0:
+            return {'gained': 0.0, 'oldLevel': clan_level_for_xp(old_xp), 'newLevel': clan_level_for_xp(old_xp)}
+        new_xp = max(0.0, round(old_xp + gain, 4))
+        months[month] = round(float(months.get(month) or 0) + gain, 4)
+        data.update(xp=new_xp, months=months, members=members)
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=data, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue
+            if put_resp.status not in (200, 204):
+                return None
+            break
+    else:
+        return None
+    _clan_ctx_invalidate(clan_id)
+    old_level, new_level = clan_level_for_xp(old_xp), clan_level_for_xp(new_xp)
+    if newbie_crossed and pid:
+        await _clan_newbie_bonus(session, base, clan_id, pid, now_ms)
+    if new_level != old_level:
+        await _clan_on_level_change(session, base, clan_id, old_level, new_level)
+    return {'gained': gain, 'oldLevel': old_level, 'newLevel': new_level}
+
+
+async def _clan_newbie_bonus(session, base, clan_id, pid, now_ms):
+    """+50 XP клану, когда новичок сам принёс первые 100 XP — один раз за ВСЮ жизнь
+    игрока (флаг clan_newbie_done/{pid}), чтобы капитан не крутил приём-исключение."""
+    flag_url = f"{base}/clan_newbie_done/{pid}.json{FB_AUTH}"
+    try:
+        for _ in range(4):
+            async with session.get(flag_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                etag = resp.headers.get("ETag")
+                done = await resp.json()
+            if done:
+                return
+            headers = {"If-Match": etag} if etag else {}
+            async with session.put(flag_url, json={'clanId': clan_id, 'ts': now_ms}, headers=headers) as put_resp:
+                if put_resp.status == 412:
+                    continue
+                if put_resp.status not in (200, 204):
+                    return
+                break
+        else:
+            return
+        await clan_add_xp(session, base, clan_id, flat=CLAN_NEWBIE_BONUS_XP, now_ms=now_ms)
+    except Exception as e:
+        print(f"_clan_newbie_bonus: {e}")
+
+
+async def _clan_on_level_change(session, base, clan_id, old_level, new_level):
+    """Новый уровень: пишем его в clans/{id}/level и в leaderboard каждого участника
+    (значок в таблице лидеров), а при росте — поздравляем участников."""
+    try:
+        await session.patch(f"{base}/clans/{clan_id}.json{FB_AUTH}", json={'level': new_level})
+        async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as resp:
+            clan_data = await resp.json()
+        if not isinstance(clan_data, dict):
+            return
+        name = clan_data.get('name', '')
+        for mpid, m in (clan_data.get('members') or {}).items():
+            try:
+                await session.patch(f"{base}/leaderboard/{mpid}.json{FB_AUTH}", json={'clanLevel': new_level})
+            except Exception:
+                pass
+            if new_level <= old_level or not isinstance(m, dict) or not m.get('userId'):
+                continue
+            try:
+                if await _player_lang(session, base, mpid) == 'en':
+                    text = f"🛡 Your clan «{name}» reached level {new_level}! Open the Clan tab to see the new bonuses."
+                else:
+                    text = f"🛡 Твой клан «{name}» достиг {new_level} уровня! Загляни во вкладку «Клан» — там новые бонусы."
+                await bot.send_message(int(m['userId']), text)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"_clan_on_level_change: {e}")
+
+
+async def _clan_level_value(session, base, clan_id):
+    """Текущий уровень клана для значка в leaderboard при вступлении."""
+    try:
+        async with session.get(f"{base}/clan_xp/{clan_id}/xp.json{FB_AUTH}") as resp:
+            return clan_level_for_xp(float(await resp.json() or 0))
+    except Exception:
+        return 1
+
+
+async def clan_award_stars_xp(user_id, stars, payload):
+    """XP клану за покупку за звёзды (1 XP за 1⭐) — вызывается из successful_payment.
+    Не для комиссии за вывод и взносов в битвы (см. CLAN_STARS_XP_EXCLUDED_PREFIXES)."""
+    if not stars or payload.startswith(CLAN_STARS_XP_EXCLUDED_PREFIXES):
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return
+            async with session.get(f"{base}/clans/{clan_id}/members/{pid}/joinedAt.json{FB_AUTH}") as resp2:
+                if await resp2.json() is None:
+                    return
+            await clan_add_xp(session, base, clan_id, pid=pid, stars=float(stars))
+    except Exception as e:
+        print(f"clan_award_stars_xp: {e}")
+
+
+async def clan_award_tournament_start(session, base, tdata):
+    """Гонка клановой битвы стартовала: обоим кланам +100 XP за участие и каждому
+    оплатившему участнику — XP за его взнос (1 XP за 1⭐)."""
+    amount_default = tdata.get('amountPerPerson', 0)
+    for clan_key, part_key in (('initiatorClanId', 'participantsA'), ('acceptedByClanId', 'participantsB')):
+        clan_id = tdata.get(clan_key)
+        if not clan_id:
+            continue
+        try:
+            await clan_add_xp(session, base, clan_id, flat=CLAN_TOUR_PARTICIPATION_XP)
+            for ppid, v in (tdata.get(part_key) or {}).items():
+                paid = (v.get('amount') if isinstance(v, dict) else None) or amount_default
+                async with session.get(f"{base}/clans/{clan_id}/members/{ppid}/joinedAt.json{FB_AUTH}") as resp:
+                    in_clan = await resp.json() is not None
+                if in_clan and paid:
+                    await clan_add_xp(session, base, clan_id, pid=ppid, stars=float(paid))
+        except Exception as e:
+            print(f"clan_award_tournament_start {clan_id}: {e}")
+
+
+def _clan_claim_period(kind, bonuses):
+    """(period, limit) для бонуса kind при текущих бонусах. period: 'day'|'week'|'12h'."""
+    if kind == 'energy':
+        return 'day', bonuses['energyPerDay']
+    if kind == 'ticket':
+        return 'week', bonuses['ticketsPerWeek']
+    if kind == 'boost':
+        return 'week', bonuses['boostsPerWeek']
+    if kind == 'spin':
+        return bonuses['spinMode'], bonuses['spinLimit']
+    return None, 0
+
+
+def _clan_claim_left(cur, period, limit, now_ms):
+    """(сколько ещё можно забрать сейчас, через сколько мс появится следующий)."""
+    cur = cur if isinstance(cur, dict) else {}
+    if not period or limit <= 0:
+        return 0, None
+    if period == '12h':
+        wait = 12 * 3600 * 1000 - (now_ms - int(cur.get('last') or 0))
+        return (1, None) if wait <= 0 else (0, wait)
+    key = _msk_day_key(now_ms) if period == 'day' else _msk_week_key(now_ms)
+    used = int(cur.get('n') or 0) if cur.get('k') == key else 0
+    left = max(0, limit - used)
+    if left:
+        return left, None
+    return 0, _msk_next_day_ms(now_ms) if period == 'day' else _msk_next_week_ms(now_ms)
+
+
+async def clan_claim_reserve(session, base, pid, kind, period, limit, now_ms):
+    """Атомарно занимает одно использование бонуса kind. Возвращает (ok, retry_after_ms)."""
+    url = f"{base}/clan_claims/{pid}/{kind}.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            cur = await resp.json()
+        left, wait = _clan_claim_left(cur, period, limit, now_ms)
+        if left <= 0:
+            return False, wait
+        if period == '12h':
+            new = {'last': now_ms, 'prev': (cur or {}).get('last') if isinstance(cur, dict) else None}
+        else:
+            key = _msk_day_key(now_ms) if period == 'day' else _msk_week_key(now_ms)
+            used = int(cur.get('n') or 0) if isinstance(cur, dict) and cur.get('k') == key else 0
+            new = {'k': key, 'n': used + 1, 'last': now_ms}
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(url, json=new, headers=headers) as put_resp:
+            if put_resp.status == 412:
+                continue
+            return put_resp.status in (200, 204), None
+    return False, None
+
+
+async def clan_claim_release(session, base, pid, kind, period):
+    """Возвращает занятое использование, если выдача бонуса сорвалась."""
+    url = f"{base}/clan_claims/{pid}/{kind}.json{FB_AUTH}"
+    try:
+        for _ in range(6):
+            async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                etag = resp.headers.get("ETag")
+                cur = await resp.json()
+            if not isinstance(cur, dict):
+                return
+            new = dict(cur)
+            if period == '12h':
+                new['last'] = cur.get('prev') or 0
+            else:
+                new['n'] = max(0, int(cur.get('n') or 0) - 1)
+            headers = {"If-Match": etag} if etag else {}
+            async with session.put(url, json=new, headers=headers) as put_resp:
+                if put_resp.status == 412:
+                    continue
+                return
+    except Exception:
+        pass
+
+
+_CLAN_MONTH_CACHE = {'ts': 0, 'month': None, 'rows': []}
+
+
+async def _clan_month_standings(session, base, month_key, now_ms):
+    """[(clanId, xp за месяц)] по убыванию — для «Клана месяца» в /clan_status, кэш 60с."""
+    c = _CLAN_MONTH_CACHE
+    if c['month'] == month_key and now_ms - c['ts'] < 60000:
+        return c['rows']
+    async with session.get(f"{base}/clan_xp.json{FB_AUTH}") as resp:
+        all_xp = await resp.json()
+    rows = []
+    if isinstance(all_xp, dict):
+        for cid, d in all_xp.items():
+            if isinstance(d, dict):
+                v = float((d.get('months') or {}).get(month_key) or 0)
+                if v > 0:
+                    rows.append((cid, v))
+    rows.sort(key=lambda x: x[1], reverse=True)
+    c.update(ts=now_ms, month=month_key, rows=rows)
+    return rows
+
+
+def _clan_month_time_ok(joined_at, month_key):
+    """Проходит ли участник по сроку для «Клана месяца»: в клане с начала месяца или
+    наберёт в нём не меньше CLAN_MONTH_MIN_DAYS к концу месяца."""
+    start, end = _msk_month_bounds_ms(month_key)
+    joined_at = int(joined_at or 0)
+    return joined_at <= start or end - joined_at >= CLAN_MONTH_MIN_DAYS * 24 * 3600 * 1000
+
+
+async def _clan_progress_view(session, base, clan_id, clan_data, pid):
+    """Всё про уровень клана для вкладки «Клан»: опыт, вклад каждого участника, место
+    в «Клане месяца» и бонусы самого игрока (что действует и что можно забрать)."""
+    now_ms = int(time_module.time() * 1000)
+    day, month = _msk_day_key(now_ms), _msk_month_key(now_ms)
+    async with session.get(f"{base}/clan_xp/{clan_id}.json{FB_AUTH}") as resp:
+        xd = await resp.json()
+    xd = xd if isinstance(xd, dict) else {}
+    xp = float(xd.get('xp') or 0)
+    level = clan_level_for_xp(xp)
+    xstats = xd.get('members') or {}
+    contrib = []
+    for mpid, m in (clan_data.get('members') or {}).items():
+        if not isinstance(m, dict):
+            continue
+        st = xstats.get(mpid) if isinstance(xstats.get(mpid), dict) else {}
+        month_xp = float((st.get('months') or {}).get(month) or 0)
+        time_ok = _clan_month_time_ok(m.get('joinedAt'), month)
+        contrib.append({
+            'pid': mpid, 'name': m.get('name', ''), 'username': m.get('username', ''),
+            'today': round(float(st.get('dayFish') or 0) if st.get('day') == day else 0.0, 1),
+            'month': round(month_xp, 1), 'total': round(float(st.get('total') or 0), 1),
+            'monthTimeOk': time_ok, 'monthQualifies': time_ok and month_xp >= CLAN_MONTH_MIN_XP,
+            'joinedAt': m.get('joinedAt', 0),
+        })
+    contrib.sort(key=lambda r: r['month'], reverse=True)
+
+    rows = await _clan_month_standings(session, base, month, now_ms)
+    month_xp_clan = float((xd.get('months') or {}).get(month) or 0)
+    rank = next((i + 1 for i, (cid, _) in enumerate(rows) if cid == clan_id), None)
+    leader = None
+    if rows:
+        async with session.get(f"{base}/clans/{rows[0][0]}/name.json{FB_AUTH}") as resp:
+            leader = {'name': await resp.json() or '', 'xp': round(rows[0][1], 1), 'isMine': rows[0][0] == clan_id}
+
+    async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as resp:
+        ulocs = await resp.json() or ['pond']
+    ctx = await clan_bonus_ctx(session, base, pid, {'clanId': clan_id, 'ulocs': ulocs}, now_ms)
+    async with session.get(f"{base}/clan_claims/{pid}.json{FB_AUTH}") as resp:
+        claims_raw = await resp.json()
+    claims_raw = claims_raw if isinstance(claims_raw, dict) else {}
+    claims = {}
+    for kind in ('energy', 'ticket', 'boost', 'spin'):
+        period, limit = _clan_claim_period(kind, ctx['bonuses'])
+        left, wait = _clan_claim_left(claims_raw.get(kind), period, limit, now_ms)
+        claims[kind] = {'left': left, 'limit': limit, 'period': period, 'waitMs': wait}
+    return {
+        'xp': round(xp, 1), 'level': level,
+        'levelXp': CLAN_LEVEL_XP[level - 1],
+        'nextXp': CLAN_LEVEL_XP[level] if level < len(CLAN_LEVEL_XP) else None,
+        'legend': level >= 10,
+        'contrib': contrib, 'fishXpDailyCap': CLAN_FISH_XP_DAILY_CAP,
+        'month': {'key': month, 'xp': round(month_xp_clan, 1), 'rank': rank, 'clans': len(rows),
+                  'leader': leader, 'rewardStars': CLAN_MONTH_REWARD_STARS, 'minXp': CLAN_MONTH_MIN_XP},
+        'me': {'eligible': ctx['eligible'], 'reason': ctx['reason'],
+               'bonusFromMs': int(ctx['joinedAt'] or 0) + CLAN_BONUS_DELAY_MS if ctx['joinedAt'] else None,
+               'bonuses': ctx['bonuses'], 'claims': claims,
+               'premium': await is_premium(int(pid[3:]))},
+    }
+
+
 async def clan_status(request):
     """
     Статус клановой фичи для игрока. Поле isTester всегда True — оставлено ради
@@ -2605,6 +3123,11 @@ async def clan_status(request):
                     clan['tournamentLockedPids'] = list(paid_pids)
                     clan['iAmLocked'] = pid in paid_pids
                     clan['activeTournament'] = tour_summary
+                    try:
+                        clan['progress'] = await _clan_progress_view(session, base, clan_id, clan_data, pid)
+                    except Exception as e:
+                        print(f"_clan_progress_view {clan_id}: {e}")
+                        clan['progress'] = None
                     if clan['isCaptain']:
                         # Заявки от чужих игроков, которые "постучались" в этот клан
                         # (см. clan_join_request) — капитан принимает/отклоняет их прямо
@@ -2647,6 +3170,177 @@ async def clan_status(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'isTester': True, 'clan': clan, 'invites': invites, 'myJoinRequest': my_join_request}, headers=CORS)
+
+
+def _req_lang_ru(tg_user):
+    return str((tg_user or {}).get('language_code') or 'ru').startswith('ru')
+
+
+async def _read_verified_user(request):
+    """(data, tg_user, real_user_id) из тела запроса с проверенным initData или
+    (None, None, web.Response) с готовой ошибкой."""
+    try:
+        data = await request.json()
+    except Exception:
+        return None, None, web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return None, None, web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        tg_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        tg_user = {}
+    if not tg_user.get('id'):
+        return None, None, web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    return data, tg_user, tg_user['id']
+
+
+async def clan_claim(request):
+    """
+    Игрок забирает бонус уровня клана: kind = energy | ticket | boost (+ boost — какой
+    бустер из CLAN_FREE_BOOSTS). Крутки лотереи идут через /lottery_spin с via='clan'.
+    Сначала атомарно занимаем использование (clan_claims/{pid}), потом выдаём; если
+    выдача сорвалась — возвращаем использование обратно.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    data, tg_user, real_user_id = await _read_verified_user(request)
+    if data is None:
+        return real_user_id
+    ru = _req_lang_ru(tg_user)
+    kind = str(data.get('kind', ''))
+    boost_id = str(data.get('boost', ''))
+    if kind not in ('energy', 'ticket', 'boost') or (kind == 'boost' and boost_id not in CLAN_FREE_BOOSTS):
+        return web.json_response({'error': 'invalid request'}, status=400, headers=CORS)
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(saves_url) as resp:
+                sv = await resp.json() or {}
+            ctx = await clan_bonus_ctx(session, base, pid, sv, now_ms)
+            if not ctx['member']:
+                return web.json_response({'error': 'ты не в клане' if ru else "you're not in a clan"}, status=400, headers=CORS)
+            if not ctx['eligible']:
+                if ctx['reason'] == 'pond':
+                    msg = 'Бонусы клана работают на Реке и дальше 🏞' if ru else 'Clan bonuses work on the River and beyond 🏞'
+                else:
+                    msg = 'Бонусы начнут действовать через 3 дня после вступления' if ru else 'Bonuses start 3 days after joining'
+                return web.json_response({'error': msg, 'code': ctx['reason']}, status=403, headers=CORS)
+            period, limit = _clan_claim_period(kind, ctx['bonuses'])
+            if limit <= 0:
+                return web.json_response({'error': 'откроется на более высоком уровне клана' if ru else 'unlocks at a higher clan level'}, status=403, headers=CORS)
+            ok, wait = await clan_claim_reserve(session, base, pid, kind, period, limit, now_ms)
+            if not ok:
+                return web.json_response({'error': 'cooldown', 'retry_after_ms': wait}, status=429, headers=CORS)
+
+            result = {'ok': True, 'kind': kind}
+            granted = False
+            try:
+                if kind == 'boost':
+                    async with session.put(f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}", json=now_ms) as presp:
+                        granted = presp.status in (200, 204)
+                    result['boost'] = boost_id
+                else:
+                    is_prem = await is_premium(real_user_id)
+                    max_energy = (150 if is_prem else 100) + ctx['bonuses']['maxEnergy']
+                    for _ in range(6):
+                        async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
+                            etag = resp.headers.get("ETag")
+                            sv = await resp.json() or {}
+                        merged = dict(sv)
+                        if kind == 'energy':
+                            last_upd = sv.get('lastEnergyUpdate') or now_ms
+                            prev = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
+                            cur = min(max_energy, prev + max(0, (now_ms - last_upd) / 1000) / ENERGY_REGEN_SEC)
+                            final = round(min(max_energy, cur + (50 if is_prem else 25)) * 100) / 100
+                            merged.update({'energy': final, 'lastEnergyUpdate': now_ms})
+                            result.update(energy=final, maxEnergy=max_energy)
+                        else:
+                            merged['truckTickets'] = (sv.get('truckTickets') or 0) + 1
+                            result['truckTickets'] = merged['truckTickets']
+                        headers = {"If-Match": etag} if etag else {}
+                        async with session.put(saves_url, json=merged, headers=headers) as put_resp:
+                            if put_resp.status == 412:
+                                continue
+                            granted = put_resp.status in (200, 204)
+                            break
+            finally:
+                if not granted:
+                    await clan_claim_release(session, base, pid, kind, period)
+            if not granted:
+                return web.json_response({'error': 'не удалось выдать бонус, попробуй ещё раз' if ru else "couldn't grant the bonus, try again"}, status=500, headers=CORS)
+            return web.json_response(result, headers=CORS)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
+
+async def clan_transfer_captain(request):
+    """Капитан передаёт капитанство другому участнику. Нельзя, пока у клана идёт
+    клановая битва (те же правила, что для выхода/исключения/роспуска)."""
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    data, tg_user, real_user_id = await _read_verified_user(request)
+    if data is None:
+        return real_user_id
+    ru = _req_lang_ru(tg_user)
+    target_user_id = str(data.get('target_user_id', '')).strip()
+    if not target_user_id.isdigit() or int(target_user_id) == real_user_id:
+        return web.json_response({'error': 'invalid target'}, status=400, headers=CORS)
+    target_pid = f"tg_{target_user_id}"
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as resp:
+                clan_id = await resp.json()
+            if not clan_id:
+                return web.json_response({'error': 'у тебя нет клана' if ru else 'you have no clan'}, status=400, headers=CORS)
+            has_unresolved, _, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
+            if has_unresolved:
+                return web.json_response({'error': 'пока идёт клановая битва, передать капитанство нельзя' if ru else "can't transfer captaincy during a clan battle"}, status=400, headers=CORS)
+            url = f"{base}/clans/{clan_id}.json{FB_AUTH}"
+            for _ in range(6):
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    etag = resp.headers.get("ETag")
+                    clan_data = await resp.json()
+                if not isinstance(clan_data, dict):
+                    return web.json_response({'error': 'клан не найден' if ru else 'clan not found'}, status=400, headers=CORS)
+                if clan_data.get('captainId') != real_user_id:
+                    return web.json_response({'error': 'передать капитанство может только капитан' if ru else 'only the captain can transfer captaincy'}, status=403, headers=CORS)
+                members = dict(clan_data.get('members') or {})
+                if target_pid not in members or not isinstance(members[target_pid], dict):
+                    return web.json_response({'error': 'этот игрок не в твоём клане' if ru else "this player isn't in your clan"}, status=400, headers=CORS)
+                if isinstance(members.get(pid), dict):
+                    members[pid] = {**members[pid], 'role': 'member'}
+                members[target_pid] = {**members[target_pid], 'role': 'captain'}
+                clan_data['members'] = members
+                clan_data['captainId'] = int(target_user_id)
+                headers = {"If-Match": etag} if etag else {}
+                async with session.put(url, json=clan_data, headers=headers) as put_resp:
+                    if put_resp.status == 412:
+                        continue
+                    if put_resp.status not in (200, 204):
+                        return web.json_response({'error': f'clan PUT failed: {put_resp.status}'}, status=500, headers=CORS)
+                    break
+            else:
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+            try:
+                name = clan_data.get('name', '')
+                if await _player_lang(session, base, target_pid) == 'en':
+                    text = f"👑 You are now the captain of the clan «{name}»!"
+                else:
+                    text = f"👑 Теперь ты капитан клана «{name}»!"
+                await bot.send_message(int(target_user_id), text)
+            except Exception:
+                pass
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True}, headers=CORS)
 
 
 async def clan_create(request):
@@ -2767,7 +3461,7 @@ async def clan_create(request):
             # для приглашения (там нельзя ходить в приватные saves/ на каждого реферала).
             # Лучшая попытка: если не получилось, сам процесс создания клана уже не откатываем.
             try:
-                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': clan_id})
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': clan_id, 'clanLevel': await _clan_level_value(session, base, clan_id)})
             except Exception:
                 pass
             # Очищаем входящие приглашения — капитан своего только что созданного клана
@@ -3185,7 +3879,7 @@ async def clan_invite_respond(request):
                     return web.json_response({'error': 'не удалось вступить — попробуй ещё раз'}, status=409, headers=CORS)
 
             try:
-                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': clan_id})
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': clan_id, 'clanLevel': await _clan_level_value(session, base, clan_id)})
             except Exception:
                 pass
 
@@ -3271,6 +3965,7 @@ async def clan_top(request):
             'membersCount': members_count,
             'maxMembers': max_members,
             'totalEarned': round(earned_by_clan.get(cid, 0)),
+            'level': c.get('level', 1),  # пишется в _clan_on_level_change; нет поля = 1 уровень
         })
 
     result.sort(key=lambda x: x['totalEarned'], reverse=True)
@@ -3467,7 +4162,7 @@ async def clan_join_request_respond(request):
                     return web.json_response({'error': 'не удалось принять — попробуй ещё раз'}, status=409, headers=CORS)
 
             try:
-                await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': clan_id})
+                await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': clan_id, 'clanLevel': await _clan_level_value(session, base, clan_id)})
             except Exception:
                 pass
 
@@ -3568,7 +4263,7 @@ async def clan_kick(request):
             theaders = {"If-Match": tetag} if tetag else {}
             await session.put(f"{base}/saves/{target_pid}.json{FB_AUTH}", json=target_sv, headers=theaders)
             try:
-                await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': None})
+                await session.patch(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}", json={'clanId': None, 'clanLevel': None})
             except Exception:
                 pass
     except Exception as e:
@@ -3649,7 +4344,7 @@ async def clan_leave(request):
             theaders = {"If-Match": tetag} if tetag else {}
             await session.put(f"{base}/saves/{pid}.json{FB_AUTH}", json=target_sv, headers=theaders)
             try:
-                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': None})
+                await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'clanId': None, 'clanLevel': None})
             except Exception:
                 pass
     except Exception as e:
@@ -3725,11 +4420,14 @@ async def clan_disband(request):
                 except Exception:
                     pass
                 try:
-                    await session.patch(f"{base}/leaderboard/{member_pid}.json{FB_AUTH}", json={'clanId': None})
+                    await session.patch(f"{base}/leaderboard/{member_pid}.json{FB_AUTH}", json={'clanId': None, 'clanLevel': None})
                 except Exception:
                     pass
 
             await session.delete(f"{base}/clans/{clan_id}.json{FB_AUTH}")
+            # Вместе с кланом пропадает и его опыт (правило уровней: роспуск = опыт сгорает).
+            await session.delete(f"{base}/clan_xp/{clan_id}.json{FB_AUTH}")
+            _clan_ctx_invalidate(clan_id)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -4132,6 +4830,35 @@ def pick_random_weather():
     return 'sunny'
 
 
+# Действия, которые раньше слал клиент после крутки лотереи, — теперь только признак
+# подделки запроса (см. process_actions и report_legacy_prize_attempt).
+LEGACY_CLIENT_PRIZE_ACTIONS = ('lottery_coins', 'grant_fish', 'grant_salt', 'grant_knife', 'grant_truck_ticket')
+_LEGACY_PRIZE_ALERTED = set()  # кому уже писали админу в этом процессе — без спама
+
+
+async def report_legacy_prize_attempt(pid, user_id, count, now_ms):
+    """Пишет попытку в suspicious_actions/{pid} и один раз (на процесс) сообщает админу."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        url = f"{base}/suspicious_actions/{pid}.json{FB_AUTH}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                cur = await resp.json()
+            cur = cur if isinstance(cur, dict) else {}
+            await session.put(url, json={'legacyPrize': int(cur.get('legacyPrize') or 0) + count,
+                                         'firstTs': cur.get('firstTs') or now_ms, 'lastTs': now_ms})
+    except Exception:
+        pass
+    if ADMIN_ID and pid not in _LEGACY_PRIZE_ALERTED:
+        _LEGACY_PRIZE_ALERTED.add(pid)
+        try:
+            await bot.send_message(ADMIN_ID, f"🚨 Попытка накрутки: ID {user_id} прислал {count} старых команд призов лотереи "
+                                             f"(lottery_coins/grant_*). Отклонено. Подробнее: /playerinfo {user_id}")
+        except Exception:
+            pass
+
+
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
@@ -4468,7 +5195,7 @@ async def refill_energy_ad(request):
     saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
     now_ms = int(time.time() * 1000)
     is_prem = await is_premium(real_user_id)
-    max_energy = 150 if is_prem else 100
+    base_max_energy = 150 if is_prem else 100
     ad_bonus = 50 if is_prem else 25
 
     final_energy = None
@@ -4479,6 +5206,7 @@ async def refill_energy_ad(request):
                     etag = resp.headers.get("ETag")
                     sv = await resp.json()
                 sv = sv or {}
+                max_energy = base_max_energy + (await clan_bonus_ctx(session, base, pid, sv, now_ms))['bonuses']['maxEnergy']
 
                 last = sv.get('lastAdEnergyRefill') or 0
                 if now_ms - last < 600000:
@@ -4593,7 +5321,7 @@ async def lottery_spin(request):
     username = real_user.get('username') or real_user.get('first_name') or 'Игрок'
 
     via = data.get('via')
-    if via not in ('ad', 'premium'):
+    if via not in ('ad', 'premium', 'clan'):
         return web.json_response({'error': 'invalid via'}, status=400, headers=CORS)
 
     if via == 'premium' and not await is_premium(real_user_id):
@@ -4619,6 +5347,30 @@ async def lottery_spin(request):
     prize = None
     grow_jackpot = (via == 'premium')
 
+    # Клановая крутка (бонус уровня клана, см. clan_level_bonuses): занимаем использование
+    # заранее и атомарно (clan_claims/{pid}/spin), а если сама крутка не записалась —
+    # возвращаем. Джекпот она не растит, а выиграть может только от
+    # AD_JACKPOT_WIN_THRESHOLD — так же, как крутка за рекламу.
+    clan_spin_period = None
+    spin_committed = False
+    if via == 'clan':
+        ru = str(real_user.get('language_code') or 'ru').startswith('ru')
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(saves_url) as resp:
+                    csv = await resp.json() or {}
+                ctx = await clan_bonus_ctx(session, base, pid, csv, now_ms)
+                period, limit = _clan_claim_period('spin', ctx['bonuses'])
+                if not ctx['member'] or not ctx['eligible'] or limit <= 0:
+                    return web.json_response({'error': 'клановая крутка недоступна' if ru else 'clan spin unavailable',
+                                              'code': ctx['reason']}, status=403, headers=CORS)
+                ok, wait = await clan_claim_reserve(session, base, pid, 'spin', period, limit, now_ms)
+                if not ok:
+                    return web.json_response({'error': 'cooldown', 'retry_after_ms': wait}, status=429, headers=CORS)
+                clan_spin_period = period
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500, headers=CORS)
+
     try:
         async with aiohttp.ClientSession() as session:
             for attempt in range(6):
@@ -4631,7 +5383,7 @@ async def lottery_spin(request):
                     last = sv.get('lastAdLotterySpin') or 0
                     if now_ms - last < 3600000:
                         return web.json_response({'error': 'cooldown', 'retry_after_ms': 3600000 - (now_ms - last)}, status=429, headers=CORS)
-                else:
+                elif via == 'premium':
                     if sv.get('premiumFreeSpinDate') == today:
                         return web.json_response({'error': 'already used today'}, status=429, headers=CORS)
 
@@ -4649,7 +5401,7 @@ async def lottery_spin(request):
                     # рекламу не включает — она джекпот не растит, только пользуется уже
                     # накопленным.
                     ad_can_win_jackpot = jackpot >= AD_JACKPOT_WIN_THRESHOLD
-                    prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via != 'ad' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
+                    prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via == 'premium' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
 
                 merged = dict(sv)
                 if prize['kind'] == 'coins':
@@ -4681,7 +5433,7 @@ async def lottery_spin(request):
 
                 if via == 'ad':
                     merged['lastAdLotterySpin'] = now_ms
-                else:
+                elif via == 'premium':
                     merged['premiumFreeSpinDate'] = today
 
                 headers = {"If-Match": etag} if etag else {}
@@ -4690,9 +5442,10 @@ async def lottery_spin(request):
                         continue  # конкурентная прокрутка успела записать раньше — перечитываем и проверяем кулдаун заново
                     if put_resp.status not in (200, 204):
                         raise RuntimeError(f"lottery saves PUT failed: {put_resp.status} {await put_resp.text()}")
+                    spin_committed = True
                     break
             else:
-                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+                raise RuntimeError('internal: too many conflicts')  # → except ниже (там же возврат клановой крутки)
 
             # Тот же фикс, что и в apply_lottery_prize (платная крутка): приз "рыба" меняет
             # caught в saves, но live-счёт клановых турниров читает leaderboard.caught, который
@@ -4742,6 +5495,9 @@ async def lottery_spin(request):
                             continue
                         break
     except Exception as e:
+        if clan_spin_period and not spin_committed:
+            async with aiohttp.ClientSession() as rel_session:
+                await clan_claim_release(rel_session, base, pid, 'spin', clan_spin_period)
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
@@ -4985,7 +5741,14 @@ async def process_actions(request):
     # запросов, в отличие от coins/energy, которые уже были защищены).
     ulocs = sv.get('ulocs') or ['pond']
     is_prem = await is_premium(real_user_id)
-    max_energy = 150 if is_prem else 100
+    try:
+        async with aiohttp.ClientSession() as session:
+            clan_ctx = await clan_bonus_ctx(session, base, pid, sv)
+    except Exception:
+        clan_ctx = await clan_bonus_ctx(None, base, pid, {})
+    clan_bonus = clan_ctx['bonuses']
+    max_energy = (150 if is_prem else 100) + clan_bonus['maxEnergy']
+    clan_fish_xp = 0.0  # опыт клану за улов в этом запросе — см. clan_add_xp после записи сейва
 
     # Энергия — регенерируем по реальному прошедшему времени, а не верим клиенту.
     now_ms = int(time.time() * 1000)
@@ -5032,6 +5795,7 @@ async def process_actions(request):
         lvl = max(0, min(int(cur_lv.get(upg_id, 0) or 0), MAX_UPGRADE_LEVEL))
         auto_per_sec += per_level * lvl
     auto_per_sec = auto_per_sec * LOCATION_MULT.get(cur_loc, 1) * (PREMIUM_AUTO_MULT if is_prem else 1)
+    auto_per_sec = auto_per_sec * (1 + clan_bonus['autoPct'] / 100)  # бонус уровня клана
 
     # Вклады — локальный список используется ниже действиями open_deposit/close_deposit
     # (это явные, разовые, id-based операции игрока за ЭТОТ запрос — не racy сами по
@@ -5046,11 +5810,9 @@ async def process_actions(request):
 
     prices_cache = None
     rejected = 0
+    legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
     rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
     claim_result = None
-    salt_delta = 0
-    knife_delta = 0
-    truck_tickets_delta = 0
     # Старые аккаунты (до переименования полей в клиенте) хранят этот же список под именем
     # utrans/dur вместо unlockedTransports/durability — если новое поле отсутствует, но
     # старое есть, доверяем старому, иначе игрок с реально купленным транспортом здесь
@@ -5087,6 +5849,15 @@ async def process_actions(request):
             rejected += 1
             continue
         a_type = act.get('type')
+
+        if a_type in LEGACY_CLIENT_PRIZE_ACTIONS:
+            # Старые «призы лотереи от клиента» — лотерею давно целиком решает сервер
+            # (/lottery_spin, apply_lottery_prize), игра эти действия не шлёт. Раньше они
+            # принимались без связи с реальной круткой: в одном запросе до 500 штук, то
+            # есть монеты/рыба из воздуха (найдено 05.10.2026). Отклоняем и фиксируем.
+            rejected += 1
+            legacy_prize_attempts += 1
+            continue
 
         if a_type == 'unlock_location':
             # Разблокировка локации — раньше клиент списывал стоимость только локально,
@@ -5132,6 +5903,7 @@ async def process_actions(request):
             total_earned += earned
             caught += 1
             unsold += 1
+            clan_fish_xp += 1 / (CLAN_FISH_PER_XP_POND if loc == 'pond' else CLAN_FISH_PER_XP_RIVER)
             # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру —
             # начисляется здесь, при ПЕРВОМ улове реферала в жизни, а не сразу по /start
             # (см. комментарий в register_referral) — так фермы пустых аккаунтов больше
@@ -5325,36 +6097,6 @@ async def process_actions(request):
             except Exception:
                 rejected += 1
 
-        elif a_type == 'grant_fish':
-            # Приз лотереи "рыба на склад" — клиент добавляет живую рыбу в инвентарь локально,
-            # это сообщает серверу, сколько именно, чтобы unsoldCaught не разошёлся и продажа
-            # этой рыбы потом не отклонялась как "продаёшь больше, чем поймал".
-            # Потолок = round(100 * множитель локации) — точно как формула приза в index.html.
-            try:
-                qty = int(act.get('qty', 0))
-            except (TypeError, ValueError):
-                qty = 0
-            max_fish_prize = round(100 * mult)
-            if qty < 1 or qty > max_fish_prize:
-                rejected += 1
-                continue
-            caught += qty
-            unsold += qty
-
-        elif a_type == 'lottery_coins':
-            # Денежный приз лотереи (300/500 * множитель локации, 65% суммарный шанс) —
-            # потолок = round(500 * множитель локации), точно как c2 в формуле приза.
-            try:
-                amount = float(act.get('amount', 0))
-            except (TypeError, ValueError):
-                amount = 0
-            max_coin_prize = round(500 * mult)
-            if amount <= 0 or amount > max_coin_prize:
-                rejected += 1
-                continue
-            coins += amount
-            total_earned += amount
-
         elif a_type == 'daily_bonus':
             # Ежедневный бонус — сама сумма и день серии считаются здесь (зависят от
             # mult/премиума, не от гонки), но ПРОВЕРКА ПРАВА НА ПОЛУЧЕНИЕ и запись в
@@ -5435,37 +6177,12 @@ async def process_actions(request):
             if salt_qty + knife_qty > capacity:
                 rejected += 1
                 continue
-            cost = round((salt_qty * 1 + knife_qty * 3) * mult * 100) / 100
+            cost = round((salt_qty * 1 + knife_qty * 3) * mult * (1 - clan_bonus['suppliesPct'] / 100) * 100) / 100
             if cost > 0 and coins < cost:
                 rejected += 1
                 continue
             coins -= cost
             spent_accum += cost
-
-        elif a_type == 'grant_salt':
-            try:
-                qty = int(act.get('qty', 0))
-            except (TypeError, ValueError):
-                qty = 0
-            max_salt_prize = round(15 * mult)
-            if qty < 1 or qty > max_salt_prize:
-                rejected += 1
-                continue
-            salt_delta += qty
-
-        elif a_type == 'grant_knife':
-            try:
-                qty = int(act.get('qty', 0))
-            except (TypeError, ValueError):
-                qty = 0
-            max_knife_prize = round(15 * mult)
-            if qty < 1 or qty > max_knife_prize:
-                rejected += 1
-                continue
-            knife_delta += qty
-
-        elif a_type == 'grant_truck_ticket':
-            truck_tickets_delta += 1
 
         elif a_type == 'buy_transport':
             tr_id = act.get('transport')
@@ -5684,25 +6401,12 @@ async def process_actions(request):
     coins = round(coins * 100) / 100
     total_earned = round(total_earned * 100) / 100
     now_ms = int(time.time() * 1000)
+    if legacy_prize_attempts:
+        _spawn_bg(report_legacy_prize_attempt(pid, real_user_id, legacy_prize_attempts, now_ms))
     # Уведомление об отклонённых действиях отключено по просьбе — слишком много шума.
     # Сама защита (отклонение подозрительных действий) продолжает работать как прежде.
 
     extra_fields = {}
-    if salt_delta or knife_delta:
-        salt_by_loc = sv.get('saltByLoc') or {}
-        knife_by_loc = sv.get('knifeByLoc') or {}
-        if not isinstance(salt_by_loc, dict):
-            salt_by_loc = {}
-        if not isinstance(knife_by_loc, dict):
-            knife_by_loc = {}
-        if salt_delta:
-            salt_by_loc[cur_loc] = (salt_by_loc.get(cur_loc) or 0) + salt_delta
-            extra_fields['saltByLoc'] = salt_by_loc
-        if knife_delta:
-            knife_by_loc[cur_loc] = (knife_by_loc.get(cur_loc) or 0) + knife_delta
-            extra_fields['knifeByLoc'] = knife_by_loc
-    if truck_tickets_delta:
-        extra_fields['truckTickets'] = (sv.get('truckTickets') or 0) + truck_tickets_delta
     if transport_changed:
         extra_fields['unlockedTransports'] = unlocked_transports
         extra_fields['durability'] = durability
@@ -6015,6 +6719,13 @@ async def process_actions(request):
                 pass  # лидерборд не должен ронять сам запрос игрока
             if caught > caught_before_request:
                 await _bf_track_catch(session, base, pid)
+            # Опыт клану за улов — уже после успешной записи сейва, чтобы не начислить за
+            # улов, который так и не сохранился. Сбой здесь не должен ронять запрос.
+            if clan_fish_xp > 0 and clan_ctx['member']:
+                try:
+                    await clan_add_xp(session, base, clan_ctx['clanId'], pid=pid, fish_xp=clan_fish_xp, now_ms=now_ms)
+                except Exception as e:
+                    print(f"clan fish xp {pid}: {e}")
 
             # Диагностический лог для поиска гонки записи (несколько параллельных /actions
             # читают один и тот же стартовый баланс и перезаписывают друг друга — см. жалобы
@@ -6166,7 +6877,13 @@ async def sync_state(request):
     prev_total_earned = float(prev.get('totalEarned', 0) or 0)
 
     is_prem = await is_premium(real_user_id)
-    coin_ceiling, catch_ceiling = compute_earning_ceiling(prev, is_prem, elapsed_ms)
+    try:
+        async with aiohttp.ClientSession() as session:
+            clan_ctx = await clan_bonus_ctx(session, base, pid, prev)
+    except Exception:
+        clan_ctx = await clan_bonus_ctx(None, base, pid, {})
+    clan_bonus = clan_ctx['bonuses']
+    coin_ceiling, catch_ceiling = compute_earning_ceiling(prev, is_prem, elapsed_ms, 1 + clan_bonus['autoPct'] / 100)
 
     coin_delta = req_coins - prev_coins
     earned_delta = req_total_earned - prev_total_earned
@@ -6265,7 +6982,7 @@ async def sync_state(request):
         suspicious = True
         final_coins = round(prev_coins * 100) / 100
 
-    max_energy = 150 if is_prem else 100
+    max_energy = (150 if is_prem else 100) + clan_bonus['maxEnergy']
     final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
 
     # Подстраховка от "потерянной" доставки (см. sweep_stale_escrow) — если деньги в
@@ -7408,6 +8125,7 @@ FINANCE_CATEGORY_LABELS = {
     'clan_tournament_refund': '↩️ Клановые турниры — возвраты',
     'weekly_tournament': '🏆 Турнир недели',
     'big_fishing': '🎣 Большая рыбалка',
+    'clan_month': '🛡 Клан месяца',
 }
 
 
@@ -7758,6 +8476,47 @@ async def clanforce_command(message: types.Message):
                 await message.answer(f"✅ Турнир {tournament_id} принудительно завершён (running → settled), итоги и выплаты разосланы.")
             else:
                 await message.answer(f"Турнир {tournament_id} уже в терминальном статусе «{status}» — действий не требуется.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('clanxp'))
+async def clanxp_command(message: types.Message):
+    """Ручная поправка опыта клана: /clanxp ID_клана ±число (например, -250).
+    Без числа — просто показывает опыт и уровень клана."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer("Использование:\n<code>/clanxp ID_клана</code> — посмотреть опыт\n"
+                             "<code>/clanxp ID_клана -250</code> — поправить опыт (можно и +)", parse_mode="HTML")
+        return
+    clan_id = parts[1]
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans/{clan_id}/name.json{FB_AUTH}") as resp:
+                name = await resp.json()
+            if name is None:
+                await message.answer("❌ Клан не найден (ID — из /clanslist).")
+                return
+            if len(parts) >= 3:
+                try:
+                    delta = float(parts[2].replace(',', '.'))
+                except ValueError:
+                    await message.answer("❌ Число должно быть вида -250 или 100.")
+                    return
+                res = await clan_add_xp(session, base, clan_id, flat=delta)
+                if res is None:
+                    await message.answer("❌ Не удалось записать опыт, попробуй ещё раз.")
+                    return
+            async with session.get(f"{base}/clan_xp/{clan_id}.json{FB_AUTH}") as resp:
+                xd = await resp.json() or {}
+        xp = float(xd.get('xp') or 0)
+        month_xp = float((xd.get('months') or {}).get(_msk_month_key(int(time_module.time() * 1000))) or 0)
+        prefix = f"✅ Опыт изменён на {parts[2]}.\n" if len(parts) >= 3 else ""
+        await message.answer(f"{prefix}🛡 «{name}»: {xp:,.1f} XP, уровень {clan_level_for_xp(xp)}, за этот месяц {month_xp:,.1f} XP")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -8219,6 +8978,7 @@ async def comm_command(message: types.Message):
         "/stoptournament — остановить турнир досрочно\n"
         "/tournamentstats — рейтинг турнира\n"
         "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
+        "/clanxp ID ±N — посмотреть или поправить опыт клана\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
@@ -10456,6 +11216,10 @@ async def successful_payment(message: types.Message):
     payer_name_fin = f"@{payer_username_fin}" if payer_username_fin else (message.from_user.first_name or f"ID:{message.from_user.id}")
     await log_finance('income', 'stars_payment', amount * STAR_TO_USD, note=f"{label} — {payer_name_fin}", stars=amount)
 
+    # Опыт клану плательщика — 1 XP за 1⭐ (кроме комиссии за вывод и взносов в битвы,
+    # см. clan_award_stars_xp). Фоном: выдача покупки не должна ждать Firebase клана.
+    _spawn_bg(clan_award_stars_xp(message.from_user.id, amount, payload))
+
     if payload.startswith('bo:'):
         parts    = payload.split(':')
         boost_id = parts[1] if len(parts) > 1 else ''
@@ -10500,6 +11264,13 @@ async def successful_payment(message: types.Message):
             # админу, если так и не удалось — чтобы можно было доначислить вручную.
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             max_energy = 150 if await is_premium(user_id) else 100
+            try:
+                async with aiohttp.ClientSession() as ctx_session:
+                    async with ctx_session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as ctx_resp:
+                        ctx_sv = await ctx_resp.json() or {}
+                    max_energy += (await clan_bonus_ctx(ctx_session, base, pid, ctx_sv))['bonuses']['maxEnergy']
+            except Exception:
+                pass  # без бонуса клана — просто обычный максимум
             import time
             done = False
             last_err = None
@@ -11691,6 +12462,105 @@ async def clan_tournament_loop():
         await asyncio.sleep(60)
 
 
+async def settle_clan_month(month_key):
+    """
+    Подводит итоги «Клана месяца» за month_key (YYYY-MM, МСК): клан с наибольшим опытом
+    за месяц, каждому подходящему участнику — CLAN_MONTH_REWARD_STARS звёзд (выплата
+    вручную админом, как в турнирах — список уходит админу и в группу поддержки).
+    Идемпотентно: результат пишется в clan_month_results/{month_key} один раз (ETag).
+    """
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    res_url = f"{base}/clan_month_results/{month_key}.json{FB_AUTH}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(res_url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            existing = await resp.json()
+        if existing:
+            return existing
+        async with session.get(f"{base}/clan_xp.json{FB_AUTH}") as resp:
+            all_xp = await resp.json()
+        best_id, best_xp = None, 0.0
+        if isinstance(all_xp, dict):
+            for cid, d in all_xp.items():
+                v = float(((d or {}).get('months') or {}).get(month_key) or 0) if isinstance(d, dict) else 0.0
+                if v > best_xp:
+                    best_id, best_xp = cid, v
+        clan_data = None
+        if best_id:
+            async with session.get(f"{base}/clans/{best_id}.json{FB_AUTH}") as resp:
+                clan_data = await resp.json()
+        now_ms = int(time_module.time() * 1000)
+        if not isinstance(clan_data, dict):
+            result = {'none': True, 'settledAt': now_ms}
+        else:
+            stats = (all_xp.get(best_id) or {}).get('members') or {}
+            winners, others = [], []
+            for mpid, m in (clan_data.get('members') or {}).items():
+                if not isinstance(m, dict):
+                    continue
+                m_xp = float(((stats.get(mpid) or {}).get('months') or {}).get(month_key) or 0)
+                row = {'pid': mpid, 'userId': m.get('userId'), 'name': m.get('name', ''),
+                       'username': m.get('username', ''), 'xp': round(m_xp, 1)}
+                if _clan_month_time_ok(m.get('joinedAt'), month_key) and m_xp >= CLAN_MONTH_MIN_XP:
+                    row['stars'] = CLAN_MONTH_REWARD_STARS
+                    winners.append(row)
+                else:
+                    others.append(row)
+            result = {'clanId': best_id, 'name': clan_data.get('name', ''), 'xp': round(best_xp, 1),
+                      'winners': winners, 'others': others, 'settledAt': now_ms}
+        headers = {"If-Match": etag} if etag else {}
+        async with session.put(res_url, json=result, headers=headers) as put_resp:
+            if put_resp.status != 200 and put_resp.status != 204:
+                return None  # 412 — параллельно уже подвёл другой вызов
+        if result.get('none'):
+            return result
+
+        name, winners = result['name'], result['winners']
+        lines = [f"— {_tour_payer_label(w)} — {CLAN_MONTH_REWARD_STARS}⭐ ({w['xp']} XP)" for w in winners]
+        text = (f"🏆 Клан месяца {month_key}: «{name}» ({result['xp']} XP).\n"
+                + (f"Выплатить по {CLAN_MONTH_REWARD_STARS}⭐:\n" + "\n".join(lines) if lines else "Подходящих участников нет — выплачивать некому."))
+        if ADMIN_ID:
+            try:
+                await bot.send_message(ADMIN_ID, text)
+            except Exception:
+                pass
+        await notify_support_group(text)
+        total_stars = CLAN_MONTH_REWARD_STARS * len(winners)
+        if total_stars:
+            await log_finance('expense', 'clan_month', total_stars * STAR_TO_USD,
+                              note=f"Клан месяца {month_key} — «{name}» ({len(winners)} чел. × {CLAN_MONTH_REWARD_STARS}⭐)",
+                              stars=total_stars, session=session)
+        for row, won in [(w, True) for w in winners] + [(o, False) for o in result['others']]:
+            if not row.get('userId'):
+                continue
+            try:
+                if await _player_lang(session, base, row['pid']) == 'en':
+                    msg = (f"🏆 Your clan «{name}» is the Clan of the Month! You'll get {CLAN_MONTH_REWARD_STARS}⭐ — wait for the stars from the admin."
+                           if won else
+                           f"🏆 Your clan «{name}» is the Clan of the Month! To get the {CLAN_MONTH_REWARD_STARS}⭐ reward you needed {CLAN_MONTH_MIN_XP} XP of your own and {CLAN_MONTH_MIN_DAYS} days in the clan.")
+                else:
+                    msg = (f"🏆 Твой клан «{name}» — Клан месяца! Тебе начислят {CLAN_MONTH_REWARD_STARS}⭐ — жди звёзды от администратора."
+                           if won else
+                           f"🏆 Твой клан «{name}» — Клан месяца! Для награды {CLAN_MONTH_REWARD_STARS}⭐ нужно было самому принести {CLAN_MONTH_MIN_XP} XP и быть в клане {CLAN_MONTH_MIN_DAYS} дней.")
+                await bot.send_message(int(row['userId']), msg)
+            except Exception:
+                pass
+        return result
+
+
+async def clan_month_loop():
+    """Раз в 10 минут проверяет, подведён ли «Клан месяца» за прошлый месяц (МСК)."""
+    while True:
+        try:
+            now_ms = int(time_module.time() * 1000)
+            start_ms, _ = _msk_month_bounds_ms(_msk_month_key(now_ms))
+            await settle_clan_month(_msk_month_key(start_ms - 1))
+        except Exception as e:
+            print(f"Ошибка clan_month_loop: {e}")
+        await asyncio.sleep(600)
+
+
 async def vote_loop():
     """
     Фоновая задача — раз в минуту проверяет /vote/current: если голосование активно и
@@ -11798,6 +12668,10 @@ async def main():
     app.router.add_options('/reset_progress', reset_progress)
     app.router.add_post('/clan_status', clan_status)
     app.router.add_options('/clan_status', clan_status)
+    app.router.add_post('/clan_claim', clan_claim)
+    app.router.add_options('/clan_claim', clan_claim)
+    app.router.add_post('/clan_transfer_captain', clan_transfer_captain)
+    app.router.add_options('/clan_transfer_captain', clan_transfer_captain)
     app.router.add_post('/clan_create', clan_create)
     app.router.add_options('/clan_create', clan_create)
     app.router.add_post('/clan_referrals', clan_referrals)
@@ -11865,6 +12739,7 @@ async def main():
         asyncio.create_task(vote_loop())
         asyncio.create_task(big_fishing_loop())
         asyncio.create_task(weekly_tournament_loop())
+        asyncio.create_task(clan_month_loop())
         await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
@@ -11883,6 +12758,7 @@ async def main():
         asyncio.create_task(vote_loop())
         asyncio.create_task(big_fishing_loop())
         asyncio.create_task(weekly_tournament_loop())
+        asyncio.create_task(clan_month_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
