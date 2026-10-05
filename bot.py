@@ -4036,8 +4036,19 @@ def rare_fish_status(now_ms=None):
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
-MARKET_REVERSION = 0.02  # доля разрыва до базовой цены, закрываемая за один шаг (30с) — см. get_market_prices
-WEATHER_PRICE_MULT = {'sunny': 1.0, 'cloudy': 1.1, 'rain': 1.25, 'storm': 1.5, 'perfect': 0.9}
+MARKET_REVERSION = 0.02  # доля разрыва до центра коридора погоды, закрываемая за один шаг (30с) — см. get_market_prices
+# Погода НЕ множит цену, а задаёт коридор, внутри которого она гуляет (в долях от базовой):
+# (мин, макс, центр). Центр — точка, к которой цена возвращается (MARKET_REVERSION); он
+# примерно совпадает со старыми множителями (1.0/1.1/1.25/1.5/0.9), поэтому средний
+# уровень цен в экономике почти не меняется — меняется только то, что при плохой погоде
+# цена больше не может "провалиться" ниже нижней границы коридора (шторм — не ниже 100%).
+WEATHER_PRICE_RANGE = {
+    'sunny':   (0.5, 2.0, 1.0),
+    'cloudy':  (0.6, 2.2, 1.1),
+    'rain':    (0.8, 2.5, 1.25),
+    'storm':   (1.0, 3.0, 1.5),
+    'perfect': (0.4, 1.8, 0.9),
+}
 # Точная копия весов из WEATHER_TYPES в index.html — единственное место, где теперь
 # решается смена погоды по истечении срока (раньше это делал ЛЮБОЙ клиент, у которого
 # истекло по ЕГО собственным часам — если часы устройства спешили, погода могла
@@ -4228,11 +4239,12 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
 
 async def get_market_prices():
     """
-    Глобальные серверные цены рынка — общие для всех игроков, генерируются той же
-    формулой случайного блуждания, что и раньше в index.html, но теперь на сервере,
-    поэтому их нельзя подделать записью в собственное сохранение.
-    Обновляются лениво, не чаще раза в 30с (PRICE_INTERVAL_MS).
-    Учитывают текущую погоду (тот же множитель, что был в клиентской версии).
+    Глобальные серверные цены рынка — общие для всех игроков, генерируются случайным
+    блужданием на сервере, поэтому их нельзя подделать записью в собственное сохранение.
+    Обновляются раз в 30с (PRICE_INTERVAL_MS) фоновым циклом price_regeneration_loop.
+    Погода задаёт КОРИДОР цены (WEATHER_PRICE_RANGE), а не множитель: цена каждые 30с
+    делает случайный шаг ±15% с возвратом к центру коридора и зажимается в коридор
+    текущей погоды. При смене погоды цена сразу попадает в новый коридор.
     """
     import aiohttp, time, random
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -4244,41 +4256,43 @@ async def get_market_prices():
                 and now_ms - data['ts'] < PRICE_INTERVAL_MS:
             return data['cur']
 
-        weather_mult = 1.0
-        try:
-            async with session.get(f"{base}/weather.json{FB_AUTH}") as wresp:
-                w = await wresp.json()
-            if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
-                weather_mult = WEATHER_PRICE_MULT.get(w.get('id'), 1.0)
-        except Exception:
-            pass
+        # Чтение погоды — с ретраями. Раньше здесь был голый except: pass, и при любом сбое
+        # Firebase погода молча превращалась в "ясно". Теперь 3 попытки, а если не вышло —
+        # берём ПОСЛЕДНЮЮ известную погоду из предыдущей записи цен, а не "ясно".
+        weather_id = None
+        for w_attempt in range(3):
+            try:
+                async with session.get(f"{base}/weather.json{FB_AUTH}") as wresp:
+                    w = await wresp.json()
+                if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
+                    weather_id = w.get('id')
+                else:
+                    weather_id = 'sunny'  # погода истекла и ещё не обновлена — нейтральная
+                break
+            except Exception as e:
+                if w_attempt == 2:
+                    print(f"get_market_prices: не удалось прочитать погоду после 3 попыток: {e}")
+                else:
+                    await asyncio.sleep(0.3)
+        if weather_id is None:
+            weather_id = (data.get('weather') if isinstance(data, dict) else None) or 'sunny'
+        lo_m, hi_m, center_m = WEATHER_PRICE_RANGE.get(weather_id, WEATHER_PRICE_RANGE['sunny'])
 
-        # Случайное блуждание ведём по "сырой" цене raw — БЕЗ погоды, а погоду применяем
-        # только к итоговой cur. Раньше погода умножалась на уже сохранённую цену каждые
-        # 30с и копилась (60 раз за полчаса облачности), а сдвиг (random() - 0.48) тянул
-        # вверх — в итоге все цены месяцами стояли на потолке ×3.3 от базовой (замер 04.10).
-        # Теперь шаг симметричный и с возвратом к базовой (MARKET_REVERSION): в среднем
-        # ~×1.1 с учётом погоды, обычно от ×0.6 до ×1.9.
-        raw_prev = data.get('raw') if isinstance(data, dict) else None
-        if not isinstance(raw_prev, dict):
-            # Первый запуск после перехода на raw — стартуем от текущей cur без погоды:
-            # первый шаг срежет цены до потолка raw (×2 от базовой), дальше они сползут
-            # к базовым за ~5-10 минут, а не обвалятся с ×3.3 до ×1 мгновенно.
-            cur_prev = data.get('cur') if isinstance(data, dict) else None
-            if not isinstance(cur_prev, dict):
-                cur_prev = {}
-            raw_prev = {n: v / weather_mult for n, v in cur_prev.items()}
-        new_raw = {}
+        # Предыдущие цены: 'raw' (формат прошлой версии, без погоды) или 'cur' — для нового
+        # коридора это одно и то же, просто берём как стартовую точку и зажимаем в коридор.
+        prev = data.get('cur') if isinstance(data, dict) else None
+        if not isinstance(prev, dict):
+            prev = {}
         new_cur = {}
         for name, base_price in BASE_PRICES.items():
-            p = raw_prev.get(name, base_price)
+            p = prev.get(name, base_price * center_m)
+            target = base_price * center_m
             chg = (random.random() - 0.5) * 0.3
-            nv = p * (1 + chg) + MARKET_REVERSION * (base_price - p)
-            nv = max(base_price * 0.5, min(base_price * 2, nv))
-            new_raw[name] = round(nv * 10000) / 10000
-            shown = max(base_price * 0.3, min(base_price * 4, nv * weather_mult))
-            new_cur[name] = round(shown * 100) / 100
-        await session.put(f"{base}/market/prices.json{FB_AUTH}", json={'cur': new_cur, 'raw': new_raw, 'ts': now_ms})
+            nv = p * (1 + chg) + MARKET_REVERSION * (target - p)
+            nv = max(base_price * lo_m, min(base_price * hi_m, nv))
+            new_cur[name] = round(nv * 100) / 100
+        await session.put(f"{base}/market/prices.json{FB_AUTH}",
+                          json={'cur': new_cur, 'weather': weather_id, 'ts': now_ms})
         return new_cur
 
 
