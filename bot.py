@@ -186,6 +186,16 @@ def scaled_boost_price(boost_id, base_price, location_order):
     extra_steps = max(0, location_order - 2)
     return base_price + step * extra_steps
 PREMIUM_PRICE = 300  # ⭐/месяц
+# Покупка монет за ⭐ (решение Саши, 06.10.2026, вариант «купленные монеты выводятся»):
+# пакет -> (цена в ⭐, монет на Пруду). Монеты умножаются на множитель ЛУЧШЕЙ открытой
+# локации — тогда в долларах вывода пакет стоит одинаково везде. Безубыточно было бы
+# ~870 монет за 1⭐ на Пруду (1⭐ ≈ $0.013 нам, 100 000 монет = $1.50 вывода); здесь
+# 400–480 — запас на прокачку, которую покупают на эти монеты, и 10% рефереру.
+COIN_PACKS = {
+    'c50':  (50, 20000),
+    'c100': (100, 44000),
+    'c250': (250, 120000),
+}
 REFERRAL_MARKET_PRICE = 10  # ⭐ за право стать рефером игрока, зашедшего без ссылки
 SUPPORT_GROUP_ID = -1003903288440
 # Раньше КАЖДАЯ отправка в эту группу была обёрнута в свой собственный тихий
@@ -798,6 +808,22 @@ async def create_invoice(request):
                 payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice(label="Fee", amount=fee)],
+                provider_token="",
+            )
+            return web.json_response({'link': link}, headers=CORS)
+
+        elif action == 'buy_coins':
+            pack_id = str(data.get('pack', ''))
+            if pack_id not in COIN_PACKS:
+                return web.json_response({'error': 'invalid pack'}, status=400, headers=CORS)
+            stars, base_coins = COIN_PACKS[pack_id]
+            coins_preview = base_coins * await get_location_mult(real_user_id)
+            link = await bot.create_invoice_link(
+                title="Монеты FishFarm",
+                description=f"{coins_preview:,} монет на игровой баланс".replace(',', ' '),
+                payload=f"cn:{real_user_id}:{pack_id}",
+                currency="XTR",
+                prices=[LabeledPrice(label="Coins", amount=stars)],
                 provider_token="",
             )
             return web.json_response({'link': link}, headers=CORS)
@@ -5858,6 +5884,8 @@ async def process_actions(request):
     rejected = 0
     legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
     truck_tickets_used = 0     # см. use_truck_ticket
+    purchased_coins_delta = 0.0  # купленные за ⭐ монеты, забранные в этом запросе (claim_bonuses)
+    purchased_stars_delta = 0
     response_truck = {}        # truckTickets / truckRentalUntil после записи — для клиента
     rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
     claim_result = None
@@ -6124,6 +6152,7 @@ async def process_actions(request):
 
                 rb = await claim_and_clear(f"{base}/ref_bonuses/{pid}.json{FB_AUTH}")
                 pr = await claim_and_clear(f"{base}/pending_rewards/{pid}.json{FB_AUTH}")
+                pc = await claim_and_clear(f"{base}/pending_purchases/{pid}.json{FB_AUTH}")
                 claimed_total = 0
                 claimed_details = []
                 if isinstance(rb, dict):
@@ -6143,7 +6172,22 @@ async def process_actions(request):
                 if claimed_total > 0:
                     coins += claimed_total
                     total_earned += claimed_total
-                    claim_result = {'total': claimed_total, 'details': claimed_details}
+                # Купленные монеты — в баланс, но НЕ в totalEarned: по нему считается
+                # «Турнир недели», иначе победу можно было бы просто купить. Отдельно копим
+                # purchasedCoins/purchasedStars для /playerinfo (см. retry-цикл записи).
+                if isinstance(pc, dict):
+                    for k, v in pc.items():
+                        if not isinstance(v, dict):
+                            continue
+                        amt = float(v.get('coins') or 0)
+                        if amt <= 0:
+                            continue
+                        coins += amt
+                        purchased_coins_delta += amt
+                        purchased_stars_delta += int(v.get('stars') or 0)
+                        claimed_details.append({'type': 'purchase', 'amount': amt, 'stars': v.get('stars', 0)})
+                if claimed_total > 0 or purchased_coins_delta > 0:
+                    claim_result = {'total': round(claimed_total + purchased_coins_delta, 2), 'details': claimed_details}
                 # claim_pending_clear больше не нужен — очистка уже произошла выше, атомарно
                 # вместе с чтением, а не отдельным шагом в конце запроса.
             except Exception:
@@ -6739,6 +6783,9 @@ async def process_actions(request):
                 if used_now:
                     merged['truckTickets'] = fresh_tickets - used_now
                     merged['truckRentalUntil'] = max(now_ms, truck_rental_until(fresh_sv, now_ms)) + used_now * TRUCK_RENTAL_MS
+                if purchased_coins_delta:
+                    merged['purchasedCoins'] = round(float(fresh_sv.get('purchasedCoins') or 0) + purchased_coins_delta, 2)
+                    merged['purchasedStars'] = int(fresh_sv.get('purchasedStars') or 0) + purchased_stars_delta
                 response_truck = {'truckTickets': int(merged.get('truckTickets') or 0),
                                   'truckRentalUntil': truck_rental_until(merged, now_ms)}
                 async with session.put(saves_url, json=merged, headers=save_headers) as sput:
@@ -6779,7 +6826,8 @@ async def process_actions(request):
                     "userId": real_user_id,
                     "username": tg_user.get('username') or '',
                     "firstName": tg_user.get('first_name') or '',
-                    "premiumUntil": premium_until
+                    "premiumUntil": premium_until,
+                    "purchasedCoins": round(float(merged.get('purchasedCoins') or 0)),  # для /audit
                 })
             except Exception:
                 pass  # лидерборд не должен ронять сам запрос игрока
@@ -7005,10 +7053,14 @@ async def sync_state(request):
     if catch_delta > catch_ceiling:
         suspicious = True
         final_caught = prev_caught + int(catch_ceiling)
-    # Если игрок тратит монеты (например, купил апгрейд) — coin_delta отрицательный,
-    # это всегда разрешено, потолок касается только РОСТА баланса.
+    # Баланс НИЖЕ серверного /sync больше не принимает. Раньше это считалось «тратой»,
+    # но все траты давно идут через /actions (апгрейды, транспорт, ремонт, соль/ножи,
+    # локации, вклады) или оплату (вывод) и списываются на сервере. Меньшее число от
+    # клиента — всегда устаревшая копия: она затирала только что начисленные сервером
+    # монеты (покупка монет, бонусы, призы) и могла списать трату дважды — сначала
+    # /sync, потом сам /actions с той же покупкой (06.10.2026).
     if coin_delta < 0:
-        final_coins = req_coins
+        final_coins = round(prev_coins * 100) / 100
 
     # caught и totalEarned — лайфтайм-счётчики: рыба, пойманная за всю игру, и звёзды,
     # заработанные за всю игру, обратно не уменьшаются (в отличие от coins, которые
@@ -9404,6 +9456,8 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"⭐ Оплачено звёзд всего: {total_stars:,.0f}⭐ ({len(stars_data)} платеж(ей))")
         else:
             lines.append("⭐ Оплачено звёзд всего: 0 (оплат не было)")
+        if float((sv or {}).get('purchasedCoins') or 0) > 0:
+            lines.append(f"💰 Куплено монет: {float(sv.get('purchasedCoins') or 0):,.0f} за {int(sv.get('purchasedStars') or 0)}⭐ (не входят в «Заработано»)")
 
         now_ms = int(time.time() * 1000)
         is_prem = bool(premium_until) and premium_until > now_ms
@@ -10807,7 +10861,9 @@ async def audit_command(message: types.Message):
             if not user_id:
                 continue
             total_earned = v.get('totalEarned', 0) or 0
-            coins = v.get('coins', 0) or 0
+            # Купленные за ⭐ монеты не «заработаны» — без этого покупатель крупного пакета
+            # выглядел бы как подделка баланса (баланс сильно больше заработанного).
+            coins = max(0, (v.get('coins', 0) or 0) - (v.get('purchasedCoins', 0) or 0))
             caught = v.get('caught', 0) or 0
             username = v.get('username', '')
             identity = f"@{username}" if username else f"ID:{user_id}"
@@ -11323,6 +11379,7 @@ async def successful_payment(message: types.Message):
     try:
         label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
                 ('Обмен на USDT' if payload.startswith('ex:') else
+                 'Покупка монет' if payload.startswith('cn:') else
                  'Premium подписка' if payload.startswith('sub:') else
                  'Слот клана' if payload.startswith('cs:') else
                  'Создание турнира клана' if payload.startswith('ctc:') else
@@ -11369,6 +11426,38 @@ async def successful_payment(message: types.Message):
     # Опыт клану плательщика — 1 XP за 1⭐ (кроме комиссии за вывод и взносов в битвы,
     # см. clan_award_stars_xp). Фоном: выдача покупки не должна ждать Firebase клана.
     _spawn_bg(clan_award_stars_xp(message.from_user.id, amount, payload))
+
+    if payload.startswith('cn:'):
+        # Покупка монет: количество считаем сейчас, по лучшей открытой локации, и кладём в
+        # pending_purchases/{pid} — игра заберёт через claim_bonuses в /actions (тот же
+        # надёжный путь, что у /addcoins: монеты не теряются при закрытой игре и не
+        # задваиваются). Ключ — id платежа Telegram, повтор того же платежа не удвоит.
+        parts = payload.split(':')
+        user_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
+        pack_id = parts[2] if len(parts) > 2 else ''
+        pack = COIN_PACKS.get(pack_id)
+        if not pack:
+            await _alert_payment_fulfillment_failed(user_id, "Покупка монет", detail=f"неизвестный пакет {pack_id}")
+            return
+        stars, base_coins = pack
+        try:
+            import aiohttp
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            coins_amount = base_coins * await get_location_mult(user_id)
+            charge_id = message.successful_payment.telegram_payment_charge_id or f"t{int(time_module.time() * 1000)}"
+            charge_key = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in charge_id)
+            async with aiohttp.ClientSession() as session:
+                async with session.put(f"{base}/pending_purchases/tg_{user_id}/{charge_key}.json{FB_AUTH}",
+                                       json={'coins': coins_amount, 'stars': stars, 'pack': pack_id,
+                                             'ts': int(time_module.time() * 1000)}) as resp:
+                    if resp.status not in (200, 204):
+                        raise RuntimeError(f"pending_purchases PUT failed: {resp.status}")
+            await message.answer(t(message.from_user,
+                f"✅ Оплата прошла! 💰 {coins_amount:,} монет уже зачисляются — открой игру.".replace(',', ' '),
+                f"✅ Payment received! 💰 {coins_amount:,} coins are on the way — open the game."))
+        except Exception as e:
+            await _alert_payment_fulfillment_failed(user_id, "Покупка монет", detail=f"{stars}⭐ → {base_coins}×множитель: {e}")
+        return
 
     if payload.startswith('bo:'):
         parts    = payload.split(':')

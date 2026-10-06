@@ -1119,6 +1119,10 @@ function save(immediate) {
 
 function syncMoneyToServer() {
   if (!tg || !tg.initData) return;
+  // Пока в очереди есть неотправленные действия (например, покупка апгрейда), локальный
+  // баланс уже уменьшен, а серверный ещё нет — сервер вернул бы старое число и монеты
+  // «вернулись» бы на экран. Подождём: следующий save() снова запланирует синхронизацию.
+  if (window._pendingActions && window._pendingActions.length) return;
   fetch(BOT_API_URL + '/sync', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -3544,6 +3548,52 @@ function activateBoost(id, growJackpot) {
 // голосования игроков. Держим числом в одном месте, а не хардкодим 1.5 по всем
 // местам расчёта — см. тот же USDT_PER_UNIT в bot.py.
 var USDT_PER_UNIT = 1.50;
+// Покупка монет за ⭐ — пакеты и цены те же, что COIN_PACKS в bot.py (количество монет
+// там же умножается на множитель лучшей открытой локации и считается сервером при оплате).
+var COIN_PACKS_CLIENT = [
+  {id:'c50', stars:50, coins:20000, bonus:''},
+  {id:'c100', stars:100, coins:44000, bonus:'+10%'},
+  {id:'c250', stars:250, coins:120000, bonus:'+20%'}
+];
+function renderCoinPacks() {
+  var m = maxUnlockedMult();
+  var html = '<div class="card">'
+    +'<div style="font-size:14px;font-weight:700;color:#FFD700;margin-bottom:4px">💰 '+t('Купить монеты','Buy coins')+'</div>'
+    +'<div style="font-size:11px;color:#90caf9;margin-bottom:10px">'+t('Монеты сразу на баланс — на прокачку, новые локации и транспорт','Coins straight to your balance — for upgrades, new locations and transport')+'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
+  for (var i=0; i<COIN_PACKS_CLIENT.length; i++) {
+    var pk = COIN_PACKS_CLIENT[i];
+    html += '<button class="btn" onclick="buyCoinPack(\''+pk.id+'\')" style="background:#0a1a2e;border:1px solid #1565c0;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:3px">'
+      +'<span style="font-size:15px;font-weight:700;color:#FFD700">🪙 '+fmtXp(pk.coins*m)+'</span>'
+      +(pk.bonus ? '<span style="font-size:10px;color:#6ddc6d">'+pk.bonus+'</span>' : '<span style="font-size:10px">&nbsp;</span>')
+      +'<span style="font-size:12px;color:#fff">⭐ '+pk.stars+'</span>'
+      +'</button>';
+  }
+  html += '</div></div>';
+  return html;
+}
+function buyCoinPack(packId) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  fetch(BOT_API_URL+'/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'buy_coins', pack:packId, init_data:tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.link) { showNotif('❌ '+(res.data&&res.data.error||t('не удалось создать счёт','could not create invoice'))); return; }
+      tg.openInvoice(res.data.link.replace('https://telegram.me/', 'https://t.me/'), function(status){
+        if (status === 'paid') {
+          showNotif(t('✅ Оплачено! Монеты сейчас придут','✅ Paid! Coins are on the way'));
+          // Сервер кладёт монеты в pending_purchases после подтверждения оплаты — забираем
+          // их через claim_bonuses, с повтором на случай, если оплата ещё обрабатывается.
+          setTimeout(function(){ checkAndApplyRefRewards(false); }, 2000);
+          setTimeout(function(){ checkAndApplyRefRewards(false); }, 8000);
+        }
+      });
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
 function renderBank() {
   var coins = Math.floor(state.coins);
   document.getElementById('content').innerHTML =
@@ -3553,6 +3603,7 @@ function renderBank() {
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:12px">'+t('Обменяй монеты на USDT (TON)','Exchange coins for USDT (TON)')+'</div>'
       +'<button class="btn btn-full" onclick="showDeposits()" style="background:#0a3a1a;color:#6ddc6d">🏦 '+t('Вклады','Deposits')+(state.deposits&&state.deposits.length?' ('+state.deposits.length+')':'')+'</button>'
     +'</div>'
+    +renderCoinPacks()
     +'<div class="card">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
         +'<div style="text-align:center;flex:1"><div style="font-size:28px">🪙</div><div style="font-size:13px;color:#90caf9;margin-top:4px">'+t('Монеты','Coins')+'</div><div style="font-size:18px;font-weight:700;color:#FFD700">'+fmt(state.coins)+'</div></div>'
@@ -6323,6 +6374,7 @@ function applyActionsResult(res, sentAt) {
   if (res.claimed && res.claimed.total > 0) {
     (res.claimed.details||[]).forEach(function(d){
       if (d.type==='ref') showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ')+d.from+': +🪙'+fmt(d.amount));
+      else if (d.type==='purchase') showNotif('💰 '+t('Покупка: +🪙','Purchase: +🪙')+fmt(d.amount));
       else showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙')+fmt(d.amount));
     });
   }
