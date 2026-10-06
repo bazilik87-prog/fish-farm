@@ -1288,7 +1288,7 @@ async def clear_pending_knives(request):
 # повторного полного чтения leaderboard, если много игроков открывают вкладку "Лидеры"
 # почти одновременно (а пока турнир активен, это постоянная ситуация).
 _TOURNAMENT_TOP_CACHE = {"ts": 0, "data": None}
-TOURNAMENT_TOP_CACHE_TTL_MS = 30000  # 30 секунд
+TOURNAMENT_TOP_CACHE_TTL_MS = 300000  # 5 минут — каждое обновление читает весь leaderboard (~1.2 МБ)
 
 
 async def tournament_top(request):
@@ -12738,8 +12738,18 @@ async def weekly_tournament_loop():
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             now_ms = int(time_module.time() * 1000)
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
-                    t = await resp.json()
+                # Каждую минуту читаем только active/endsAt (несколько байт), а весь узел с
+                # baseline всех игроков (~110 КБ) — лишь когда пора подводить итоги. Раньше
+                # он скачивался целиком раз в минуту: ~160 МБ трафика Firebase в сутки.
+                async with session.get(f"{base}/tournament/active.json{FB_AUTH}") as resp:
+                    active = await resp.json()
+                async with session.get(f"{base}/tournament/endsAt.json{FB_AUTH}") as resp:
+                    ends_at = await resp.json() or 0
+                if active and now_ms >= ends_at:
+                    async with session.get(f"{base}/tournament.json{FB_AUTH}") as resp:
+                        t = await resp.json()
+                else:
+                    t = None
                 if isinstance(t, dict) and t.get('active') and now_ms >= t.get('endsAt', 0):
                     try:
                         await _settle_weekly_tournament(session, base, t)
