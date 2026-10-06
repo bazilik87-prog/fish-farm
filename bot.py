@@ -16,6 +16,59 @@ from aiogram.types import (
 )
 from aiogram.exceptions import TelegramMigrateToChat, TelegramRetryAfter
 
+# ── Счётчик трафика Firebase (/traffic) ─────────────────────────────────────────
+# Firebase берёт деньги за каждый скачанный ГБ. Чтобы видеть, ЧТО именно качает бот,
+# каждую aiohttp-сессию оборачиваем трассировкой и копим байты ответов по пути запроса
+# (id игроков/кланов заменяем на {pid}/{id}). Только в памяти процесса, с момента запуска.
+import re as _re_traffic
+import aiohttp as _aiohttp_traffic
+
+_TRAFFIC = {}  # нормализованный путь -> [запросов, байт]
+_TRAFFIC_SINCE = time_module.time()
+
+
+def _traffic_key(url):
+    parts = []
+    for seg in url.path.strip('/').split('/'):
+        seg = seg[:-5] if seg.endswith('.json') else seg
+        if _re_traffic.match(r'^tg_\d+$', seg):
+            seg = '{pid}'
+        elif _re_traffic.match(r'^-[\w-]{10,}$', seg) or _re_traffic.match(r'^\d{4,}$', seg):
+            seg = '{id}'
+        parts.append(seg)
+    key = '/' + '/'.join(parts)
+    if 'shallow=true' in (url.query_string or ''):
+        key += ' (shallow)'
+    return key
+
+
+async def _traffic_on_chunk(session, ctx, params):
+    if 'firebaseio.com' not in (params.url.host or ''):
+        return
+    key = _traffic_key(params.url)
+    _TRAFFIC.setdefault(key, [0, 0])[1] += len(params.chunk)
+
+
+async def _traffic_on_request_end(session, ctx, params):
+    if 'firebaseio.com' in (params.url.host or '') and params.method == 'GET':
+        _TRAFFIC.setdefault(_traffic_key(params.url), [0, 0])[0] += 1
+
+
+_TRAFFIC_TRACE = _aiohttp_traffic.TraceConfig()
+_TRAFFIC_TRACE.on_response_chunk_received.append(_traffic_on_chunk)
+_TRAFFIC_TRACE.on_request_end.append(_traffic_on_request_end)
+_OrigClientSession = _aiohttp_traffic.ClientSession
+
+
+def _counting_client_session(*args, **kwargs):
+    kwargs['trace_configs'] = list(kwargs.get('trace_configs') or []) + [_TRAFFIC_TRACE]
+    return _OrigClientSession(*args, **kwargs)
+
+
+# Код бота везде делает `import aiohttp; aiohttp.ClientSession()` — подменяем атрибут модуля.
+# aiogram импортирован выше и держит свою ссылку на оригинал — трафик Telegram не считаем.
+_aiohttp_traffic.ClientSession = _counting_client_session
+
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
 GAME_URL  = os.getenv("GAME_URL",  "https://ВАШ_НИК.github.io/fish-farm/")
 ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
@@ -8550,6 +8603,32 @@ async def clanforce_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('traffic'))
+async def traffic_command(message: types.Message):
+    """Сколько бот скачал из Firebase с момента запуска — по разделам базы, с прогнозом
+    на сутки. /traffic reset — обнулить счётчик."""
+    global _TRAFFIC_SINCE
+    if message.from_user.id != ADMIN_ID:
+        return
+    if 'reset' in (message.text or ''):
+        _TRAFFIC.clear()
+        _TRAFFIC_SINCE = time_module.time()
+        await message.answer("🔄 Счётчик трафика обнулён.")
+        return
+    hours = max((time_module.time() - _TRAFFIC_SINCE) / 3600, 1 / 60)
+    total = sum(v[1] for v in _TRAFFIC.values())
+    lines = [f"📊 Трафик Firebase (бот) за {hours:.1f} ч: {total / 1048576:,.1f} МБ",
+             f"≈ {total / hours * 24 / 1073741824:,.2f} ГБ в сутки при таком темпе", ""]
+    for key, (calls, size) in sorted(_TRAFFIC.items(), key=lambda kv: -kv[1][1])[:15]:
+        avg = size / calls / 1024 if calls else 0
+        share = size / total * 100 if total else 0
+        lines.append(f"{share:4.1f}% · {size / 1048576:,.1f} МБ · {calls:,} запр. · ~{avg:,.1f} КБ\n   {key}")
+    if not _TRAFFIC:
+        lines.append("Пока ничего не скачано.")
+    lines.append("\nℹ️ Считается только бот, не игра у игроков. С момента последнего перезапуска бота.")
+    await message.answer('\n'.join(lines))
+
+
 # Игра перестала сама слать lottery_coins/grant_* 19.08.2026 (лотерея ушла на сервер).
 # До этой даты (+2 дня на старые версии в кэше Telegram) такие записи в action_logs —
 # честные призы; после — только подделанные запросы. Используется в /scanexploits.
@@ -9161,6 +9240,7 @@ async def comm_command(message: types.Message):
         "/clanslist — список всех созданных кланов (состав, капитан, дата)\n"
         "/clanxp ID ±N — посмотреть или поправить опыт клана\n"
         "/scanexploits — найти накрутку через старые команды лотереи (по журналу всех игроков)\n"
+        "/traffic — сколько бот качает из Firebase по разделам (/traffic reset — обнулить)\n"
         "/clantournaments — список активных клановых турниров (ID, статус, дедлайн)\n"
         "/clanforce ID — принудительно продвинуть зависший клановый турнир\n"
         "/bigfishingstatus — статус «Большой рыбалки» (набор или живой топ-5)\n"
