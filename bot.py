@@ -4703,52 +4703,6 @@ async def partner_check(request):
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
 
-async def referral_notify(request):
-    if request.method == 'OPTIONS':
-        return web.Response(status=200, headers=CORS)
-    try:
-        data = await request.json()
-    except Exception:
-        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
-
-    verified = validate_init_data(data.get('init_data', ''))
-    if not verified:
-        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    try:
-        ref_user = json.loads(verified.get('user', '{}'))
-    except Exception:
-        ref_user = {}
-    ref_username = ref_user.get('username')
-    ref_first_name = ref_user.get('first_name')
-    ref_name = f"@{ref_username}" if ref_username else (ref_first_name or 'Твой реферал')
-
-    referrer_id = data.get('referrer_id')
-    notify_type = data.get('type')
-
-    if not referrer_id:
-        return web.json_response({'error': 'no referrer_id'}, status=400, headers=CORS)
-
-    try:
-        if notify_type == 'rod2':
-            await bot.send_message(
-                int(referrer_id),
-                f"🎣 {ref_name} купил(а) удочку 2-го уровня!\n\n"
-                "🪙 +1000 монет уже ждут тебя в игре!",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
-                ]])
-            )
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-
-    return web.json_response({'ok': True}, headers=CORS)
-
-
-# ── Точный учёт денежных действий (замена оценочного "потолка") ─────────────
-# Клиент теперь шлёт КОНКРЕТНЫЕ действия (улов/продажа/апгрейд), а сервер считает
-# их стоимость по тем же формулам, что и index.html, используя РЕАЛЬНЫЙ (не заявленный
-# клиентом) уровень апгрейдов и РЕАЛЬНУЮ серверную цену рынка.
-
 BASE_PRICES = {
     'Карась': 0.5, 'Красноперка': 1.2, 'Лещ': 2.5, 'Щука': 6,
     'Окунь': 0.8, 'Выдра': 2, 'Крокодил': 5, 'Гиппо': 13,
@@ -7202,54 +7156,6 @@ async def broadcast_jackpot_win(username, amount):
             pass
         await asyncio.sleep(0.05)
     return sent
-
-
-async def jackpot_broadcast(request):
-    """
-    Устаревший путь — раньше клиент сам решал, что джекпот выигран, и звал этот endpoint.
-    Теперь решение принимает только сервер (pick_lottery_prize + apply_lottery_prize),
-    который сам вызывает broadcast_jackpot_win() напрямую. Эндпоинт оставлен для
-    обратной совместимости, но требует точного совпадения суммы с реальным джекпотом.
-    """
-    if request.method == 'OPTIONS':
-        return web.Response(status=200, headers=CORS)
-    try:
-        data = await request.json()
-    except Exception:
-        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
-
-    verified = validate_init_data(data.get('init_data', ''))
-    if not verified:
-        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
-    try:
-        real_user = json.loads(verified.get('user', '{}'))
-    except Exception:
-        real_user = {}
-    username = real_user.get('username') or real_user.get('first_name') or data.get('username', 'Игрок')
-    amount = data.get('amount', 0)
-
-    import aiohttp
-    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/jackpot/amount.json{FB_AUTH}") as resp:
-                current_jackpot = await resp.json()
-    except Exception:
-        current_jackpot = None
-    current_jackpot = current_jackpot or 50
-    # Порог тут — JACKPOT_WIN_THRESHOLD (125), не 50: пул может лежать и ниже 125, но
-    # РЕАЛЬНЫЙ выигрыш (который сюда приходит для ретрансляции) физически не может быть
-    # меньше порога выигрышности — см. pick_lottery_prize.
-    if not isinstance(amount, (int, float)) or amount < JACKPOT_WIN_THRESHOLD or abs(amount - current_jackpot) > 1:
-        return web.json_response({'error': 'сумма не совпадает с текущим джекпотом — используй /lottery_spin'}, status=400, headers=CORS)
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
-    except Exception:
-        pass
-
-    sent = await broadcast_jackpot_win(username, amount)
-    return web.json_response({'ok': True, 'sent': sent}, headers=CORS)
 
 
 @dp.message(CommandStart())
@@ -12860,8 +12766,6 @@ async def main():
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
     app.router.add_options('/invoice', create_invoice)
-    app.router.add_post('/referral_notify', referral_notify)
-    app.router.add_options('/referral_notify', referral_notify)
     app.router.add_post('/referral_market_list', referral_market_list)
     app.router.add_options('/referral_market_list', referral_market_list)
     app.router.add_post('/social_tasks_list', social_tasks_list)
@@ -12870,8 +12774,6 @@ async def main():
     app.router.add_options('/tournament_top', tournament_top)
     app.router.add_post('/claim_social_task', claim_social_task)
     app.router.add_options('/claim_social_task', claim_social_task)
-    app.router.add_post('/jackpot_broadcast', jackpot_broadcast)
-    app.router.add_options('/jackpot_broadcast', jackpot_broadcast)
     app.router.add_post('/lottery_spin', lottery_spin)
     app.router.add_options('/lottery_spin', lottery_spin)
     app.router.add_post('/weather_check', weather_check)
