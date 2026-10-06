@@ -2575,8 +2575,8 @@ async def _mutate_clan_members(session, base, clan_id, mutate_fn):
 # clan_claims/{pid}, тоже серверный путь (как pond_withdrawn), а не saves/{pid}, куда
 # клиент пишет сам.
 CLAN_LEVEL_XP = [0, 600, 1800, 4000, 8000, 14000, 24000, 40000, 64000, 100000]  # порог уровней 1..10
-CLAN_FISH_PER_XP_POND = 100        # рыб на 1 XP на Пруду
-CLAN_FISH_PER_XP_RIVER = 50        # рыб на 1 XP на Реке и дальше
+CLAN_FISH_PER_XP = 100             # рыб на 1 XP — на всех локациях (решение Саши, 06.10.2026)
+CLAN_FISH_FLUSH_SEC = 120          # опыт за улов копим в памяти и пишем в Firebase раз в 2 минуты
 CLAN_FISH_XP_DAILY_CAP = 30        # максимум XP за улов от одного участника в сутки (МСК)
 CLAN_BONUS_DELAY_MS = 3 * 24 * 3600 * 1000   # бонусы начинают действовать через 3 дня после вступления
 CLAN_NEWBIE_XP = 100               # новичок принёс клану первые 100 XP ...
@@ -2779,8 +2779,10 @@ async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, 
                     newbie_crossed = True
             members[pid] = m
         gain = member_gain + float(flat or 0)
+        member_day_fish = float(members[pid].get('dayFish') or 0) if pid and members.get(pid, {}).get('day') == day else 0.0
         if gain == 0:
-            return {'gained': 0.0, 'oldLevel': clan_level_for_xp(old_xp), 'newLevel': clan_level_for_xp(old_xp)}
+            return {'gained': 0.0, 'oldLevel': clan_level_for_xp(old_xp), 'newLevel': clan_level_for_xp(old_xp),
+                    'memberDayFish': member_day_fish}
         new_xp = max(0.0, round(old_xp + gain, 4))
         months[month] = round(float(months.get(month) or 0) + gain, 4)
         data.update(xp=new_xp, months=months, members=members)
@@ -2799,7 +2801,61 @@ async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, 
         await _clan_newbie_bonus(session, base, clan_id, pid, now_ms)
     if new_level != old_level:
         await _clan_on_level_change(session, base, clan_id, old_level, new_level)
-    return {'gained': gain, 'oldLevel': old_level, 'newLevel': new_level}
+    return {'gained': gain, 'oldLevel': old_level, 'newLevel': new_level, 'memberDayFish': member_day_fish}
+
+
+# Буфер опыта за улов: (clan_id, pid) -> накопленный XP. Раньше каждый /actions участника
+# клана читал и писал clan_xp/{id} в Firebase (раз в несколько секунд у каждого игрока).
+_CLAN_FISH_PENDING = {}
+# (clan_id, pid) -> день (МСК), в который участник уже упёрся в CLAN_FISH_XP_DAILY_CAP —
+# до следующего дня его улов вообще не копим и в Firebase не ходим.
+_CLAN_FISH_CAPPED = {}
+
+
+def queue_clan_fish_xp(clan_id, pid, fish_xp, now_ms):
+    key = (clan_id, pid)
+    if _CLAN_FISH_CAPPED.get(key) == _msk_day_key(now_ms):
+        return
+    _CLAN_FISH_PENDING[key] = _CLAN_FISH_PENDING.get(key, 0.0) + fish_xp
+
+
+async def flush_clan_fish_xp():
+    """Записывает накопленный опыт за улов в Firebase (clan_add_xp режет дневным потолком)."""
+    if not _CLAN_FISH_PENDING:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    batch = dict(_CLAN_FISH_PENDING)
+    _CLAN_FISH_PENDING.clear()
+    now_ms = int(time_module.time() * 1000)
+    day = _msk_day_key(now_ms)
+    sem = asyncio.Semaphore(8)
+    async with aiohttp.ClientSession() as session:
+        async def one(key, xp):
+            clan_id, pid = key
+            async with sem:
+                try:
+                    res = await clan_add_xp(session, base, clan_id, pid=pid, fish_xp=xp, now_ms=now_ms)
+                except Exception as e:
+                    res = None
+                    print(f"flush_clan_fish_xp {pid}: {e}")
+            if res is None:
+                # не записалось — вернём в буфер до следующего раза
+                _CLAN_FISH_PENDING[key] = _CLAN_FISH_PENDING.get(key, 0.0) + xp
+            elif res.get('memberDayFish', 0) >= CLAN_FISH_XP_DAILY_CAP - 1e-6:
+                _CLAN_FISH_CAPPED[key] = day
+        await asyncio.gather(*[one(k, v) for k, v in batch.items()])
+    for k in [k for k, d in _CLAN_FISH_CAPPED.items() if d != day]:
+        _CLAN_FISH_CAPPED.pop(k, None)
+
+
+async def clan_fish_flush_loop():
+    while True:
+        await asyncio.sleep(CLAN_FISH_FLUSH_SEC)
+        try:
+            await flush_clan_fish_xp()
+        except Exception as e:
+            print(f"Ошибка clan_fish_flush_loop: {e}")
 
 
 async def _clan_newbie_bonus(session, base, clan_id, pid, now_ms):
@@ -5895,7 +5951,7 @@ async def process_actions(request):
             total_earned += earned
             caught += 1
             unsold += 1
-            clan_fish_xp += 1 / (CLAN_FISH_PER_XP_POND if loc == 'pond' else CLAN_FISH_PER_XP_RIVER)
+            clan_fish_xp += 1 / CLAN_FISH_PER_XP
             # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру —
             # начисляется здесь, при ПЕРВОМ улове реферала в жизни, а не сразу по /start
             # (см. комментарий в register_referral) — так фермы пустых аккаунтов больше
@@ -6730,12 +6786,10 @@ async def process_actions(request):
             if caught > caught_before_request:
                 await _bf_track_catch(session, base, pid)
             # Опыт клану за улов — уже после успешной записи сейва, чтобы не начислить за
-            # улов, который так и не сохранился. Сбой здесь не должен ронять запрос.
+            # улов, который так и не сохранился. Не пишем в Firebase на каждый запрос —
+            # копим в памяти, clan_fish_flush_loop сбрасывает раз в CLAN_FISH_FLUSH_SEC.
             if clan_fish_xp > 0 and clan_ctx['member']:
-                try:
-                    await clan_add_xp(session, base, clan_ctx['clanId'], pid=pid, fish_xp=clan_fish_xp, now_ms=now_ms)
-                except Exception as e:
-                    print(f"clan fish xp {pid}: {e}")
+                queue_clan_fish_xp(clan_ctx['clanId'], pid, clan_fish_xp, now_ms)
 
             # Диагностический лог для поиска гонки записи (несколько параллельных /actions
             # читают один и тот же стартовый баланс и перезаписывают друг друга — см. жалобы
@@ -12870,7 +12924,21 @@ async def main():
         asyncio.create_task(big_fishing_loop())
         asyncio.create_task(weekly_tournament_loop())
         asyncio.create_task(clan_month_loop())
-        await asyncio.Event().wait()  # держим процесс живым — всю работу делает aiohttp-сервер выше
+        asyncio.create_task(clan_fish_flush_loop())
+        # Держим процесс живым — всю работу делает aiohttp-сервер выше. При остановке
+        # (Railway шлёт SIGTERM на каждом деплое) успеваем сбросить буфер опыта за улов.
+        import signal
+        stop = asyncio.Event()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                asyncio.get_running_loop().add_signal_handler(sig, stop.set)
+            except (NotImplementedError, RuntimeError):
+                pass
+        await stop.wait()
+        try:
+            await asyncio.wait_for(flush_clan_fish_xp(), timeout=8)
+        except Exception as e:
+            print(f"Не удалось сбросить опыт за улов при остановке: {e}")
     else:
         # Фолбэк на polling, если PUBLIC_URL не задан (например, при локальном тестировании)
         runner = web.AppRunner(app)
@@ -12889,6 +12957,7 @@ async def main():
         asyncio.create_task(big_fishing_loop())
         asyncio.create_task(weekly_tournament_loop())
         asyncio.create_task(clan_month_loop())
+        asyncio.create_task(clan_fish_flush_loop())
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
