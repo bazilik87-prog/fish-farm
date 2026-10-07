@@ -1150,6 +1150,8 @@ function syncMoneyToServer() {
       if (res.sweptA) state.delivery = null;
       if (res.sweptB) state.delivery2 = null;
       showNotif('📦 '+t('Забрали зависшую доставку: +','Recovered a stuck delivery: +')+'🪙'+fmt(res.swept));
+      // Сервер кладёт эти деньги в отложенные награды — забираем их обычным путём.
+      checkAndApplyRefRewards(false);
     }
     updateUI();
     localStorage.setItem(SAVE_KEY, JSON.stringify(Object.assign(
@@ -6423,6 +6425,7 @@ function flushActions() {
   window._pendingActions = [];
   savePendingActionsLocally();
   var sentAt = Date.now();
+  window._lastActionsSentAt = sentAt; // см. пинг автодохода ниже (setInterval в старте игры)
   fetch(BOT_API_URL + '/actions', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -7371,6 +7374,16 @@ function startGame() {
       setInterval(updateTournamentBanner, 30000);
       checkClanStatus();
       setInterval(checkClanStatus, 60000);
+      // Автодоход начисляет сервер при каждом /actions (сам /sync с 07.10 ничего не
+      // прибавляет). Если игрок открыл игру и ничего не делает, раз в 3 минуты шлём
+      // пустое действие 'ping' — сервер начислит накопленное и вернёт точный баланс.
+      setInterval(function(){
+        if (document.hidden || !tg || !tg.initData) return;
+        if (window._pendingActions && window._pendingActions.length) return;
+        if (Date.now() - (window._lastActionsSentAt || 0) < 180000) return;
+        queueAction({type:'ping', loc: state.currentLoc});
+        flushActions();
+      }, 60000);
       setInterval(updateClanTournamentBanner, 30000);
       checkVote();
       setInterval(checkVote, 30000);

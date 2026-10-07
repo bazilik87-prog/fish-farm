@@ -5844,8 +5844,15 @@ async def process_actions(request):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as resp:
+                sv_etag = resp.headers.get("ETag")
                 sv = await resp.json()
+        # Нетронутая копия для первой попытки записи ниже: если за время обработки сейв
+        # никто не менял, повторно его не скачиваем (If-Match с этим ETag всё равно
+        # отклонит запись, если изменения были, — тогда перечитаем). Чтения saves/{pid}
+        # были основным трафиком Firebase (/traffic, 07.10).
+        import copy as _copy
+        sv_initial = _copy.deepcopy(sv)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -6333,6 +6340,12 @@ async def process_actions(request):
             coins -= cost
             spent_accum += cost
 
+        elif a_type == 'ping':
+            # «Я в игре» — игра шлёт раз в несколько минут, когда игрок ничего не делает.
+            # Само действие пустое: смысл в том, что этот /actions начислит автодоход за
+            # прошедшее время (fresh_auto_earned) и вернёт игре точный баланс.
+            pass
+
         elif a_type == 'use_truck_ticket':
             # Билет на аренду грузовика (12 ч) — сами билеты и срок аренды теперь считает
             # сервер (truckTickets / truckRentalUntil), см. retry-цикл записи ниже.
@@ -6648,9 +6661,12 @@ async def process_actions(request):
             log_quest_reward = 0.0
             log_comeback_reward = 0.0
             for save_attempt in range(6):
-                async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
-                    setag = sresp.headers.get("ETag")
-                    fresh_sv = await sresp.json()
+                if save_attempt == 0 and sv_etag:
+                    setag, fresh_sv = sv_etag, _copy.deepcopy(sv_initial)
+                else:
+                    async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as sresp:
+                        setag = sresp.headers.get("ETag")
+                        fresh_sv = await sresp.json()
                 fresh_sv = fresh_sv or {}
                 # Сбрасываем на каждой попытке — честно пересчитываем всю пачку заново от
                 # fresh_sv, поэтому только значения ПОСЛЕДНЕЙ (успешной) попытки должны попасть
@@ -6969,13 +6985,17 @@ async def process_actions(request):
     }, headers=CORS)
 
 
+_SYNC_CLAIM_LOGGED = {}  # pid -> когда последний раз записали «игра заявила больше, чем есть»
+_SYNC_LAST_RESPONSE = {}  # pid -> (ts, ответ) — антиспам /sync, см. SYNC_MIN_INTERVAL_MS
+SYNC_MIN_INTERVAL_MS = 5000
+
+
 async def sync_state(request):
     """
-    Игрок присылает своё текущее состояние (coins/caught/totalEarned/energy и т.д.).
-    Сервер сверяет с последним подтверждённым состоянием в Firebase и с реальным
-    прошедшим временем — и если прирост превышает физически возможный потолок,
-    обрезает его, а не пишет слепо. Это единственный путь, которым клиент теперь
-    может менять денежные поля; прямая запись в Firebase для них закрыта правилами.
+    Возвращает серверное состояние игрока (coins/caught/totalEarned, энергию с регеном
+    по времени) и забирает зависшую в эскроу доставку. Ничего из присланного игрой НЕ
+    записывает (с 07.10.2026) — см. комментарий в теле функции. Подозрительно большие
+    заявки пишет в action_logs и suspicious_actions (для /scanexploits).
     """
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -7000,48 +7020,44 @@ async def sync_state(request):
 
     _ONLINE_SEEN[pid] = int(time_module.time() * 1000)  # для online_count
     try:
-        req_coins = float(data.get('coins', 0) or 0)
+        req_coins = float(data.get('coins', 0) or 0)  # только для поиска подозрительных заявок
         req_caught = int(data.get('caught', 0) or 0)
-        req_total_earned = float(data.get('totalEarned', 0) or 0)
-        req_energy = data.get('energy', None)
     except (TypeError, ValueError):
         return web.json_response({'error': 'invalid payload'}, status=400, headers=CORS)
 
+    now_ms = int(time.time() * 1000)
+    # Не чаще раза в 5 с на игрока: в ответ на спам отдаём прошлый ответ без единого
+    # обращения к Firebase (подтверждено /traffic 07.10: ~1.5 /sync в секунду от скрипта).
+    cached = _SYNC_LAST_RESPONSE.get(pid)
+    if cached and now_ms - cached[0] < SYNC_MIN_INTERVAL_MS:
+        return web.json_response(cached[1], headers=CORS)
+
+    # Сохранение целиком не читаем — у активных игроков оно десятки-сотни КБ (список
+    # живой рыбы и т.п.), а здесь нужны только числа. shallow=true отдаёт простые поля
+    # значениями, а вложенные объекты — просто true; ulocs (массив) читаем отдельно.
+    # Подтверждено /traffic 07.10: чтения saves/{pid} давали 98.7% трафика бота.
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as resp:
+            async with session.get(f"{base}/saves/{pid}.json?shallow=true{FB_AUTH.replace('?', '&')}") as resp:
                 prev = await resp.json()
+            prev = prev if isinstance(prev, dict) else {}
+            if prev.get('ulocs'):
+                async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as resp:
+                    prev['ulocs'] = await resp.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
-    now_ms = int(time.time() * 1000)
-
-    if not prev:
-        # Первый синк для этого игрока — просто фиксируем стартовое состояние без проверок
-        # (по умолчанию у нового игрока и так coins:0, разгонять там нечего).
-        prev = {}
-        elapsed_ms = 0
-    else:
-        # ВАЖНО: окно потолка считаем от lastSyncCheckMs — ОТДЕЛЬНОГО поля, которое
-        # обновляет только этот эндпоинт (см. запись ниже), а НЕ от lastSeen (тем
-        # управляет исключительно /actions — для комбэк-бонуса и офлайн-дохода, см.
-        # комментарий у PATCH ниже). Раньше здесь ошибочно использовался lastSeen:
-        # если игрок между /sync не шлёт /actions, lastSeen не двигается, и КАЖДЫЙ
-        # повторный /sync получал потолок заново от той же (растущей по факту часов)
-        # точки — то есть одно и то же временное окно оплачивалось многократно вместо
-        # одного раза. Подтверждённый случай (19.09, ID 1873407633): игрок спамил
-        # /sync каждые 5-9с и получал по потолку заново на каждый вызов — +19,809,
-        # затем +19,890, +19,961... — набрал 1.8М totalEarned за ~2 часа с 335 уловов.
-        # lastSyncCheckMs может отсутствовать у игроков, синкавшихся ДО этого фикса —
-        # тогда падаем на lastSeen как раньше (одна переходная неточность, не дыра).
-        sync_ref_ms = prev.get('lastSyncCheckMs')
-        if sync_ref_ms is None:
-            sync_ref_ms = prev.get('lastSeen') or now_ms
-        elapsed_ms = max(0, now_ms - sync_ref_ms)
-
-    prev_coins = float(prev.get('coins', 0) or 0)
-    prev_caught = int(prev.get('caught', 0) or 0)
-    prev_total_earned = float(prev.get('totalEarned', 0) or 0)
+    # /sync больше НИЧЕГО не прибавляет из того, что прислала игра (решение 07.10.2026).
+    # Раньше прирост coins/caught/totalEarned принимался до «потолка» compute_earning_ceiling
+    # с запасом 200 монет/мин на доставки и бонусы — но все эти доходы давно считает
+    # сервер в /actions, и запас стал бесплатными деньгами для скрипта, который спамит
+    # /sync (ID 5713442885: ~1000 монет/мин, 198к «заработано» при 434 пойманных рыбах).
+    # Энергию тоже принимали от игры — это давало бесконечную рыбалку. Теперь: монеты,
+    # улов и «заработано» — только серверные; энергия — серверная с регеном по времени.
+    # Автодоход/офлайн-доход начисляет /actions (игра раз в несколько минут шлёт 'ping').
+    final_coins = round(float(prev.get('coins', 0) or 0) * 100) / 100
+    final_caught = int(prev.get('caught', 0) or 0)
+    final_total_earned = round(float(prev.get('totalEarned', 0) or 0) * 100) / 100
 
     is_prem = await is_premium(real_user_id)
     try:
@@ -7049,117 +7065,38 @@ async def sync_state(request):
             clan_ctx = await clan_bonus_ctx(session, base, pid, prev)
     except Exception:
         clan_ctx = await clan_bonus_ctx(None, base, pid, {})
-    clan_bonus = clan_ctx['bonuses']
-    coin_ceiling, catch_ceiling = compute_earning_ceiling(prev, is_prem, elapsed_ms, 1 + clan_bonus['autoPct'] / 100)
+    max_energy = (150 if is_prem else 100) + clan_ctx['bonuses']['maxEnergy']
+    last_energy_update = prev.get('lastEnergyUpdate') or now_ms
+    stored_energy = float(prev.get('energy', max_energy) if prev.get('energy') is not None else max_energy)
+    final_energy = round(min(max_energy, stored_energy + max(0, (now_ms - last_energy_update) / 1000) / ENERGY_REGEN_SEC) * 100) / 100
 
-    coin_delta = req_coins - prev_coins
-    earned_delta = req_total_earned - prev_total_earned
-    catch_delta = req_caught - prev_caught
-
-    suspicious = False
-    final_coins = req_coins
-    final_total_earned = req_total_earned
-    final_caught = req_caught
-
-    # Рост coins должен быть подкреплён соответствующим ростом totalEarned — честно
-    # заработанные монеты ВСЕГДА увеличивают оба поля вместе (тап/автодоход/продажа
-    # добавляют одинаковую сумму к обоим). Единственный легальный способ, которым coins
-    # растёт, а totalEarned нет, отсутствует — поэтому если клиент прислал coin_delta
-    # больше, чем реально подтверждённый earned_delta, урезаем coins до заявленного
-    # earned_delta. Это отдельная проверка ДО общего потолка ceiling, потому что раньше
-    # оба потолка проверялись независимо и позволяли раздувать coins, не трогая
-    # totalEarned (см. кейс @pskenny — coins на десятки тысяч при totalEarned:0).
-    if coin_delta > 0:
-        backed_delta = max(0.0, earned_delta)
-        if coin_delta > backed_delta + 0.01:  # небольшой допуск на округление
-            suspicious = True
-            coin_delta = backed_delta
-            final_coins = round((prev_coins + coin_delta) * 100) / 100
-
-    # Симметричная дыра в обратную сторону: totalEarned мог расти на любую сумму вплоть
-    # до общего потолка, вообще НЕ будучи подкреплён ростом coins — единственная проверка
-    # была "не больше потолка", а потолок специально щедрый (включает потенциал активной
-    # игры на весь elapsed, а не только пассивный офлайн-доход). Подтверждённый случай:
-    # игрок с очень скромным снаряжением поднял +324,844 totalEarned за 5.5ч турнира,
-    # при этом coins почти не изменился — баланс выглядел чисто, а прирост в турнирном
-    # зачёте (который считает именно totalEarned) был полностью сфабрикован через /sync.
-    # Зеркалить "в лоб" (обрезать earned_delta до coin_delta) нельзя — честный активный
-    # игрок вполне может заработать и тут же потратить в ту же сессию (апгрейды/вклад),
-    # тогда totalEarned легитимно растёт быстрее coins. Поэтому earned_delta должен быть
-    # подкреплён coin_delta ПЛЮС тем, что реально подтверждённо потрачено через /actions
-    # с прошлого /sync (spentSinceSync — копится в process_actions на каждом coins -= …,
-    # см. spent_accum) — это и есть честная бухгалтерия: totalEarned = coins + потрачено.
-    spent_since_sync = float(prev.get('spentSinceSync', 0) or 0)
-    if earned_delta > 0:
-        earned_backed_delta = max(0.0, coin_delta) + spent_since_sync
-        if earned_delta > earned_backed_delta + 0.01:
-            suspicious = True
-            earned_delta = earned_backed_delta
-            final_total_earned = round((prev_total_earned + earned_delta) * 100) / 100
-
-    if coin_delta > coin_ceiling:
-        suspicious = True
-        final_coins = round((prev_coins + coin_ceiling) * 100) / 100
-    if earned_delta > coin_ceiling:
-        suspicious = True
-        final_total_earned = round((prev_total_earned + coin_ceiling) * 100) / 100
-    if catch_delta > catch_ceiling:
-        suspicious = True
-        final_caught = prev_caught + int(catch_ceiling)
-    # Баланс НИЖЕ серверного /sync больше не принимает. Раньше это считалось «тратой»,
-    # но все траты давно идут через /actions (апгрейды, транспорт, ремонт, соль/ножи,
-    # локации, вклады) или оплату (вывод) и списываются на сервере. Меньшее число от
-    # клиента — всегда устаревшая копия: она затирала только что начисленные сервером
-    # монеты (покупка монет, бонусы, призы) и могла списать трату дважды — сначала
-    # /sync, потом сам /actions с той же покупкой (06.10.2026).
-    if coin_delta < 0:
-        final_coins = round(prev_coins * 100) / 100
-
-    # caught и totalEarned — лайфтайм-счётчики: рыба, пойманная за всю игру, и звёзды,
-    # заработанные за всю игру, обратно не уменьшаются (в отличие от coins, которые
-    # тратятся). До этой проверки отрицательный catch_delta/earned_delta ничем не
-    # отличался от положительного — сервер писал МЕНЬШЕЕ значение, если клиент его
-    # прислал. А клиент может прислать меньшее значение не только при читерстве:
-    # второе открытое устройство/вкладка с устаревшим локальным состоянием, или
-    # перезагрузка страницы до того, как свежее значение из Firebase подтянулось в
-    # локальную переменную — оба случая шлют в /sync "вчерашний" caught. Раньше это
-    # тихо записывалось в saves/{pid}/caught, а на следующем /actions ЭТО меньшее
-    # значение (плюс новый улов) уезжало в leaderboard/{pid}/caught — откуда живой
-    # счёт клановых турниров (_tournament_live_catches = leaderboard.caught минус
-    # снэпшот на старте) читает данные. Итог — участник турнира видел, как его счёт
-    # визуально падает, будто пойманная рыба исчезла, хотя на самом деле сервер просто
-    # принял устаревшее число от одного из его устройств. Теперь уменьшение полностью
-    # игнорируем, оставляя прежнее подтверждённое значение, и помечаем suspicious —
-    # чтобы такие случаи (реальный рассинхрон между устройствами, не только чит-попытки)
-    # были видны в /actionlog так же, как обрезка по потолку.
-    if catch_delta < 0:
-        suspicious = True
-        final_caught = prev_caught
-    if earned_delta < 0:
-        suspicious = True
-        final_total_earned = prev_total_earned
-
-    # Тратя монеты, игрок НИКОГДА не задевает caught/totalEarned — апгрейд, депозит,
-    # доставка меняют только coins. Если в ОДНОМ запросе просели ВСЕ ТРИ поля сразу
-    # (coin_delta<0 одновременно с catch_delta<0 и earned_delta<0) — это не трата, а
-    # клиент прислал целиком мусорный/пустой снимок состояния (гонка при старте до
-    # того, как реальные данные подгрузились из Firebase, вторая вкладка со старым
-    # state и т.п.). caught/totalEarned для такого случая уже защищены проверками
-    # выше — доверять coins из ТОГО ЖЕ запроса так же нельзя, иначе именно это
-    # "разрешение на трату" тихо обнуляет весь баланс. Подтверждённый случай: ID
-    # 1714272195, 15.09, coins 54,822→169 (спасло только совпадение с эскроу-свипом,
-    # без него ушло бы в 0), caught и totalEarned обнулились в том же запросе.
-    if coin_delta < 0 and catch_delta < 0 and earned_delta < 0:
-        suspicious = True
-        final_coins = round(prev_coins * 100) / 100
-
-    max_energy = (150 if is_prem else 100) + clan_bonus['maxEnergy']
-    final_energy = min(float(req_energy), max_energy) if req_energy is not None else prev.get('energy', max_energy)
+    # Игра прислала намного больше, чем есть на сервере, — честная игра так не делает
+    # (у честного клиента разница — минуты автодохода). Пишем в журнал и в
+    # suspicious_actions для /scanexploits, не чаще раза в 10 минут на игрока.
+    claim_coins = req_coins - final_coins
+    claim_caught = req_caught - final_caught
+    if (claim_coins > 20000 or claim_caught > 1000) and now_ms - _SYNC_CLAIM_LOGGED.get(pid, 0) > 600000:
+        _SYNC_CLAIM_LOGGED[pid] = now_ms
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
+                    "ts": now_ms, "coins_before": final_coins, "coins_after": final_coins, "n_actions": 1,
+                    "src": "sync",
+                    "details": [f"sync: игра заявила coins {req_coins:,.0f} / caught {req_caught:,} при серверных "
+                                f"{final_coins:,.0f} / {final_caught:,} — не принято ⚠️ ПОДОЗРИТЕЛЬНО"]
+                })
+                url = f"{base}/suspicious_actions/{pid}.json{FB_AUTH}"
+                async with session.get(url) as resp:
+                    cur = await resp.json()
+                cur = cur if isinstance(cur, dict) else {}
+                await session.put(url, json={**cur, 'syncClaims': int(cur.get('syncClaims') or 0) + 1,
+                                             'firstTs': cur.get('firstTs') or now_ms, 'lastTs': now_ms})
+        except Exception as e:
+            print(f"sync claim log {pid}: {e}")
 
     # Подстраховка от "потерянной" доставки (см. sweep_stale_escrow) — если деньги в
     # эскроу зависли дольше физически возможного времени доставки, забираем их сейчас,
-    # НЕ дожидаясь клиентского collect_delivery. Делаем это до общей проверки потолка —
-    # см. чуть ниже почему пишем это отдельным полем, а не через coin_delta.
+    # НЕ дожидаясь клиентского collect_delivery.
     swept = 0.0
     swept_a = swept_b = False
     try:
@@ -7168,100 +7105,40 @@ async def sync_state(request):
     except Exception:
         swept = 0.0
     if swept > 0:
-        # Это подтверждённые, реально заработанные деньги (клиент их уже когда-то продал —
-        # см. 'sell' в process_actions), просто застрявшие. Добавляем НАПРЯМУЮ к уже
-        # посчитанным final_coins/final_total_earned, в обход потолка /sync — потолок
-        # существует для того, чтобы клиент не мог наврать про офлайн-доход, а не для
-        # денег, которые сервер сам подтвердил и сам же сейчас зачисляет.
-        final_coins = round((final_coins + swept) * 100) / 100
-        final_total_earned = round((final_total_earned + swept) * 100) / 100
-
-    # Уведомление о срабатывании потолка /sync отключено по просьбе — слишком много шума.
-    # Сама обрезка подозрительного прироста продолжает работать как прежде.
-
-    # Пишем ТОЛЬКО денежные поля через защищённый серверный путь.
-    # Остальные (drying, salting, upgLevels и т.д.) продолжает писать клиент напрямую —
-    # это следующий шаг переноса, не в рамках этого эндпоинта.
-    # lastSeen сюда НЕ пишем — этим полем управляет исключительно /actions (там значение
-    # читается ОДИН РАЗ в начале обработки и используется для расчёта авто-дохода и
-    # комбэк-бонуса за реальное время отсутствия, а обновляется на "сейчас" только в конце
-    # того же запроса). Если писать lastSeen ещё и здесь, /sync срабатывает уже через
-    # несколько секунд после открытия игры и обнуляет реальное время отсутствия ДО того,
-    # как игрок успеет забрать комбэк-бонус или сервер посчитает офлайн-доход — оба
-    # оказываются урезаны почти до нуля. Подтверждённый случай: ID 8824257585, 8 дней
-    # отсутствия, бонус +500 показан клиентом, но отклонён сервером как "не прошло 3 дня".
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                "coins": final_coins,
-                "caught": final_caught,
-                "totalEarned": final_total_earned,
-                "energy": final_energy,
-                "lastEnergyUpdate": now_ms,
-                "spentSinceSync": 0,  # "использовано" в проверке earned_delta выше — обнуляем,
-                # иначе те же траты будут засчитываться повторно на каждом следующем /sync
-                "lastSyncCheckMs": now_ms  # окно потолка на СЛЕДУЮЩЕМ /sync считается от
-                # ЭТОГО момента, а не от lastSeen — см. комментарий у elapsed_ms выше.
-                # Пишем ВСЕГДА, даже если suspicious=True и прирост обрезан: окно должно
-                # схлопываться после КАЖДОГО обработанного /sync, иначе повторный спам с
-                # тем же (уже урезанным) потолком снова насчитает почти столько же.
-            })
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500, headers=CORS)
-
-    # Диагностический лог — та же цель, что и action_logs в process_actions/лотерее:
-    # без этого крупные ЛЕГИТИМНЫЕ приросты оффлайн-дохода через /sync были НЕВИДИМЫ в
-    # /actionlog (он показывает только записи /actions) — такой прирост тихо попадал в
-    # saves/{pid}/coins ДО следующего /actions-запроса, и весь скачок при аудите выглядел
-    # так, будто его сделало первое попавшееся действие в ЭТОМ запросе (реальный случай:
-    # @parjary, 13.09 — 43,971 оффлайн-дохода от Сети/Лодки/Сонара записал именно /sync за
-    # несколько секунд до claim_bonuses, а в логе это ошибочно выглядело как один сплошной
-    # скачок claim_bonuses). Порог 10,000 — тот же, что в summarize_actions_for_log, чтобы
-    # не раздувать лог на каждый чих обычной игры (тут /sync дёргается раз в 8с). Клэмп
-    # (suspicious) логируем ВСЕГДА независимо от порога — именно это и есть сигнал
-    # античита, даже если сумма на старте игры маленькая.
-    try:
-        sync_delta = round((final_coins - prev_coins) * 100) / 100
-        if suspicious or swept > 0 or abs(sync_delta) >= 10000:
-            elapsed_days = round(elapsed_ms / 86400000, 2)
-            sign = '+' if sync_delta >= 0 else ''
-            detail = f"sync: {sign}{sync_delta:,.0f} за {elapsed_days}д (потолок {coin_ceiling:,.0f})"
-            if suspicious:
-                detail += " ⚠️ ОБРЕЗАНО"
-            if swept > 0:
-                detail += f" | 📦 забрана зависшая доставка: +{swept:,.0f} (escrow lost>{ESCROW_SWEEP_MS//3600000}ч)"
-            # Раньше detail описывал только coins — если clamp сработал на caught/totalEarned
-            # (см. фикс "исчезающей рыбы" в турнирах), это никак не было видно в /actionlog:
-            # запись говорила "ОБРЕЗАНО", а числа показывали coins, которые вообще не трогали.
-            # Добавляем отдельную строку именно для этого случая — это и есть тот сигнал,
-            # по которому можно найти игроков с рассинхроном между устройствами.
-            if catch_delta < 0:
-                detail += f" | caught: клиент прислал {req_caught:,} (было {prev_caught:,}, -{prev_caught - req_caught:,}) — оставлено {prev_caught:,}"
-            if earned_delta < 0:
-                detail += f" | totalEarned: клиент прислал {req_total_earned:,.0f} (было {prev_total_earned:,.0f}) — оставлено {prev_total_earned:,.0f}"
+        # Подтверждённые сервером деньги, просто застрявшие в эскроу. Не пишем coins
+        # напрямую (это гонялось бы с /actions), а кладём в pending_rewards — игра заберёт
+        # через claim_bonuses (в coins и totalEarned, как обычную продажу).
+        try:
             async with aiohttp.ClientSession() as session:
+                await session.put(f"{base}/pending_rewards/{pid}/escrow_sweep_{now_ms}.json{FB_AUTH}",
+                                  json=round(swept * 100) / 100)
                 await session.post(f"{base}/action_logs/{pid}.json{FB_AUTH}", json={
-                    "ts": now_ms,
-                    "coins_before": round(prev_coins * 100) / 100,
-                    "coins_after": final_coins,
-                    "n_actions": 1,
+                    "ts": now_ms, "coins_before": final_coins, "coins_after": final_coins, "n_actions": 1,
                     "src": "sync",
-                    "details": [detail]
+                    "details": [f"📦 забрана зависшая доставка: +{swept:,.0f} (escrow lost>{ESCROW_SWEEP_MS//3600000}ч) "
+                                f"— в pending_rewards, придёт через claim_bonuses"]
                 })
-    except Exception:
-        pass
+        except Exception as e:
+            await _alert_payment_fulfillment_failed(real_user_id, "Зависшая доставка",
+                                                    detail=f"забрали из эскроу {swept}, но не записали в pending_rewards: {e}")
 
-    return web.json_response({
+    result = {
         'ok': True,
         'coins': final_coins,
         'caught': final_caught,
         'totalEarned': final_total_earned,
         'energy': final_energy,
-        'clamped': suspicious,
+        'clamped': False,
         'swept': swept,
         'sweptA': swept_a,
         'sweptB': swept_b
-    }, headers=CORS)
+    }
+    # В кэш для антиспама — без swept, чтобы повтор не показал «забрали доставку» дважды.
+    _SYNC_LAST_RESPONSE[pid] = (now_ms, {**result, 'swept': 0.0, 'sweptA': False, 'sweptB': False})
+    if len(_SYNC_LAST_RESPONSE) > 20000:
+        for k in [k for k, v in _SYNC_LAST_RESPONSE.items() if now_ms - v[0] > SYNC_MIN_INTERVAL_MS]:
+            _SYNC_LAST_RESPONSE.pop(k, None)
+    return web.json_response(result, headers=CORS)
 
 
 async def broadcast_jackpot_win(username, amount):
