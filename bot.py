@@ -1461,11 +1461,15 @@ async def social_tasks_list(request):
                 tasks = await resp.json()
             async with session.get(f"{base}/saves/{pid}/socialClaimed.json{FB_AUTH}") as resp2:
                 claimed = await resp2.json()
+            async with session.get(f"{base}/social_claimed/{pid}.json{FB_AUTH}") as resp3:
+                claimed_srv = await resp3.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     tasks = tasks or {}
-    claimed = claimed or {}
+    claimed = dict(claimed) if isinstance(claimed, dict) else {}
+    if isinstance(claimed_srv, dict):
+        claimed.update(claimed_srv)
     result = []
     # Сортируем по task_id (в нём зашит unix-таймстамп создания: task_<ts>) по убыванию —
     # самое новое задание должно быть ПЕРВЫМ в списке, отодвигая старые вниз. Раньше
@@ -1487,6 +1491,25 @@ async def social_tasks_list(request):
             'claimed': bool(claimed.get(task_id)),
         })
     return web.json_response({'ok': True, 'tasks': result}, headers=CORS)
+
+
+async def claim_server_flag(session, url, value):
+    """Ставит флаг в закрытом узле (social_claimed/…, ad_cooldown/…) ровно один раз: True — поставили мы,
+    False — флаг уже стоял (или его поставил параллельный запрос). Узлы закрыты правилами (корень
+    .write: false) — в отличие от полей saves/{pid}, которые игрок может переписать сам."""
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+            etag = r.headers.get("ETag")
+            cur = await r.json()
+        if cur:
+            return False
+        async with session.put(url, json=value, headers={"If-Match": etag} if etag else {}) as w:
+            if w.status == 412:
+                continue
+            if w.status not in (200, 204):
+                raise RuntimeError(f"flag PUT {w.status}")
+            return True
+    raise RuntimeError('flag: too many conflicts')
 
 
 async def claim_social_task(request):
@@ -1513,7 +1536,7 @@ async def claim_social_task(request):
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
     task_id = str(data.get('task_id', '')).strip()
-    if not task_id:
+    if not task_id or not _re_traffic.fullmatch(r'[A-Za-z0-9_\-]{1,64}', task_id):
         return web.json_response({'error': 'invalid task'}, status=400, headers=CORS)
 
     import aiohttp
@@ -1531,12 +1554,18 @@ async def claim_social_task(request):
     if task.get('expires_at') and int(time_module.time() * 1000) >= task.get('expires_at'):
         return web.json_response({'error': 'срок действия задания истёк'}, status=400, headers=CORS)
 
+    # Отметка «уже получено» раньше жила только в saves/{pid}/socialClaimed — а saves открыт игроку
+    # на запись, и её можно было стереть и забрать награду снова (задания-ссылки — без всякой
+    # проверки, бесконечно). С 08.10.2026 главная отметка — закрытый узел social_claimed/{pid}/{task}.
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/saves/{pid}/socialClaimed/{task_id}.json{FB_AUTH}") as resp:
                 already = await resp.json()
-    except Exception:
-        already = False
+            if not already:
+                async with session.get(f"{base}/social_claimed/{pid}/{task_id}.json{FB_AUTH}") as resp:
+                    already = await resp.json()
+    except Exception as e:
+        return web.json_response({'error': f'не удалось проверить: {e}'}, status=500, headers=CORS)
     if already:
         return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
 
@@ -1572,6 +1601,10 @@ async def claim_social_task(request):
     saves_url = f"{base}/saves/{pid}.json{FB_AUTH}"
     try:
         async with aiohttp.ClientSession() as session:
+            # Сначала ставим закрытую отметку — кто её поставил, тот и получает награду (один раз).
+            if not await claim_server_flag(session, f"{base}/social_claimed/{pid}/{task_id}.json{FB_AUTH}",
+                                           int(time_module.time() * 1000)):
+                return web.json_response({'error': 'уже получено'}, status=400, headers=CORS)
             for attempt in range(6):
                 async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
                     etag = resp.headers.get("ETag")
@@ -1596,11 +1629,17 @@ async def claim_social_task(request):
                     if put_resp.status == 412:
                         continue
                     if put_resp.status not in (200, 204):
-                        return web.json_response({'error': f'saves PUT failed: {put_resp.status}'}, status=500, headers=CORS)
+                        raise RuntimeError(f'saves PUT failed: {put_resp.status}')
                     break
             else:
-                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
+                raise RuntimeError('internal: too many conflicts')
     except Exception as e:
+        # Награда не записалась — снимаем закрытую отметку, чтобы игрок мог повторить.
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.delete(f"{base}/social_claimed/{pid}/{task_id}.json{FB_AUTH}")
+        except Exception as e2:
+            print(f"[claim_social_task] {pid} {task_id}: rollback failed: {e2}")
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'reward': reward}, headers=CORS)
@@ -5346,11 +5385,10 @@ async def reset_progress(request):
                 "unlockedTransports": ["bike"],
                 "durability": {"bike": 100, "moped": 100, "car": 100, "truck": 100},
                 "dailyDay": 0,
-                "dailyLastClaim": 0,
-                "comebackClaimedAt": 0,
-                "questBonusDate": "",
-                "lastAdLotterySpin": 0,
-                "premiumFreeSpinDate": 0,
+                # dailyLastClaim / comebackClaimedAt / questBonusDate / lastAdLotterySpin /
+                # premiumFreeSpinDate НЕ сбрасываем (08.10.2026): это таймеры «раз в день/час».
+                # Сброс их обнулял — новый аккаунт без монет мог крутить рекламную/премиум-лотерею
+                # (с шансом на джекпот) и брать дневные бонусы без ограничений: сброс → крутка → сброс.
                 "deliveryEscrow": 0,
                 "deliveryEscrow2": 0,
                 "deposits": [],
@@ -5415,6 +5453,25 @@ async def refill_energy_ad(request):
     final_energy = None
     try:
         async with aiohttp.ClientSession() as session:
+            # Кулдаун 10 минут — по закрытому узлу ad_cooldown/{pid}/energy (с 08.10.2026). Раньше только
+            # по saves/{pid}/lastAdEnergyRefill, которое игрок может обнулить сам — и получать +25 энергии
+            # без ограничений. Узел ставится через ETag ДО начисления: двойной тап не даст два раза.
+            cd_url = f"{base}/ad_cooldown/{pid}/energy.json{FB_AUTH}"
+            for cd_attempt in range(6):
+                async with session.get(cd_url, headers={"X-Firebase-ETag": "true"}) as r:
+                    cd_etag = r.headers.get("ETag")
+                    cd_last = await r.json()
+                cd_last = cd_last if isinstance(cd_last, (int, float)) else 0
+                if now_ms - cd_last < 600000:
+                    return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - cd_last)}, status=429, headers=CORS)
+                async with session.put(cd_url, json=now_ms, headers={"If-Match": cd_etag} if cd_etag else {}) as w:
+                    if w.status == 412:
+                        continue
+                    if w.status not in (200, 204):
+                        raise RuntimeError(f"ad_cooldown PUT {w.status}")
+                    break
+            else:
+                return web.json_response({'error': 'internal: too many conflicts'}, status=500, headers=CORS)
             for attempt in range(6):
                 async with session.get(saves_url, headers={"X-Firebase-ETag": "true"}) as resp:
                     etag = resp.headers.get("ETag")
@@ -5422,9 +5479,7 @@ async def refill_energy_ad(request):
                 sv = sv or {}
                 max_energy = base_max_energy + (await clan_bonus_ctx(session, base, pid, sv, now_ms))['bonuses']['maxEnergy']
 
-                last = sv.get('lastAdEnergyRefill') or 0
-                if now_ms - last < 600000:
-                    return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - last)}, status=429, headers=CORS)
+                # lastAdEnergyRefill в saves — теперь только для показа таймера в игре (кулдаун — выше).
 
                 last_energy_update = sv.get('lastEnergyUpdate') or now_ms
                 prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
