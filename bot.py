@@ -4855,6 +4855,56 @@ FISH_BY_LOC = {
     'deep':    ('Кальмар', 'Осьминог', 'Акула', 'Кит'),
     'space':   ('Пришелец', 'НЛО', 'Галактика', 'Звезда'),
 }
+# Шансы видов (rate из FISH в index.html, тот же порядок). Вид рыбы при улове выбирает игра, а сервер
+# знает только общее число непроданной рыбы — поэтому раньше ВСЮ рыбу можно было продать как самый
+# дорогой вид локации (Щука вместо Карася ×5, Гиппо ×7, Звезда ×25). С 08.10.2026 сервер считает,
+# сколько рыбы поймано в каждой локации (fish_stats/{pid}/{loc}/c) и сколько продано каждого вида
+# (…/s/{вид}), и не даёт продать вида больше, чем ему могло выпасть: доля вида × улов × запас + 30.
+# Доля берётся максимальная — когда открыты только виды до него (они открываются по порядку),
+# так что честному игроку лимит не мешает. Поле base — непроданная рыба на момент первой продажи
+# после выкладки (улов, пойманный до появления счётчика).
+FISH_RATES = {
+    'pond':    (1.0, 0.5, 0.2, 0.08),
+    'river':   (1.0, 0.4, 0.15, 0.05),
+    'tropics': (1.0, 0.4, 0.15, 0.05),
+    'deep':    (1.0, 0.4, 0.15, 0.04),
+    'space':   (1.0, 0.3, 0.1, 0.03),
+}
+FISH_MAX_SHARE = {
+    loc: {name: FISH_RATES[loc][i] / sum(FISH_RATES[loc][:i + 1]) for i, name in enumerate(names)}
+    for loc, names in FISH_BY_LOC.items()
+}
+FISH_SHARE_SLACK = 1.5   # запас на удачу честного игрока
+FISH_SHARE_FREE = 30     # сверх доли — столько рыб вида можно продать всегда
+
+
+def fish_species_cap(stats_loc, loc, name, extra_caught=0):
+    """Сколько рыб вида name в локации loc игрок мог поймать (с запасом)."""
+    st = stats_loc or {}
+    total = float(st.get('c', 0) or 0) + float(st.get('base', 0) or 0) + extra_caught
+    return total * FISH_MAX_SHARE[loc][name] * FISH_SHARE_SLACK + FISH_SHARE_FREE
+
+
+async def bump_fish_stats(pid, updates):
+    """Атомарные приращения в fish_stats/{pid} (ServerValue.increment) — без чтения и без гонок.
+    updates: {'pond/c': 5, 'river/s/Окунь': 20, ...}. Счётчик потерять плохо — повторяем."""
+    import aiohttp
+    body = {k: {".sv": {"increment": v}} for k, v in updates.items() if v}
+    if not body:
+        return
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/fish_stats/{pid}.json{FB_AUTH}"
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(url, json=body) as r:
+                    if r.status == 200:
+                        return
+                    print(f"[fish_stats] {pid} HTTP {r.status}")
+        except Exception as e:
+            print(f"[fish_stats] {pid} attempt {attempt}: {e}")
+        await asyncio.sleep(1 + attempt)
+
+
 REFERRAL_ACTIVE_CATCHES = 500  # реферальный бонус +100/+100 — когда друг поймал столько рыб
 _REF_ACTIVE_CHECKED = set()    # pid, для которых в этом процессе уже проверяли бонус (без лишних запросов)
 FISH_PER_PACK = 10  # пачка филе/сушёной делается из 10 рыб (startCutting/startDrying в index.html)
@@ -4969,13 +5019,10 @@ async def report_legacy_prize_attempt(pid, user_id, count, now_ms):
     try:
         url = f"{base}/suspicious_actions/{pid}.json{FB_AUTH}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                cur = await resp.json()
-            cur = cur if isinstance(cur, dict) else {}
-            await session.put(url, json={'legacyPrize': int(cur.get('legacyPrize') or 0) + count,
-                                         'firstTs': cur.get('firstTs') or now_ms, 'lastTs': now_ms})
-    except Exception:
-        pass
+            # patch с приращением, а не put — put затирал соседние счётчики (syncClaims и др.)
+            await session.patch(url, json={'legacyPrize': {".sv": {"increment": count}}, 'lastTs': now_ms})
+    except Exception as e:
+        print(f"[report_legacy_prize_attempt] {pid}: {e}")
     if ADMIN_ID and pid not in _LEGACY_PRIZE_ALERTED:
         _LEGACY_PRIZE_ALERTED.add(pid)
         try:
@@ -4983,6 +5030,45 @@ async def report_legacy_prize_attempt(pid, user_id, count, now_ms):
                                              f"(lottery_coins/grant_*). Отклонено. Подробнее: /playerinfo {user_id}")
         except Exception:
             pass
+
+
+_SPECIES_CAP_ALERTED = set()
+
+
+async def report_species_cap(pid, user_id, hits, now_ms):
+    """Продажа вида сверх возможной доли улова (FISH_MAX_SHARE) — в suspicious_actions и админу."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"{base}/suspicious_actions/{pid}.json{FB_AUTH}",
+                                json={'speciesCap': {".sv": {"increment": len(hits)}}, 'lastTs': now_ms})
+    except Exception as e:
+        print(f"[report_species_cap] {pid}: {e}")
+    if ADMIN_ID and pid not in _SPECIES_CAP_ALERTED:
+        _SPECIES_CAP_ALERTED.add(pid)
+        sample = ', '.join(f"{n}×{q} ({l})" for l, n, q in hits[:5])
+        try:
+            await bot.send_message(ADMIN_ID, f"⚠️ Продажа редкой рыбы сверх возможного улова: ID {user_id}\n"
+                                             f"Отклонено: {sample}\nПроверь: /actionlog {user_id}")
+        except Exception:
+            pass
+
+
+async def load_fish_stats(pid):
+    """fish_stats/{pid} или None, если прочитать не удалось (тогда лимит видов не проверяем)."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/fish_stats/{pid}.json{FB_AUTH}") as r:
+                if r.status != 200:
+                    return None
+                data = await r.json()
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[load_fish_stats] {pid}: {e}")
+        return None
 
 
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
@@ -5119,6 +5205,8 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             except Exception:
                 pass
             await _bf_track_catch(session, base, pid)
+            # Рыба из лотереи тоже идёт в лимит видов при продаже (fish_stats, см. FISH_MAX_SHARE).
+            _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": prize['amount']}))
 
         # Диагностический лог — та же цель, что в lottery_spin: чтобы честные призы за
         # Stars не путались с подозрительными "скачками" при последующем аудите баланса.
@@ -5582,6 +5670,7 @@ async def lottery_spin(request):
                 except Exception:
                     pass
                 await _bf_track_catch(session, base, pid)
+                _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": prize['amount']}))
 
             # Диагностический лог — та же цель, что и action_logs в process_actions:
             # чтобы честные выигрыши лотереи не путались с подозрительными "скачками"
@@ -6033,6 +6122,12 @@ async def process_actions(request):
     rejected = 0
     legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
     truck_tickets_used = 0     # см. use_truck_ticket
+    fish_caught_by_loc = {}   # улов этого запроса по локациям — для fish_stats (лимит видов при продаже)
+    fish_stats = None         # fish_stats/{pid}, читается лениво при первой продаже
+    fish_stats_loaded = False
+    fish_stats_updates = {}
+    species_cap_hits = []
+    unsold_at_start = unsold
     ref_active_checked = False  # реферальный бонус за REFERRAL_ACTIVE_CATCHES рыб — проверка раз за запрос
     purchased_coins_delta = 0.0  # купленные за ⭐ монеты, забранные в этом запросе (claim_bonuses)
     purchased_stars_delta = 0
@@ -6129,6 +6224,7 @@ async def process_actions(request):
             total_earned += earned
             caught += 1
             unsold += 1
+            fish_caught_by_loc[loc] = fish_caught_by_loc.get(loc, 0) + 1
             clan_fish_xp += 1 / CLAN_FISH_PER_XP
             # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру — когда
             # реферал поймал REFERRAL_ACTIVE_CATCHES рыб (раньше — за ПЕРВУЮ рыбу; 08.10.2026
@@ -6233,6 +6329,26 @@ async def process_actions(request):
             if fish_needed > unsold + 0.001:  # небольшой допуск на округление энергии/улова
                 rejected += 1
                 continue
+            # Лимит вида: нельзя продать редкой рыбы больше, чем могло выпасть (см. FISH_MAX_SHARE).
+            if not fish_stats_loaded:
+                fish_stats_loaded = True
+                fish_stats = await load_fish_stats(pid)
+            if fish_stats is not None:
+                st_loc = fish_stats.setdefault(loc, {})
+                if not isinstance(st_loc, dict):
+                    st_loc = fish_stats[loc] = {}
+                if 'base' not in st_loc:
+                    st_loc['base'] = round(unsold_at_start)
+                    fish_stats_updates[f"{loc}/base"] = st_loc['base']
+                sold_map = st_loc.setdefault('s', {})
+                sold_now = float(sold_map.get(name, 0) or 0)
+                if sold_now + fish_needed > fish_species_cap(st_loc, loc, name, fish_caught_by_loc.get(loc, 0)):
+                    rejected += 1
+                    species_cap_hits.append((loc, name, fish_needed))
+                    continue
+                sold_map[name] = sold_now + fish_needed
+                key = f"{loc}/s/{name}"
+                fish_stats_updates[key] = fish_stats_updates.get(key, 0) + fish_needed
             unsold = max(0, unsold - fish_needed)
             if prices_cache is None:
                 prices_cache = await get_market_prices()
@@ -6396,6 +6512,7 @@ async def process_actions(request):
             total_earned += reward
             caught += 1
             unsold += 1
+            fish_caught_by_loc[loc] = fish_caught_by_loc.get(loc, 0) + 1
 
         elif a_type == 'buy_supplies':
             # Заказ соли/ножей при отправке доставки — раньше клиент списывал монеты только
@@ -6595,6 +6712,12 @@ async def process_actions(request):
     now_ms = int(time.time() * 1000)
     if legacy_prize_attempts:
         _spawn_bg(report_legacy_prize_attempt(pid, real_user_id, legacy_prize_attempts, now_ms))
+    for f_loc, n in fish_caught_by_loc.items():
+        fish_stats_updates[f"{f_loc}/c"] = fish_stats_updates.get(f"{f_loc}/c", 0) + n
+    if fish_stats_updates:
+        _spawn_bg(bump_fish_stats(pid, fish_stats_updates))
+    if species_cap_hits:
+        _spawn_bg(report_species_cap(pid, real_user_id, species_cap_hits, now_ms))
     # Уведомление об отклонённых действиях отключено по просьбе — слишком много шума.
     # Сама защита (отклонение подозрительных действий) продолжает работать как прежде.
 
