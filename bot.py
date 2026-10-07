@@ -7033,17 +7033,17 @@ async def sync_state(request):
         return web.json_response(cached[1], headers=CORS)
 
     # Сохранение целиком не читаем — у активных игроков оно десятки-сотни КБ (список
-    # живой рыбы и т.п.), а здесь нужны только числа. shallow=true отдаёт простые поля
-    # значениями, а вложенные объекты — просто true; ulocs (массив) читаем отдельно.
+    # живой рыбы и т.п.), а здесь нужны только несколько полей: читаем их по одному,
+    # параллельно (каждое — несколько байт). shallow=true НЕ подходит: Firebase в нём
+    # отдаёт вместо значений просто true (ошибка 07.10 — игре уходило «1 монета»).
     # Подтверждено /traffic 07.10: чтения saves/{pid} давали 98.7% трафика бота.
+    sync_fields = ('coins', 'caught', 'totalEarned', 'energy', 'lastEnergyUpdate', 'clanId', 'ulocs')
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/saves/{pid}.json?shallow=true{FB_AUTH.replace('?', '&')}") as resp:
-                prev = await resp.json()
-            prev = prev if isinstance(prev, dict) else {}
-            if prev.get('ulocs'):
-                async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as resp:
-                    prev['ulocs'] = await resp.json()
+            async def _field(name):
+                async with session.get(f"{base}/saves/{pid}/{name}.json{FB_AUTH}") as resp:
+                    return name, await resp.json()
+            prev = {k: v for k, v in await asyncio.gather(*[_field(f) for f in sync_fields]) if v is not None}
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
