@@ -4855,6 +4855,8 @@ FISH_BY_LOC = {
     'deep':    ('Кальмар', 'Осьминог', 'Акула', 'Кит'),
     'space':   ('Пришелец', 'НЛО', 'Галактика', 'Звезда'),
 }
+REFERRAL_ACTIVE_CATCHES = 500  # реферальный бонус +100/+100 — когда друг поймал столько рыб
+_REF_ACTIVE_CHECKED = set()    # pid, для которых в этом процессе уже проверяли бонус (без лишних запросов)
 FISH_PER_PACK = 10  # пачка филе/сушёной делается из 10 рыб (startCutting/startDrying в index.html)
 TRUCK_RENTAL_MS = 12 * 3600 * 1000
 # До этого момента ещё верим старому клиентскому boosts.truckRental (не больше 12 ч вперёд) —
@@ -5808,6 +5810,93 @@ async def sweep_stale_escrow(session, base, pid, now_ms):
     return 0.0, False, False
 
 
+async def pay_rod2_referral_bonus(base, real_user_id):
+    """Реферальная награда +1000 рефереру за друга с удочкой ур.2. С 08.10.2026 — только если друг
+    ещё и поймал REFERRAL_ACTIVE_CATCHES рыб (пустые аккаунты сети @firoozi15 качали удочку ради
+    бонуса). Вызывается из /actions: при прокачке удочки до ур.2 (если 500 рыб уже есть) и при
+    достижении 500 рыб (если удочка ур.2 уже есть). Повторно не платит: флаг rod2_rewarded."""
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
+                referrer_id = await r1.json()
+            if referrer_id:
+                # ETag-защита на флаге "уже награждён" — тот же принцип, что и
+                # everywhere else: два одновременных апгрейда до ур.2 (например,
+                # повтор сети) не должны дать двойную награду рефереру.
+                flag_url = f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}"
+                already_rewarded = False
+                for flag_attempt in range(6):
+                    async with session.get(flag_url, headers={"X-Firebase-ETag": "true"}) as r2:
+                        fetag = r2.headers.get("ETag")
+                        already = await r2.json()
+                    if already:
+                        already_rewarded = True
+                        break
+                    fheaders = {"If-Match": fetag} if fetag else {}
+                    async with session.put(flag_url, json=True, headers=fheaders) as fput:
+                        if fput.status == 412:
+                            continue
+                        break
+                if not already_rewarded:
+                    # Начисление рефереру — узкий путь по coins+totalEarned с ETag+retry,
+                    # тем же способом, что и в deduct_coin_balance: если реферер
+                    # сам активно играет в этот момент, его собственный /actions
+                    # не должен затереть этот бонус более старой копией баланса.
+                    # ВАЖНО: пишем и coins, и totalEarned (не только coins, как было
+                    # раньше) — иначе этот доход не учитывается в лидерборде/турнирах
+                    # недели, которые считаются именно по totalEarned. Игроки, зарабатывающие
+                    # в основном рефералами, не попадали в рейтинг турнира несмотря на
+                    # реально растущий баланс.
+                    ref_save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
+                    new_ref_total_earned = None
+                    for coin_attempt in range(6):
+                        async with session.get(ref_save_url, headers={"X-Firebase-ETag": "true"}) as r3:
+                            cetag = r3.headers.get("ETag")
+                            ref_sv = await r3.json()
+                        ref_sv = ref_sv or {}
+                        ref_merged = dict(ref_sv)
+                        ref_merged['coins'] = round((float(ref_sv.get('coins', 0) or 0) + 1000) * 100) / 100
+                        new_ref_total_earned = round((float(ref_sv.get('totalEarned', 0) or 0) + 1000) * 100) / 100
+                        ref_merged['totalEarned'] = new_ref_total_earned
+                        cheaders = {"If-Match": cetag} if cetag else {}
+                        async with session.put(ref_save_url, json=ref_merged, headers=cheaders) as cput:
+                            if cput.status == 412:
+                                continue
+                            break
+                    # Обновляем лидерборд рефереру тем же totalEarned — иначе бонус
+                    # попадёт в saves, но не отразится в рейтинге до следующего личного
+                    # /actions-запроса реферера (который может случиться нескоро, если
+                    # он сам не ловит и не продаёт рыбу).
+                    if new_ref_total_earned is not None:
+                        try:
+                            await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
+                                "totalEarned": round(new_ref_total_earned),
+                                "coins": round(float(ref_merged.get('coins', 0) or 0)),
+                                "userId": int(referrer_id)
+                            })
+                        except Exception:
+                            pass
+                    try:
+                        async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
+                            ref_lb = await r4.json()
+                        ref_label = f"@{ref_lb.get('username')}" if ref_lb and ref_lb.get('username') else f"ID:{real_user_id}"
+                    except Exception:
+                        ref_label = f"ID:{real_user_id}"
+                    try:
+                        await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙1000! Твой реферал {ref_label} прокачал удочку до ур.2")
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[pay_rod2_referral_bonus] {real_user_id}: {e}")
+        try:
+            if ADMIN_ID:
+                await bot.send_message(ADMIN_ID, f"🚨 Реф. бонус +1000 за удочку ур.2 не начислен (возможно, частично)\n"
+                                                 f"👤 Реферал ID: {real_user_id}\n⚠️ {e}\nПроверь /playerinfo реферера.")
+        except Exception as e2:
+            print(f"[pay_rod2_referral_bonus] alert failed: {e2}")
+
+
 async def process_actions(request):
     """
     Принимает список конкретных действий (улов/продажа/покупка апгрейда) и считает
@@ -5944,6 +6033,7 @@ async def process_actions(request):
     rejected = 0
     legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
     truck_tickets_used = 0     # см. use_truck_ticket
+    ref_active_checked = False  # реферальный бонус за REFERRAL_ACTIVE_CATCHES рыб — проверка раз за запрос
     purchased_coins_delta = 0.0  # купленные за ⭐ монеты, забранные в этом запросе (claim_bonuses)
     purchased_stars_delta = 0
     response_truck = {}        # truckTickets / truckRentalUntil после записи — для клиента
@@ -6040,11 +6130,16 @@ async def process_actions(request):
             caught += 1
             unsold += 1
             clan_fish_xp += 1 / CLAN_FISH_PER_XP
-            # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру —
-            # начисляется здесь, при ПЕРВОМ улове реферала в жизни, а не сразу по /start
-            # (см. комментарий в register_referral) — так фермы пустых аккаунтов больше
-            # не приносят профита без реальной игры.
-            if caught == 1:
+            # Реферальная награда за живого игрока: +100 рефералу и +100 рефереру — когда
+            # реферал поймал REFERRAL_ACTIVE_CATCHES рыб (раньше — за ПЕРВУЮ рыбу; 08.10.2026
+            # подняли до 500: сеть @firoozi15 штамповала пустые аккаунты по 5–100 рыб ради
+            # бонусов). Проверяем один раз за запрос и один раз за процесс на игрока, в окне
+            # 500..1500 улова — лотерейный приз рыбой может перескочить ровно 500. Повторно не
+            # выплачивается: флаг first_catch_rewarded (тот же, что при старом правиле).
+            if (not ref_active_checked and REFERRAL_ACTIVE_CATCHES <= caught < REFERRAL_ACTIVE_CATCHES + 1000
+                    and pid not in _REF_ACTIVE_CHECKED):
+                ref_active_checked = True
+                _REF_ACTIVE_CHECKED.add(pid)
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
@@ -6104,15 +6199,18 @@ async def process_actions(request):
                                 except Exception:
                                     ref_label = f"ID:{real_user_id}"
                                 try:
-                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал первую рыбку")
+                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал {REFERRAL_ACTIVE_CATCHES} рыб")
                                 except Exception:
                                     pass
                                 try:
-                                    await bot.send_message(int(real_user_id), "🎁 Бонус за первый улов: +🪙100! Столько же получил тот, кто тебя пригласил")
+                                    await bot.send_message(int(real_user_id), f"🎁 Бонус за {REFERRAL_ACTIVE_CATCHES} пойманных рыб: +🪙100! Столько же получил тот, кто тебя пригласил")
                                 except Exception:
                                     pass
                 except Exception:
                     pass
+                # Удочку ур.2 друг мог прокачать раньше 500 рыб — тогда бонус за неё рефереру сейчас.
+                if any(isinstance(v, dict) and int(v.get('rod', 0) or 0) >= 2 for v in upg_levels.values()):
+                    await pay_rod2_referral_bonus(base, real_user_id)
 
         elif a_type == 'sell':
             # Продажа через доставку (транспорт/водитель) — деньги теперь начисляются НЕ сразу,
@@ -6485,82 +6583,9 @@ async def process_actions(request):
             coins -= cost
             spent_accum += cost
             lv[upg_id] = cur_level + 1
-            # Реферальная награда: реферер получает 1000 монет, когда его реферал впервые
-            # прокачал удочку до ур.2 — начисляется здесь же на сервере, не клиентом.
-            if upg_id == 'rod' and cur_level + 1 == 2:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
-                            referrer_id = await r1.json()
-                        if referrer_id:
-                            # ETag-защита на флаге "уже награждён" — тот же принцип, что и
-                            # everywhere else: два одновременных апгрейда до ур.2 (например,
-                            # повтор сети) не должны дать двойную награду рефереру.
-                            flag_url = f"{base}/referrals/rod2_rewarded/{real_user_id}.json{FB_AUTH}"
-                            already_rewarded = False
-                            for flag_attempt in range(6):
-                                async with session.get(flag_url, headers={"X-Firebase-ETag": "true"}) as r2:
-                                    fetag = r2.headers.get("ETag")
-                                    already = await r2.json()
-                                if already:
-                                    already_rewarded = True
-                                    break
-                                fheaders = {"If-Match": fetag} if fetag else {}
-                                async with session.put(flag_url, json=True, headers=fheaders) as fput:
-                                    if fput.status == 412:
-                                        continue
-                                    break
-                            if not already_rewarded:
-                                # Начисление рефереру — узкий путь по coins+totalEarned с ETag+retry,
-                                # тем же способом, что и в deduct_coin_balance: если реферер
-                                # сам активно играет в этот момент, его собственный /actions
-                                # не должен затереть этот бонус более старой копией баланса.
-                                # ВАЖНО: пишем и coins, и totalEarned (не только coins, как было
-                                # раньше) — иначе этот доход не учитывается в лидерборде/турнирах
-                                # недели, которые считаются именно по totalEarned. Игроки, зарабатывающие
-                                # в основном рефералами, не попадали в рейтинг турнира несмотря на
-                                # реально растущий баланс.
-                                ref_save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
-                                new_ref_total_earned = None
-                                for coin_attempt in range(6):
-                                    async with session.get(ref_save_url, headers={"X-Firebase-ETag": "true"}) as r3:
-                                        cetag = r3.headers.get("ETag")
-                                        ref_sv = await r3.json()
-                                    ref_sv = ref_sv or {}
-                                    ref_merged = dict(ref_sv)
-                                    ref_merged['coins'] = round((float(ref_sv.get('coins', 0) or 0) + 1000) * 100) / 100
-                                    new_ref_total_earned = round((float(ref_sv.get('totalEarned', 0) or 0) + 1000) * 100) / 100
-                                    ref_merged['totalEarned'] = new_ref_total_earned
-                                    cheaders = {"If-Match": cetag} if cetag else {}
-                                    async with session.put(ref_save_url, json=ref_merged, headers=cheaders) as cput:
-                                        if cput.status == 412:
-                                            continue
-                                        break
-                                # Обновляем лидерборд рефереру тем же totalEarned — иначе бонус
-                                # попадёт в saves, но не отразится в рейтинге до следующего личного
-                                # /actions-запроса реферера (который может случиться нескоро, если
-                                # он сам не ловит и не продаёт рыбу).
-                                if new_ref_total_earned is not None:
-                                    try:
-                                        await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
-                                            "totalEarned": round(new_ref_total_earned),
-                                            "coins": round(float(ref_merged.get('coins', 0) or 0)),
-                                            "userId": int(referrer_id)
-                                        })
-                                    except Exception:
-                                        pass
-                                try:
-                                    async with session.get(f"{base}/leaderboard/tg_{real_user_id}.json{FB_AUTH}") as r4:
-                                        ref_lb = await r4.json()
-                                    ref_label = f"@{ref_lb.get('username')}" if ref_lb and ref_lb.get('username') else f"ID:{real_user_id}"
-                                except Exception:
-                                    ref_label = f"ID:{real_user_id}"
-                                try:
-                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙1000! Твой реферал {ref_label} прокачал удочку до ур.2")
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
+            # Реферальная награда за удочку ур.2 — см. pay_rod2_referral_bonus (нужны и 500 рыб).
+            if upg_id == 'rod' and cur_level + 1 == 2 and caught >= REFERRAL_ACTIVE_CATCHES:
+                await pay_rod2_referral_bonus(base, real_user_id)
 
         else:
             rejected += 1
