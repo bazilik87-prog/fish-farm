@@ -10030,9 +10030,31 @@ async def actionlog_command(message: types.Message):
                 current_len += line_len
             if current:
                 chunks.append(current)
-            for i, chunk in enumerate(chunks):
-                prefix = header if i == 0 else f"📜 (продолжение {i+1}/{len(chunks)})\n"
-                await message.answer(prefix + "\n".join(chunk))
+
+            # Сводка по источникам — сколько монет пришло через /sync, лотерею и обычные
+            # действия. Видно сразу, без чтения сотен строк (выжимание /sync до 07.10).
+            by_src = {}
+            for entry in to_show:
+                key = entry.get('src') or 'actions'
+                cnt, gain = by_src.get(key, (0, 0.0))
+                by_src[key] = (cnt + 1, gain + float(entry.get('coins_after', 0) or 0) - float(entry.get('coins_before', 0) or 0))
+            src_names = {'actions': 'действия игры', 'sync': '/sync'}
+            summary = "📊 Итого по источникам:\n" + "\n".join(
+                f"• {src_names.get(k, k)}: {c} запис., {g:+,.0f} монет" for k, (c, g) in
+                sorted(by_src.items(), key=lambda kv: -abs(kv[1][1])))
+
+            if len(chunks) > 3:
+                # Много сообщений подряд упираются в лимит Telegram (Flood control) — длинный
+                # лог шлём одним файлом, в чат — только заголовок и сводку.
+                content = header + "\n" + summary + "\n\n" + "\n".join(all_lines)
+                await message.answer_document(
+                    types.BufferedInputFile(content.encode('utf-8'), filename=f"actionlog_{uid}.txt"),
+                    caption=(header + summary)[:1000])
+            else:
+                for i, chunk in enumerate(chunks):
+                    prefix = header if i == 0 else f"📜 (продолжение {i+1}/{len(chunks)})\n"
+                    await message.answer(prefix + "\n".join(chunk))
+                await message.answer(summary)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
