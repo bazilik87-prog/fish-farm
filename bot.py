@@ -8960,6 +8960,107 @@ async def clanxp_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz'
+
+
+def push_key_prefix(ts_ms):
+    """Первые 8 символов push-ключа Firebase для момента ts_ms — для выборки action_logs по времени."""
+    out = []
+    for _ in range(8):
+        out.append(_PUSH_CHARS[ts_ms % 64])
+        ts_ms //= 64
+    return ''.join(reversed(out))
+
+
+SYNC_ABUSE_SCAN_FROM_MS = 1789419600000  # 15.09.2026 00:00 МСК
+SYNC_ABUSE_PEAK_PER_MIN = 20             # честная игра шлёт /sync не чаще раза в 8 с (~7/мин)
+
+
+@dp.message(Command('syncabusers'))
+async def syncabusers_command(message: types.Message):
+    """Ищет тех, кто выжимал /sync скриптом до 07.10 (каждую секунду, по +15..+35 монет).
+    Кандидаты — из лидерборда (заработано от 30 000); у каждого читается action_logs с 15.09
+    и считаются записи [sync]: сколько, сколько монет дали, пик запросов в минуту. Честная
+    игра — до ~7/мин, скрипт — 60+. Трафик ~50–100 МБ (≈$0.1) — запускать вручную, редко."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    from urllib.parse import quote
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    await message.answer("⏳ Ищу выжимавших /sync (лог с 15.09 у всех, кто заработал от 30 000)… Это займёт пару минут.")
+    try:
+        async with aiohttp.ClientSession() as session:
+            lb = await get_leaderboard_cached(session, base, max_age_ms=600000)
+            cands = [(pid, v) for pid, v in (lb or {}).items()
+                     if isinstance(v, dict) and float(v.get('totalEarned') or 0) >= 30000
+                     and int(v.get('ts') or 0) >= SYNC_ABUSE_SCAN_FROM_MS]
+            q = (f'orderBy={quote(chr(34) + "$key" + chr(34))}'
+                 f'&startAt={quote(chr(34) + push_key_prefix(SYNC_ABUSE_SCAN_FROM_MS) + chr(34))}'
+                 f'&endAt={quote(chr(34) + push_key_prefix(now_ms) + "zzzzzzzzzzzz" + chr(34))}')
+            sep = '&' if '?' in FB_AUTH else '?'
+            sem = asyncio.Semaphore(6)
+            found = []
+
+            async def scan(pid, v):
+                async with sem:
+                    try:
+                        async with session.get(f"{base}/action_logs/{pid}.json{FB_AUTH}{sep}{q}") as r:
+                            logs = await r.json() if r.status == 200 else None
+                    except Exception as e:
+                        print(f"[syncabusers] {pid}: {e}")
+                        return
+                if not isinstance(logs, dict):
+                    return
+                n = 0
+                gain = 0.0
+                per_min = {}
+                per_day = {}
+                claims = 0
+                for e in logs.values():
+                    if not isinstance(e, dict) or e.get('src') != 'sync':
+                        continue
+                    d = float(e.get('coins_after', 0) or 0) - float(e.get('coins_before', 0) or 0)
+                    if d == 0 and any('ПОДОЗРИТЕЛЬНО' in str(x) for x in (e.get('details') or [])):
+                        claims += 1
+                        continue
+                    n += 1
+                    gain += d
+                    ts = int(e.get('ts') or 0)
+                    per_min[ts // 60000] = per_min.get(ts // 60000, 0) + 1
+                    day = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m')
+                    per_day[day] = per_day.get(day, 0) + d
+                peak = max(per_min.values()) if per_min else 0
+                if peak >= SYNC_ABUSE_PEAK_PER_MIN or claims:
+                    top_day = max(per_day, key=per_day.get) if per_day else '—'
+                    found.append({'pid': pid, 'uid': v.get('userId'), 'user': v.get('username') or v.get('playerName') or '',
+                                  'n': n, 'gain': gain, 'peak': peak, 'claims': claims, 'day': top_day,
+                                  'coins': float(v.get('coins') or 0), 'te': float(v.get('totalEarned') or 0)})
+
+            await asyncio.gather(*(scan(pid, v) for pid, v in cands))
+        found.sort(key=lambda x: -x['gain'])
+        lines = [f"🔎 /sync-скрипты: проверено {len(cands)} игроков (заработано от 30 000, заходили с 15.09).",
+                 f"Подозрительных: {len(found)}. Пик — запросов /sync в минуту (честная игра ≤ 7).", ""]
+        for x in found:
+            who = f"@{x['user']}" if x['user'] else f"ID {x['uid']}"
+            lines.append(f"• {who} (ID {x['uid']}): /sync {x['n']:,} раз, {x['gain']:+,.0f} монет, пик {x['peak']}/мин"
+                         + (f", попыток подделки {x['claims']}" if x['claims'] else "")
+                         + f"\n   на руках {x['coins']:,.0f}, заработано {x['te']:,.0f} · больше всего {x['day']} → /actionlog {x['uid']} {x['day']}")
+        if not found:
+            lines.append("Никого ✅")
+        text = "\n".join(lines)
+        if len(text) > 3800:
+            await message.answer_document(
+                types.BufferedInputFile(text.encode('utf-8'), filename="syncabusers.txt"),
+                caption="\n".join(lines[:2]) + "\nСписок в файле. Топ: " + ", ".join(
+                    (f"@{x['user']}" if x['user'] else str(x['uid'])) + f" {x['gain']:+,.0f}" for x in found[:5]))
+        else:
+            await message.answer(text)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('clandisband'))
 async def clandisband_command(message: types.Message):
     """Админ распускает клан (например, капитан забанен). Без «да» — только показывает состав.
