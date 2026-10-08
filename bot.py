@@ -2669,7 +2669,7 @@ async def _remove_banned_from_clan(session, base, pid, uid, clan_id):
     name = clan.get('name', clan_id)
     if str(clan.get('captainId')) == str(uid):
         return (f"\n⚠️ Был КАПИТАНОМ клана «{name}» ({clan_id}) — клан не тронут. "
-                f"Реши сам: распустить или передать капитанство (/clanslist).")
+                f"Распустить: /clandisband {clan_id}")
     if pid not in (clan.get('members') or {}):
         return ''
     res = await _mutate_clan_members(session, base, clan_id, lambda m: m.pop(pid, None))
@@ -8926,6 +8926,79 @@ async def clanxp_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('clandisband'))
+async def clandisband_command(message: types.Message):
+    """Админ распускает клан (например, капитан забанен). Без «да» — только показывает состав.
+    Та же очистка, что у капитанского /clan_disband: clanId у участников, clans/{id}, clan_xp/{id}."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer("Использование:\n<code>/clandisband ID_клана</code> — показать состав\n"
+                             "<code>/clandisband ID_клана да</code> — распустить\n\nID есть в /clanslist и /bancleanup.",
+                             parse_mode="HTML")
+        return
+    clan_id = parts[1]
+    confirm = len(parts) > 2 and parts[2].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as r:
+                clan = await r.json()
+            if not isinstance(clan, dict):
+                await message.answer("❌ Клан не найден.")
+                return
+            members = clan.get('members') or {}
+            rows = []
+            for mpid, m in members.items():
+                m = m if isinstance(m, dict) else {}
+                muid = m.get('userId') or mpid.replace('tg_', '')
+                async with session.get(f"{base}/banned/{muid}.json{FB_AUTH}") as br:
+                    ban = is_ban_active(await br.json(), now_ms)
+                who = f"@{m['username']}" if m.get('username') else f"ID {muid}"
+                cap = " 👑" if str(clan.get('captainId')) == str(muid) else ""
+                rows.append(f"• {who}{cap}{' 🚫 забанен' if ban else ''}")
+            if not confirm:
+                await message.answer(f"Клан «{clan.get('name', clan_id)}» ({clan_id})\nУчастников: {len(members)}\n"
+                                     + "\n".join(rows) + f"\n\nРаспустить: /clandisband {clan_id} да")
+                return
+            has_unresolved, _, _ = await _clan_unresolved_tournament_info(session, base, clan_id)
+            if has_unresolved:
+                await message.answer("❌ У клана незавершённая клановая битва с оплаченными взносами — дождись её конца (/clantournaments).")
+                return
+            notified = 0
+            for mpid, m in members.items():
+                try:
+                    async with session.get(f"{base}/saves/{mpid}.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as mresp:
+                        metag = mresp.headers.get("ETag")
+                        msv = await mresp.json()
+                    if isinstance(msv, dict):
+                        msv['clanId'] = None
+                        msv['clanName'] = None
+                        await session.put(f"{base}/saves/{mpid}.json{FB_AUTH}", json=msv,
+                                          headers={"If-Match": metag} if metag else {})
+                    await session.patch(f"{base}/leaderboard/{mpid}.json{FB_AUTH}", json={'clanId': None, 'clanLevel': None})
+                except Exception as me:
+                    print(f"[clandisband] {mpid}: {me}")
+                muid = (m or {}).get('userId') if isinstance(m, dict) else None
+                if muid and str(muid) != str(clan.get('captainId')):
+                    try:
+                        await bot.send_message(int(muid), f"ℹ️ Клан «{clan.get('name', '')}» распущен администрацией. "
+                                                          f"Ты можешь вступить в другой клан или создать свой.")
+                        notified += 1
+                    except Exception:
+                        pass
+            await session.delete(f"{base}/clans/{clan_id}.json{FB_AUTH}")
+            await session.delete(f"{base}/clan_xp/{clan_id}.json{FB_AUTH}")
+            _clan_ctx_invalidate(clan_id)
+        await message.answer(f"✅ Клан «{clan.get('name', clan_id)}» распущен. Участников освобождено: {len(members)}, "
+                             f"уведомлено: {notified}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('clanslist'))
 async def clanslist_command(message: types.Message):
     """Список всех созданных в игре кланов — название, состав, капитан, дата создания."""
@@ -11532,7 +11605,7 @@ async def voteresults_command(message: types.Message):
                 return
             vote_id = current['id']
             options = current.get('optionsRu', {})
-            counts, total = await _vote_tally(session, base, vote_id, options)
+            counts, total = await _vote_tally(session, base, vote_id, options, fresh=True)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
@@ -12783,7 +12856,11 @@ async def _vote_get_current(session, base):
         return await resp.json()
 
 
-async def _vote_tally(session, base, vote_id, options):
+_VOTE_TALLY_CACHE = {}  # vote_id -> (ms, всего голосов, {вариант: голосов})
+VOTE_TALLY_TTL_MS = 120000
+
+
+async def _vote_tally(session, base, vote_id, options, fresh=False):
     """
     Пересчитывает голоса напрямую по /vote/voters/{voteId} — единственный источник
     правды. Никакого отдельного кэша-счётчика с инкрементом нет специально: при малом
@@ -12791,14 +12868,24 @@ async def _vote_tally(session, base, vote_id, options):
     разъедется с реальностью при гонке (как разъезжались leaderboard.caught и
     saves.caught до отдельной синхронизации — не повторяем эту ошибку здесь).
     """
-    async with session.get(f"{base}/vote/voters/{vote_id}.json{FB_AUTH}") as resp:
-        voters = await resp.json()
-    voters = voters if isinstance(voters, dict) else {}
-    counts = {opt: 0 for opt in options}
-    for choice in voters.values():
-        if choice in counts:
-            counts[choice] += 1
-    return counts, len(voters)
+    # Кэш 2 мин (08.10.2026): /vote_status зовётся при каждом открытии игры, и список голосов
+    # (~7 КБ) качался ~7 300 раз за 9 ч — четверть всего трафика бота. Свой голос игрок видит
+    # сразу (myVote читается отдельно), а общие цифры могут отстать на пару минут.
+    now_ms = int(time_module.time() * 1000)
+    cached = _VOTE_TALLY_CACHE.get(vote_id)
+    if cached and not fresh and now_ms - cached[0] < VOTE_TALLY_TTL_MS:
+        voters_count, raw = cached[1], cached[2]
+    else:
+        async with session.get(f"{base}/vote/voters/{vote_id}.json{FB_AUTH}") as resp:
+            voters = await resp.json()
+        voters = voters if isinstance(voters, dict) else {}
+        raw = {}
+        for choice in voters.values():
+            raw[choice] = raw.get(choice, 0) + 1
+        voters_count = len(voters)
+        _VOTE_TALLY_CACHE[vote_id] = (now_ms, voters_count, raw)
+    counts = {opt: raw.get(opt, 0) for opt in options}
+    return counts, voters_count
 
 
 async def _vote_cast(pid, vote_id, choice):
@@ -12941,7 +13028,7 @@ async def vote_cast(request):
 
     try:
         async with aiohttp.ClientSession() as session:
-            counts, total = await _vote_tally(session, base, vote_id, options)
+            counts, total = await _vote_tally(session, base, vote_id, options, fresh=True)
     except Exception:
         counts, total = {}, 0
 
@@ -13122,7 +13209,7 @@ async def vote_loop():
                         and now_ms >= current.get('endsAt', 0):
                     vote_id = current['id']
                     options = current.get('optionsRu', {})
-                    counts, total = await _vote_tally(session, base, vote_id, options)
+                    counts, total = await _vote_tally(session, base, vote_id, options, fresh=True)
                     await session.patch(
                         f"{base}/vote/current.json{FB_AUTH}",
                         json={'status': 'finished', 'finishedAt': now_ms}
