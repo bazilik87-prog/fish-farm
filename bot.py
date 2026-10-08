@@ -11591,6 +11591,36 @@ async def startvote_command(message: types.Message):
     )
 
 
+@dp.message(Command('endvote'))
+async def endvote_command(message: types.Message):
+    """Завершает текущее голосование досрочно — так же, как vote_loop по endsAt: status → finished,
+    баннер у игроков пропадает, итог приходит сюда."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            current = await _vote_get_current(session, base)
+            if not isinstance(current, dict) or not current.get('id'):
+                await message.answer("Голосований нет.")
+                return
+            options = current.get('optionsRu', {})
+            counts, total = await _vote_tally(session, base, current['id'], options, fresh=True)
+            was = current.get('status')
+            if was == 'active':
+                await session.patch(f"{base}/vote/current.json{FB_AUTH}", json={'status': 'finished', 'finishedAt': now_ms})
+        lines = [f"🗳️ <b>{'Голосование завершено' if was == 'active' else 'Голосование уже было завершено'}:</b> "
+                 f"{current.get('titleRu', '')}", f"Всего голосов: {total}", ""]
+        for key, label in options.items():
+            c = counts.get(key, 0)
+            lines.append(f"{label}: {c} ({(c / total * 100) if total else 0:.1f}%)")
+        await message.answer("\n".join(lines), parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('voteresults'))
 async def voteresults_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -12952,7 +12982,9 @@ async def vote_status(request):
     try:
         async with aiohttp.ClientSession() as session:
             current = await _vote_get_current(session, base)
-            if not isinstance(current, dict) or not current.get('id'):
+            # Завершённое голосование игре не показывается (баннер только при active) — и голоса
+            # не пересчитываем: голосование от 19.09 месяц висело в vote/current и качалось зря.
+            if not isinstance(current, dict) or not current.get('id') or current.get('status') != 'active':
                 return web.json_response({'ok': True, 'active': False}, headers=CORS)
             vote_id = current['id']
             options = current.get('optionsRu', {})
