@@ -793,6 +793,8 @@ async def create_invoice(request):
     real_user_id = real_user_verified.get('id')
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
 
     action = data.get('action')
 
@@ -1534,6 +1536,8 @@ async def claim_social_task(request):
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
 
     task_id = str(data.get('task_id', '')).strip()
     if not task_id or not _re_traffic.fullmatch(r'[A-Za-z0-9_\-]{1,64}', task_id):
@@ -2656,6 +2660,57 @@ async def _expire_open_tournament(session, base, tournament_id):
     return None
 
 
+async def _remove_banned_from_clan(session, base, pid, uid, clan_id):
+    """Убирает забаненного из clans/{clanId}/members. Капитана не трогает — возвращает текст для админа."""
+    async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as r:
+        clan = await r.json()
+    if not isinstance(clan, dict):
+        return ''
+    name = clan.get('name', clan_id)
+    if str(clan.get('captainId')) == str(uid):
+        return (f"\n⚠️ Был КАПИТАНОМ клана «{name}» ({clan_id}) — клан не тронут. "
+                f"Реши сам: распустить или передать капитанство (/clanslist).")
+    if pid not in (clan.get('members') or {}):
+        return ''
+    res = await _mutate_clan_members(session, base, clan_id, lambda m: m.pop(pid, None))
+    if res is None:
+        return f"\n⚠️ Не удалось убрать из клана «{name}» ({clan_id})."
+    return f"\n👥 Убран из клана «{name}»."
+
+
+@dp.message(Command('bancleanup'))
+async def bancleanup_command(message: types.Message):
+    """Разовая чистка: убирает из кланов всех уже забаненных (до 08.10 /ban кланы не трогал).
+    Капитанов не трогает — перечисляет. Читает clans и banned целиком — запускать вручную, не часто."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/banned.json{FB_AUTH}") as r:
+                banned = await r.json() or {}
+            async with session.get(f"{base}/clans.json{FB_AUTH}") as r:
+                clans = await r.json() or {}
+            banned_ids = {str(k) for k, v in banned.items() if is_ban_active(v, now_ms)}
+            lines = []
+            for cid, clan in clans.items():
+                if not isinstance(clan, dict):
+                    continue
+                for mpid, m in list((clan.get('members') or {}).items()):
+                    muid = str((m or {}).get('userId') or mpid.replace('tg_', ''))
+                    if muid in banned_ids:
+                        who = f"@{m.get('username')}" if isinstance(m, dict) and m.get('username') else f"ID {muid}"
+                        note = await _remove_banned_from_clan(session, base, mpid, muid, cid)
+                        lines.append(f"{who}:{note.strip() or ' уже не в клане'}")
+        await message.answer("🧹 Чистка кланов от забаненных\n"
+                             f"Забаненных: {len(banned_ids)}, кланов: {len(clans)}\n\n"
+                             + ("\n".join(lines) if lines else "Никого из забаненных в кланах нет ✅"))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 async def _mutate_clan_members(session, base, clan_id, mutate_fn):
     """
     Читает clans/{clanId} с ETag, даёт mutate_fn изменить словарь members на месте (добавить
@@ -3392,6 +3447,8 @@ async def clan_claim(request):
     data, tg_user, real_user_id = await _read_verified_user(request)
     if data is None:
         return real_user_id
+    if await user_is_banned(real_user_id):
+        return banned_response()
     ru = _req_lang_ru(tg_user)
     kind = str(data.get('kind', ''))
     boost_id = str(data.get('boost', ''))
@@ -5440,6 +5497,8 @@ async def refill_energy_ad(request):
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
 
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -5587,6 +5646,8 @@ async def lottery_spin(request):
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
     username = real_user.get('username') or real_user.get('first_name') or 'Игрок'
 
     via = data.get('via')
@@ -6065,6 +6126,8 @@ async def process_actions(request):
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
 
     actions = data.get('actions')
     if not isinstance(actions, list) or len(actions) > 500:
@@ -7216,6 +7279,8 @@ async def sync_state(request):
         real_user_id = None
     if not real_user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    if await user_is_banned(real_user_id):
+        return banned_response()
 
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -9349,6 +9414,36 @@ def is_ban_active(value, now_ms):
     return False
 
 
+_BAN_CACHE = {}           # str(uid) -> (проверено_ms, значение banned/{uid})
+BAN_CACHE_TTL_MS = 600000
+
+
+async def user_is_banned(user_id):
+    """Бан на сервере (с 08.10.2026). Раньше banned/{uid} проверяла только сама игра (экран «Доступ
+    ограничен») и несколько клановых действий — забаненный со скриптом мог дальше слать /actions,
+    /sync, крутить лотерею, брать энергию и заказывать вывод. Кэш 10 мин; /ban, /tempban, /unban
+    сбрасывают его сразу. Сбой чтения = «не забанен» (не ломаем игру честным)."""
+    import aiohttp
+    key = str(user_id)
+    now_ms = int(time_module.time() * 1000)
+    cached = _BAN_CACHE.get(key)
+    if cached and (cached[1] is True or now_ms - cached[0] < BAN_CACHE_TTL_MS):
+        return is_ban_active(cached[1], now_ms)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/banned/{key}.json{FB_AUTH}") as r:
+                val = await r.json() if r.status == 200 else None
+    except Exception as e:
+        print(f"[user_is_banned] {key}: {e}")
+        return False
+    _BAN_CACHE[key] = (now_ms, val)
+    return is_ban_active(val, now_ms)
+
+
+def banned_response():
+    return web.json_response({'error': 'account banned'}, status=403, headers=CORS)
+
+
 LOC_NAMES = {'pond': '🌿 Пруд', 'river': '🏞 Река', 'tropics': '🌴 Тропики', 'deep': '🌊 Глубины', 'space': '🚀 Космос'}
 UPG_NAMES = {'rod': 'Удочка', 'net': 'Сеть', 'boat': 'Лодка', 'sonar': 'Сонар'}
 TRANSPORT_NAMES = {'bike': '🚲 Велосипед', 'moped': '🛵 Мопед', 'car': '🚗 Машина', 'truck': '🚛 Грузовик', 'rentalTruck': '🚛🚚 Грузовик с прицепом'}
@@ -10227,6 +10322,20 @@ async def ban_command(message: types.Message):
                 await message.answer(f"❌ Игрок @{username} не найден в лидерборде.")
                 return
 
+            # Клан: раньше бан его не трогал — забаненный оставался в составе (занимал место,
+            # считался в клане). Обычного участника убираем; капитана — нет (решение Саши: без
+            # автопередачи капитанства), об этом пишем ниже.
+            clan_note = ''
+            try:
+                async with session.get(f"{base}/saves/{target_pid}/clanId.json{FB_AUTH}") as cresp:
+                    ban_clan_id = await cresp.json()
+                if not ban_clan_id:
+                    ban_clan_id = (lb.get(target_pid) or {}).get('clanId')
+                if ban_clan_id:
+                    clan_note = await _remove_banned_from_clan(session, base, target_pid, target_uid, ban_clan_id)
+            except Exception as ce:
+                clan_note = f"\n⚠️ Клан не почищен: {ce}"
+
             # Удаляем из лидерборда и стираем прогресс
             await session.delete(f"{base}/leaderboard/{target_pid}.json{FB_AUTH}")
             await session.delete(f"{base}/saves/{target_pid}.json{FB_AUTH}")
@@ -10242,8 +10351,10 @@ async def ban_command(message: types.Message):
             # Помечаем как забаненного — игра проверяет это при входе
             if target_uid:
                 await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
+                _BAN_CACHE.pop(str(target_uid), None)
 
-        await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован.")
+        await message.answer(f"✅ @{username} удалён: лидерборд, прогресс, рефералы очищены. Повторный вход заблокирован."
+                             f"{clan_note}")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -10414,6 +10525,7 @@ async def tempban_command(message: types.Message):
                         'coins': coins, 'totalEarned': total_earned, 'lastSeen': ban_until
                     })
                     await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=ban_until)
+                    _BAN_CACHE.pop(str(target_uid), None)
                     return True
                 except Exception:
                     return False
@@ -10466,6 +10578,7 @@ async def unban_command(message: types.Message):
             display = f"@{username} (ID {target_uid})"
         async with aiohttp.ClientSession() as session:
             await session.delete(f"{base}/banned/{target_uid}.json{FB_AUTH}")
+            _BAN_CACHE.pop(str(target_uid), None)
         await message.answer(f"✅ Бан снят с {display}.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -10686,6 +10799,7 @@ async def ban_ids_command(message: types.Message):
                     if referrer_id:
                         await session.delete(f"{base}/referrals/by/{referrer_id}/{target_uid}.json{FB_AUTH}")
                     await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
+                    _BAN_CACHE.pop(str(target_uid), None)
                     return True
                 except Exception:
                     return False
@@ -10757,6 +10871,7 @@ async def ban_referrals_command(message: types.Message):
                     await session.delete(f"{base}/saves/{pid}.json{FB_AUTH}")
                     await session.delete(f"{base}/referrals/used/{target_uid}.json{FB_AUTH}")
                     await session.put(f"{base}/banned/{target_uid}.json{FB_AUTH}", json=True)
+                    _BAN_CACHE.pop(str(target_uid), None)
                     return True
                 except Exception:
                     return False
