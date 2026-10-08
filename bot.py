@@ -5221,6 +5221,32 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True):
     return prizes[0]
 
 
+async def claim_jackpot_prize(session, base, prize, mult):
+    """Джекпот забирается атомарно (ETag): читаем пул и сбрасываем на 50 одной операцией.
+    Раньше пул сбрасывался ПОСЛЕ начисления простым PUT — две выигрышные крутки почти
+    одновременно (разные игроки) обе читали полный пул и обе получали весь джекпот.
+    Не успел (пул уже сброшен кем-то) — вместо джекпота крупный приз монетами."""
+    if prize.get('kind') != 'jackpot':
+        return prize
+    url = f"{base}/jackpot/amount.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+            etag = r.headers.get("ETag")
+            cur = await r.json()
+        cur = cur if isinstance(cur, (int, float)) else 0
+        if cur < JACKPOT_WIN_THRESHOLD:
+            break
+        async with session.put(url, json=50, headers={"If-Match": etag} if etag else {}) as w:
+            if w.status == 412:
+                continue
+            if w.status not in (200, 204):
+                raise RuntimeError(f"jackpot reset PUT {w.status}")
+            amount = int(cur)
+            return {'kind': 'jackpot', 'amount': amount, 'label': f'⭐ ДЖЕКПОТ {amount} Stars'}
+    c2 = round(500 * mult)
+    return {'kind': 'coins', 'amount': c2, 'label': f'🪙 {c2:,} монет'}
+
+
 async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок', via='unknown'):
     """
     Применяет уже выбранный сервером приз лотереи к реальным данным игрока в Firebase.
@@ -5321,7 +5347,7 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             pass
 
         if prize['kind'] == 'jackpot':
-            await session.put(f"{base}/jackpot/amount.json{FB_AUTH}", json=50)
+            # пул уже сброшен в claim_jackpot_prize
             await broadcast_jackpot_win(username, prize['amount'])
         elif grow_jackpot:
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
@@ -5732,6 +5758,7 @@ async def lottery_spin(request):
                     # накопленным.
                     ad_can_win_jackpot = jackpot >= AD_JACKPOT_WIN_THRESHOLD
                     prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via == 'premium' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
+                    prize = await claim_jackpot_prize(session, base, prize, mult)
 
                 merged = dict(sv)
                 if prize['kind'] == 'coins':
@@ -5812,7 +5839,7 @@ async def lottery_spin(request):
             # одновременного роста/сброса от нескольких игроков разом.
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
             if prize['kind'] == 'jackpot':
-                await session.put(jackpot_url, json=50)
+                # пул уже сброшен в claim_jackpot_prize
                 await broadcast_jackpot_win(username, prize['amount'])
             elif grow_jackpot:
                 for j_attempt in range(6):
@@ -5829,6 +5856,13 @@ async def lottery_spin(request):
         if clan_spin_period and not spin_committed:
             async with aiohttp.ClientSession() as rel_session:
                 await clan_claim_release(rel_session, base, pid, 'spin', clan_spin_period)
+        if prize and prize.get('kind') == 'jackpot' and not spin_committed and ADMIN_ID:
+            # Пул уже забран (claim_jackpot_prize), а запись в сохранение не прошла — не теряем молча.
+            try:
+                await bot.send_message(ADMIN_ID, f"🚨 Джекпот {prize.get('amount')}⭐ выпал ID {real_user_id} ({via}), "
+                                                 f"но запись не прошла: {e}\nПул уже сброшен — выплати звёзды вручную.")
+            except Exception as e2:
+                print(f"[lottery_spin] jackpot alert failed: {e2}")
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
     return web.json_response({'ok': True, 'prize': prize}, headers=CORS)
@@ -11886,6 +11920,9 @@ async def successful_payment(message: types.Message):
                     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
                 username = message.from_user.username or message.from_user.first_name or 'Игрок'
                 prize = pick_lottery_prize(mult, jackpot)
+                if prize['kind'] == 'jackpot':
+                    async with aiohttp.ClientSession() as session:
+                        prize = await claim_jackpot_prize(session, base, prize, mult)
                 # pending_boosts/lottery_result теперь пишется ВНУТРИ apply_lottery_prize,
                 # сразу после начисления в saves — не здесь и не после (см. комментарий там).
                 await apply_lottery_prize(pid, prize, mult, True, username, 'star')
