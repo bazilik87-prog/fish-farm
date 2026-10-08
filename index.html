@@ -7385,10 +7385,13 @@ function startGame() {
         flushActions();
       }, 60000);
       setInterval(updateClanTournamentBanner, 30000);
+      // Реже и только при открытой игре (08.10.2026): раньше голосование спрашивалось раз в 30 с,
+      // а «Большая рыбалка» (2.7 КБ) скачивалась раз в 20 с у каждого игрока — заметная часть
+      // трафика Firebase, хотя оба меняются редко.
       checkVote();
-      setInterval(checkVote, 30000);
+      setInterval(function(){ if (!document.hidden) checkVote(); }, 300000);
       checkBigFishing();
-      setInterval(checkBigFishing, 20000);
+      setInterval(function(){ if (!document.hidden) checkBigFishing(); }, 120000);
       setInterval(updateBigFishingBanner, 30000);
     });
   }, 800);
