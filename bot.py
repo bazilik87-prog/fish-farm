@@ -7677,6 +7677,7 @@ async def start(message: types.Message):
     args = message.text.split() if message.text else []
     ref_arg = args[1] if len(args) > 1 else ''
 
+    is_new_player = False
     # Уведомляем админа о НОВОМ игроке — только если он правда жмёт /start впервые
     if ADMIN_ID and user.id != ADMIN_ID:
         import aiohttp
@@ -7696,6 +7697,7 @@ async def start(message: types.Message):
         except Exception:
             pass  # если Firebase недоступен — на всякий случай считаем новым, лучше лишнее уведомление чем пропуск
 
+        is_new_player = is_new
         if is_new:
             name = f"@{user.username}" if user.username else (user.first_name or 'Без имени')
             param_line = f"🔗 Параметр старта: <code>{ref_arg}</code>" if ref_arg else "🔗 Параметр старта: (пусто — пришёл без ?start=)"
@@ -7711,18 +7713,25 @@ async def start(message: types.Message):
     if ref_arg.startswith('campaign_'):
         # Метка рекламного источника (?start=campaign_НАЗВАНИЕ) — отдельно от реферальной
         # системы, просто считает, сколько новых регистраций пришло с конкретной площадки.
+        # С 09.10.2026: игрок закрепляется за ПЕРВОЙ кампанией, по которой пришёл (повторный клик
+        # старого игрока по другой ссылке его не «переносит»), а все клики считаются отдельно.
         campaign_name = ref_arg[len('campaign_'):]
-        if campaign_name:
+        if campaign_name and _re_traffic.fullmatch(r'[A-Za-z0-9_\-]{1,40}', campaign_name):
             import aiohttp, time
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             try:
                 async with aiohttp.ClientSession() as session:
-                    await session.put(
-                        f"{base}/campaign_sources/{campaign_name}/{user_id}.json{FB_AUTH}",
-                        json=int(time.time() * 1000)
-                    )
-            except Exception:
-                pass
+                    await session.patch(f"{base}/campaign_clicks.json{FB_AUTH}",
+                                        json={campaign_name: {".sv": {"increment": 1}}})
+                    async with session.get(f"{base}/campaign_of/{user_id}.json{FB_AUTH}") as r:
+                        already = await r.json()
+                    if not already:
+                        now_c = int(time.time() * 1000)
+                        await session.put(f"{base}/campaign_of/{user_id}.json{FB_AUTH}",
+                                          json={'c': campaign_name, 'ts': now_c, 'new': bool(is_new_player)})
+                        await session.put(f"{base}/campaign_sources/{campaign_name}/{user_id}.json{FB_AUTH}", json=now_c)
+            except Exception as e:
+                print(f"[campaign] {campaign_name} {user_id}: {e}")
         return
 
     if not ref_arg.startswith('ref_'):
@@ -9497,10 +9506,11 @@ async def addsociallink_command(message: types.Message):
 @dp.message(Command('campaignstats'))
 async def campaignstats_command(message: types.Message):
     """
-    Статистика по рекламным площадкам (ссылки вида ?start=campaign_НАЗВАНИЕ) —
-    сколько новых регистраций реально пришло с конкретного источника, и сколько
-    из них дошли до реальной игры (есть сохранение) и стали активными (есть уловы).
-    Без аргумента — список всех кампаний с количеством. С аргументом — детали одной.
+    Окупаемость рекламных площадок (ссылки ?start=campaign_НАЗВАНИЕ). По каждой кампании:
+    клики, новые игроки, сколько дошли до игры / 500 рыб / Реки, сколько заплатили звёздами
+    и сколько вывели USDT — итог в долларах. Без аргумента — все кампании, с аргументом —
+    одна (плюс список игроков). Читает лидерборд (кэш), журнал выплат и по 2 маленьких узла
+    на игрока — запускать по необходимости, не каждую минуту.
     """
     if message.from_user.id != ADMIN_ID:
         return
@@ -9510,60 +9520,74 @@ async def campaignstats_command(message: types.Message):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/campaign_sources.json{FB_AUTH}") as resp:
-                data = await resp.json()
-            if not data:
-                await message.answer("Пока нет данных ни по одной рекламной кампании.")
-                return
-
-            async def conversion_stats(users: dict) -> tuple[int, int]:
-                # Заходов (стартов бота по ссылке) в campaign_sources всегда >= установок,
-                # т.к. сюда падает КАЖДЫЙ /start с этим параметром, даже без открытия игры.
-                # "Установил" = есть сохранение в saves/tg_{user_id}.
-                # "Активен" = в сохранении есть хотя бы 1 улов ИЛИ totalEarned > 0.
-                installed = 0
-                active = 0
-                for uid in users:
-                    pid = f"tg_{uid}"
-                    async with session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as r:
-                        save = await r.json()
-                    if not save:
-                        continue
-                    installed += 1
-                    if (save.get('caught', 0) or 0) > 0 or (save.get('totalEarned', 0) or 0) > 0:
-                        active += 1
-                return installed, active
-
-            if len(args) < 2:
-                lines = ["📊 Рекламные кампании:\n"]
-                for name, users in data.items():
-                    if not isinstance(users, dict) or not users:
-                        continue
-                    cnt = len(users)
-                    installed, active = await conversion_stats(users)
-                    inst_pct = (installed / cnt * 100) if cnt else 0
-                    act_pct = (active / cnt * 100) if cnt else 0
-                    lines.append(
-                        f"  `{name}` — {cnt} заходов → {installed} установок ({inst_pct:.0f}%) → {active} активных ({act_pct:.0f}%)"
-                    )
-                lines.append("\nПодробности: `/campaignstats НАЗВАНИЕ`")
-                await message.answer("\n".join(lines), parse_mode="HTML")
-            else:
-                name = args[1]
-                users = data.get(name)
-                if not users or not isinstance(users, dict):
-                    await message.answer(f"Кампания <code>{name}</code> не найдена.", parse_mode="HTML")
+                data = await resp.json() or {}
+            async with session.get(f"{base}/campaign_clicks.json{FB_AUTH}") as resp:
+                clicks = await resp.json() or {}
+            if args[1:]:
+                data = {args[1]: data.get(args[1])} if isinstance(data.get(args[1]), dict) else {}
+                if not data:
+                    await message.answer(f"Кампания <code>{args[1]}</code> не найдена.", parse_mode="HTML")
                     return
-                cnt = len(users)
-                installed, active = await conversion_stats(users)
-                inst_pct = (installed / cnt * 100) if cnt else 0
-                act_pct = (active / cnt * 100) if cnt else 0
-                await message.answer(
-                    f"📊 Кампания <code>{name}</code>\n"
-                    f"  Заходов по ссылке: {cnt}\n"
-                    f"  Установили игру: {installed} ({inst_pct:.0f}%)\n"
-                    f"  Стали активны (есть улов/заработок): {active} ({act_pct:.0f}%)",
-                    parse_mode="HTML"
-                )
+            if not data:
+                await message.answer("Пока нет данных ни по одной кампании.\n"
+                                     "Ссылка для площадки: <code>https://t.me/" + (await bot.get_me()).username +
+                                     "?start=campaign_НАЗВАНИЕ</code>", parse_mode="HTML")
+                return
+            lb = await get_leaderboard_cached(session, base, max_age_ms=600000)
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as resp:
+                wl = await resp.json() or {}
+            usdt_by_uid = {}
+            for w in wl.values():
+                if isinstance(w, dict) and w.get('currency') == 'usdt' and w.get('user_id'):
+                    usdt_by_uid[str(w['user_id'])] = usdt_by_uid.get(str(w['user_id']), 0) + float(w.get('usdt') or 0)
+            sem = asyncio.Semaphore(8)
+
+            async def player(uid):
+                pid = f"tg_{uid}"
+                lbv = (lb or {}).get(pid) or {}
+                async with sem:
+                    async with session.get(f"{base}/stars_payments/{pid}.json{FB_AUTH}") as r:
+                        sp = await r.json()
+                    async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as r:
+                        ulocs = await r.json()
+                stars = sum(float(p.get('amount') or 0) for p in (sp or {}).values() if isinstance(p, dict)) if isinstance(sp, dict) else 0
+                return {'uid': uid, 'user': lbv.get('username') or '', 'played': bool(lbv),
+                        'caught': float(lbv.get('caught') or 0), 'river': isinstance(ulocs, list) and len(ulocs) > 1,
+                        'stars': stars, 'usdt': usdt_by_uid.get(str(uid), 0.0)}
+
+            lines = ["📊 Рекламные кампании (доход = звёзды × $" + str(STAR_TO_USD) + ", без рекламы AdsGram)\n"]
+            for name, users in sorted(data.items(), key=lambda kv: -len(kv[1] or {})):
+                if not isinstance(users, dict) or not users:
+                    continue
+                ps = await asyncio.gather(*(player(uid) for uid in users))
+                n = len(ps)
+                played = sum(p['played'] for p in ps)
+                active = sum(p['caught'] > 0 for p in ps)
+                f500 = sum(p['caught'] >= 500 for p in ps)
+                river = sum(p['river'] for p in ps)
+                payers = sum(p['stars'] > 0 for p in ps)
+                stars = sum(p['stars'] for p in ps)
+                usdt = sum(p['usdt'] for p in ps)
+                net = stars * STAR_TO_USD - usdt
+                lines.append(f"<b>{name}</b> — кликов {int(clicks.get(name) or 0)}, игроков {n}\n"
+                             f"   играли {played} · ловили {active} · 500+ рыб {f500} · Река {river}\n"
+                             f"   платили {payers} чел. {stars:,.0f}⭐ (${stars * STAR_TO_USD:.2f}) · вывели ${usdt:.2f}\n"
+                             f"   {'✅' if net >= 0 else '🔻'} итог ${net:+.2f}" + (f" · ${net / n:+.3f} на игрока" if n else ""))
+                if args[1:]:
+                    for p in sorted(ps, key=lambda p: -(p['stars'] * STAR_TO_USD - p['usdt']))[:30]:
+                        who = f"@{p['user']}" if p['user'] else f"ID {p['uid']}"
+                        lines.append(f"   • {who}: рыб {p['caught']:,.0f}{' 🏞' if p['river'] else ''}, "
+                                     f"{p['stars']:,.0f}⭐, вывел ${p['usdt']:.2f}")
+            if not args[1:]:
+                lines.append("\nПо одной кампании с игроками: /campaignstats НАЗВАНИЕ")
+        chunk = ""
+        for ln in lines:  # режем по строкам, чтобы не разорвать <b>…</b>
+            if len(chunk) + len(ln) > 3800:
+                await message.answer(chunk, parse_mode="HTML")
+                chunk = ""
+            chunk += ln + "\n"
+        if chunk:
+            await message.answer(chunk, parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
