@@ -2869,6 +2869,27 @@ async def _clan_level_fields(session, base, clan_id):
     return out
 
 
+async def _clan_gate_admin_note(clan_id, xp_level, level, battles, xp=None, unlocked=False):
+    """Сообщение админу про правило битв: клан упёрся в условие / битва открыла уровень."""
+    if not ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans/{clan_id}/name.json{FB_AUTH}") as r:
+                name = await r.json() or clan_id
+        if unlocked:
+            text = (f"⚔️✅ Клан «{name}» завершил битву и открыл {level} уровень "
+                    f"(битв всего: {battles}).")
+        else:
+            text = (f"⚔️ Клан «{name}» набрал опыт на {xp_level} уровень ({xp:,.0f} XP), но остаётся на {level}-м — "
+                    f"нужна завершённая клановая битва (битв сейчас: {battles}). /clanxp {clan_id}")
+        await bot.send_message(ADMIN_ID, text)
+    except Exception as e:
+        print(f"[_clan_gate_admin_note] {clan_id}: {e}")
+
+
 async def clan_add_battle(session, base, clan_id):
     """+1 завершённая битва клану (ETag). Если это открыло новый уровень — как обычный рост уровня."""
     url = f"{base}/clan_xp/{clan_id}.json{FB_AUTH}"
@@ -2888,6 +2909,8 @@ async def clan_add_battle(session, base, clan_id):
         _clan_ctx_invalidate(clan_id)
         if new_level != old_level:
             await _clan_on_level_change(session, base, clan_id, old_level, new_level)
+            if new_level >= CLAN_BATTLE_GATE_FROM_LEVEL:
+                _spawn_bg(_clan_gate_admin_note(clan_id, new_level, new_level, data['battles'], unlocked=True))
         return new_level
     return None
 
@@ -3076,6 +3099,10 @@ async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, 
     _clan_ctx_invalidate(clan_id)
     old_level = clan_effective_level(old_xp, data.get('battles') or 0, data.get('levelFloor') or 1)
     new_level = clan_effective_level(new_xp, data.get('battles') or 0, data.get('levelFloor') or 1)
+    xp_level_new = clan_level_for_xp(new_xp)
+    if xp_level_new > clan_level_for_xp(old_xp) and xp_level_new > new_level:
+        # Опыт перешагнул порог, но уровень держит правило битв — сообщаем админу (раз на порог)
+        _spawn_bg(_clan_gate_admin_note(clan_id, xp_level_new, new_level, int(data.get('battles') or 0), new_xp))
     if newbie_crossed and pid:
         await _clan_newbie_bonus(session, base, clan_id, pid, now_ms)
     if new_level != old_level:
