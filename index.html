@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<meta name="ff-build" content="2026-10-09.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1402,6 +1403,22 @@ function robotSpot() {
   return false;
 }
 var ROBOT_DEBUG_IDS = [7236477449, 145841941]; // тестовый и админский аккаунты Саши — видят отладку защиты
+// Отладка включается/выключается нажатием на настроение рыбы (только у этих аккаунтов), по умолчанию скрыта.
+function robotDebugOn() {
+  if (ROBOT_DEBUG_IDS.indexOf(userId) === -1) return false;
+  try { return localStorage.getItem('ff_robot_dbg') === '1'; } catch(e) { return false; }
+}
+function setupRobotDebugToggle() {
+  if (ROBOT_DEBUG_IDS.indexOf(userId) === -1) return;
+  var el = document.getElementById('mood-label');
+  if (!el) return;
+  el.style.pointerEvents = 'auto';
+  el.addEventListener('click', function(e) {
+    e.stopPropagation();
+    try { localStorage.setItem('ff_robot_dbg', robotDebugOn() ? '0' : '1'); } catch(err) {}
+    updateUI();
+  });
+}
 function robotDebugText() {
   var n=tapIntervals.length, cv='—';
   if (n>=2) { var sm=0,i; for(i=0;i<n;i++) sm+=tapIntervals[i]; var mn=sm/n, v=0; for(i=0;i<n;i++) v+=(tapIntervals[i]-mn)*(tapIntervals[i]-mn); cv=(Math.sqrt(v/n)/mn*100).toFixed(1)+'%'; }
@@ -1609,7 +1626,7 @@ function updateUI() {
   var moodEl=document.getElementById('mood-label');
   if(moodEl) {
     moodEl.textContent=moodEmoji()+' '+chance+t('% улов','% catch');
-    if (ROBOT_DEBUG_IDS.indexOf(userId) !== -1) {
+    if (robotDebugOn()) {
       var dbg = document.createElement('div');
       dbg.style.cssText = 'font-size:10px;color:#90caf9;font-weight:400;margin-top:2px;white-space:pre-line';
       dbg.textContent = robotDebugText();
@@ -6463,6 +6480,35 @@ function applyActionsResult(res, sentAt) {
   raw.coins = state.coins; raw.caught = state.caught; raw.totalEarned = state.totalEarned; raw.upgLevels = state.upgLevels; raw.energy = state.energy;
   localStorage.setItem(SAVE_KEY, JSON.stringify(raw));
 }
+// ── Автообновление (09.10.2026) ──────────────────────
+// Telegram (особенно на iPhone) держит старую версию игры в кэше часами. Игра читает первый
+// 1 КБ свежего index.html (там <meta name="ff-build">) и, если версия новее, сохраняется и
+// перезагружается сама. При каждой правке index.html нужно менять ff-build.
+var _updateReloading = false;
+function currentGameBuild() {
+  var m = document.querySelector('meta[name="ff-build"]');
+  return m ? m.getAttribute('content') : '';
+}
+function checkGameUpdate() {
+  if (_updateReloading || !window.fetch) return;
+  var url = location.pathname + '?ff_check=' + Date.now();
+  fetch(url, {cache: 'no-store', headers: {'Range': 'bytes=0-1023'}}).then(function(r){ return r.text(); }).then(function(txt){
+    var m = /name="ff-build" content="([^"]+)"/.exec(txt || '');
+    var fresh = m && m[1], cur = currentGameBuild();
+    if (!fresh || !cur || fresh === cur) return;
+    try { if (sessionStorage.getItem('ff_reload_for') === fresh) return; sessionStorage.setItem('ff_reload_for', fresh); } catch(e) {}
+    // Не перебиваем игрока посреди дела: ждём 30 с без касаний и без открытого особого экрана.
+    if (Date.now() - (lastTapTime || 0) < 30000 || window._specialScreenOpen) {
+      try { sessionStorage.removeItem('ff_reload_for'); } catch(e) {}
+      return;
+    }
+    _updateReloading = true;
+    try { flushActions(); } catch(e) {}
+    try { save(true); } catch(e) {}
+    setTimeout(function(){ location.replace(location.pathname + '?v=' + encodeURIComponent(fresh) + location.hash); }, 1500);
+  }).catch(function(){});
+}
+
 function flushActions() {
   if (window._isBanned) return; // см. showBannedOverlay() — при бане дальше не долбим сервер
   if (window._actionsFlushTimer) { clearTimeout(window._actionsFlushTimer); window._actionsFlushTimer = null; }
@@ -6565,7 +6611,7 @@ function tapOcean(e) {
   tapPositions.push([x,y,now]);
   while (tapPositions.length && (tapPositions.length>150 || now-tapPositions[0][2]>300000)) tapPositions.shift();
   lastTapTime=now; tapTimes.push(now); updateScare();
-  if (ROBOT_DEBUG_IDS.indexOf(userId) !== -1) updateUI(); // отладка защиты — обновлять строку на каждом касании
+  if (robotDebugOn()) updateUI(); // отладка защиты — обновлять строку на каждом касании
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
   if (Math.random()>catchChance()) { spawnAnim(x,y,'💨',t('Мимо!','Miss!')); if(currentTab==='upgrades') renderUpgrades(); return; }
@@ -7459,6 +7505,10 @@ function startGame() {
   document.getElementById('loc-label').textContent=il.emoji+' '+locName(il.id);
   for (var bi=0;bi<LOCATIONS.length;bi++) if(state.unlockedLocs.indexOf(LOCATIONS[bi].id)>=0) LOCATIONS[bi].unlocked=true;
   spawnBubbles(); renderLocBar(); updateUI(); setTimeout(tick,500);
+  setupRobotDebugToggle();
+  setTimeout(checkGameUpdate, 8000);
+  setInterval(checkGameUpdate, 600000);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) checkGameUpdate(); });
 }
 
 window._noAds = false;
