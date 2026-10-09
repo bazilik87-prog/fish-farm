@@ -4857,7 +4857,9 @@ function renderClanProgress() {
       +'<div style="font-size:11px;color:#90caf9">'+fmtXp(Math.floor(pg.xp))+(next?' / '+fmtXp(next):'')+' XP</div>'
     +'</div>'
     +'<div class="bar-bg" style="height:8px;margin-top:8px"><div class="bar-fill" style="height:8px;width:'+pct+'%;background:linear-gradient(90deg,#c99a00,#FFD700)"></div></div>'
-    +'<div style="font-size:11px;color:#666;margin-top:6px">'+(next ? t('До ','To level ')+(pg.level+1)+t(' уровня: ',': ')+fmtXp(Math.ceil(next - pg.xp))+' XP' : t('Максимальный уровень!','Max level!'))+'</div>'
+    +(pg.needBattle
+      ? '<div style="font-size:12px;color:#ffb74d;font-weight:600;margin-top:6px">⚔️ '+t('Опыта на ','You have enough XP for level ')+(pg.level+1)+t(' уровень хватает — завершите клановую битву, чтобы его открыть!',' — finish a clan battle to unlock it!')+'</div>'
+      : '<div style="font-size:11px;color:#666;margin-top:6px">'+(next ? t('До ','To level ')+(pg.level+1)+t(' уровня: ',': ')+fmtXp(Math.max(0, Math.ceil(next - pg.xp)))+' XP' : t('Максимальный уровень!','Max level!'))+'</div>')
     +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Опыт: улов участников (1 XP за 100 рыб, до ','XP: members\' catch (1 XP per 100 fish, up to ')+pg.fishXpDailyCap+t(' в день), 1 XP за каждую ⭐, клановые битвы.',' a day), 1 XP per ⭐, clan battles.')+'</div>'
     +'</div>';
 

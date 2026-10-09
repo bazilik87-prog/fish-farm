@@ -2553,6 +2553,12 @@ async def _settle_tournament(session, base, tournament_id):
                     await clan_add_xp(session, base, winner_clan_id, flat=CLAN_TOUR_WIN_XP)
                 except Exception as e:
                     print(f"clan win xp {winner_clan_id}: {e}")
+            # Завершённая битва засчитывается обоим кланам — открывает уровни 3+ (CLAN_BATTLE_GATE_FROM_LEVEL)
+            for bcid in {tdata.get('initiatorClanId'), tdata.get('acceptedByClanId')} - {None}:
+                try:
+                    await clan_add_battle(session, base, bcid)
+                except Exception as e:
+                    print(f"clan battle count {bcid}: {e}")
 
             init_name = tdata.get('initiatorClanName', '')
             acc_name = tdata.get('acceptedByClanName', '')
@@ -2769,6 +2775,10 @@ CLAN_NEWBIE_XP = 100               # новичок принёс клану пе
 CLAN_NEWBIE_BONUS_XP = 50          # ... и клан получает +50 (один раз за всю жизнь игрока)
 CLAN_TOUR_PARTICIPATION_XP = 100   # клановая битва стартовала — обоим кланам
 CLAN_TOUR_WIN_XP = 300             # победа в клановой битве
+# С 09.10.2026 (решение Саши): для 3-го уровня и выше, кроме опыта, нужна завершённая клановая
+# битва — по одной на каждый уровень (победа не обязательна). Счётчик clan_xp/{id}/battles растёт
+# при settled. Уровни, набранные до этого правила, сохранены: clan_xp/{id}/levelFloor.
+CLAN_BATTLE_GATE_FROM_LEVEL = 3
 CLAN_MONTH_REWARD_STARS = 50       # «Клан месяца» — каждому подходящему участнику
 CLAN_MONTH_MIN_XP = 200            # ... кто сам принёс клану за месяц не меньше
 CLAN_MONTH_MIN_DAYS = 14           # ... и в клане с начала месяца или не меньше 14 дней
@@ -2837,6 +2847,87 @@ def clan_level_for_xp(xp):
     return level
 
 
+def clan_effective_level(xp, battles=0, floor=1):
+    """Уровень клана с учётом битв: по опыту, но не выше (GATE-1 + завершённых битв);
+    уровень, сохранённый при вводе правила (floor), не отнимается (если опыта на него хватает)."""
+    by_xp = clan_level_for_xp(xp)
+    capped = min(by_xp, CLAN_BATTLE_GATE_FROM_LEVEL - 1 + int(battles or 0))
+    return max(capped, min(int(floor or 1), by_xp))
+
+
+def clan_effective_level_of(xd):
+    xd = xd if isinstance(xd, dict) else {}
+    return clan_effective_level(float(xd.get('xp') or 0), xd.get('battles') or 0, xd.get('levelFloor') or 1)
+
+
+async def _clan_level_fields(session, base, clan_id):
+    """xp, battles, levelFloor клана — тремя маленькими чтениями (не весь clan_xp/{id} с вкладами)."""
+    out = {}
+    for f in ('xp', 'battles', 'levelFloor'):
+        async with session.get(f"{base}/clan_xp/{clan_id}/{f}.json{FB_AUTH}") as r:
+            out[f] = await r.json()
+    return out
+
+
+async def clan_add_battle(session, base, clan_id):
+    """+1 завершённая битва клану (ETag). Если это открыло новый уровень — как обычный рост уровня."""
+    url = f"{base}/clan_xp/{clan_id}.json{FB_AUTH}"
+    for _ in range(6):
+        async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+            etag = resp.headers.get("ETag")
+            data = await resp.json()
+        data = dict(data) if isinstance(data, dict) else {}
+        old_level = clan_effective_level_of(data)
+        data['battles'] = int(data.get('battles') or 0) + 1
+        async with session.put(url, json=data, headers={"If-Match": etag} if etag else {}) as w:
+            if w.status == 412:
+                continue
+            if w.status not in (200, 204):
+                return None
+        new_level = clan_effective_level_of(data)
+        _clan_ctx_invalidate(clan_id)
+        if new_level != old_level:
+            await _clan_on_level_change(session, base, clan_id, old_level, new_level)
+        return new_level
+    return None
+
+
+async def clan_battle_gate_migrate():
+    """Один раз при вводе правила битв: каждому клану — levelFloor = текущий уровень по опыту
+    (ничего не отнимаем) и battles = уже завершённые битвы. Флаг clan_migrations/battleGate."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clan_migrations/battleGate.json{FB_AUTH}") as r:
+                if await r.json():
+                    return
+            async with session.get(f"{base}/clan_xp.json{FB_AUTH}") as r:
+                all_xp = await r.json() or {}
+            async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as r:
+                all_t = await r.json() or {}
+            done = {}
+            for t in all_t.values():
+                if isinstance(t, dict) and t.get('status') == 'settled':
+                    for cid in (t.get('initiatorClanId'), t.get('acceptedByClanId')):
+                        if cid:
+                            done[cid] = done.get(cid, 0) + 1
+            sem = asyncio.Semaphore(10)
+
+            async def one(cid, xd):
+                async with sem:
+                    async with session.patch(f"{base}/clan_xp/{cid}.json{FB_AUTH}", json={
+                            'levelFloor': clan_level_for_xp(float(xd.get('xp') or 0)),
+                            'battles': int(xd.get('battles') or 0) + done.get(cid, 0)}) as w:
+                        if w.status != 200:
+                            raise RuntimeError(f"{cid}: HTTP {w.status}")
+            await asyncio.gather(*(one(cid, xd) for cid, xd in all_xp.items() if isinstance(xd, dict)))
+            await session.put(f"{base}/clan_migrations/battleGate.json{FB_AUTH}", json=int(time_module.time() * 1000))
+            print(f"[clan_battle_gate_migrate] кланов: {len(all_xp)}, битв учтено: {sum(done.values())}")
+    except Exception as e:
+        print(f"[clan_battle_gate_migrate] ошибка: {e}")
+
+
 def clan_level_bonuses(level):
     """
     Действующие бонусы клана на уровне level (накопительно). Уровень 0 — «нет
@@ -2895,21 +2986,22 @@ async def clan_bonus_ctx(session, base, pid, sv, now_ms=None):
     key = (clan_id, pid)
     cached = _CLAN_CTX_CACHE.get(key)
     if cached and now_ms - cached[0] < _CLAN_CTX_TTL_MS:
-        xp, joined_at = cached[1], cached[2]
+        xp, joined_at, eff_level = cached[1], cached[2], cached[3]
     else:
         try:
-            async with session.get(f"{base}/clan_xp/{clan_id}/xp.json{FB_AUTH}") as r1:
-                xp = float(await r1.json() or 0)
+            lf = await _clan_level_fields(session, base, clan_id)
+            xp = float(lf.get('xp') or 0)
+            eff_level = clan_effective_level_of(lf)
             async with session.get(f"{base}/clans/{clan_id}/members/{pid}/joinedAt.json{FB_AUTH}") as r2:
                 joined_at = await r2.json()
         except Exception:
             return ctx
-        _CLAN_CTX_CACHE[key] = (now_ms, xp, joined_at)
+        _CLAN_CTX_CACHE[key] = (now_ms, xp, joined_at, eff_level)
     if joined_at is None:
         return ctx  # clanId в сейве устарел — игрок уже не в этом клане
     ulocs = (sv or {}).get('ulocs') or ['pond']
     river_open = any(l != 'pond' for l in ulocs if l in LOCATION_MULT)
-    level = clan_level_for_xp(xp)
+    level = eff_level
     ctx.update(clanId=clan_id, member=True, xp=xp, level=level, joinedAt=joined_at)
     if not river_open:
         ctx['reason'] = 'pond'
@@ -2967,8 +3059,8 @@ async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, 
         gain = member_gain + float(flat or 0)
         member_day_fish = float(members[pid].get('dayFish') or 0) if pid and members.get(pid, {}).get('day') == day else 0.0
         if gain == 0:
-            return {'gained': 0.0, 'oldLevel': clan_level_for_xp(old_xp), 'newLevel': clan_level_for_xp(old_xp),
-                    'memberDayFish': member_day_fish}
+            lv0 = clan_effective_level(old_xp, data.get('battles') or 0, data.get('levelFloor') or 1)
+            return {'gained': 0.0, 'oldLevel': lv0, 'newLevel': lv0, 'memberDayFish': member_day_fish}
         new_xp = max(0.0, round(old_xp + gain, 4))
         months[month] = round(float(months.get(month) or 0) + gain, 4)
         data.update(xp=new_xp, months=months, members=members)
@@ -2982,7 +3074,8 @@ async def clan_add_xp(session, base, clan_id, pid=None, fish_xp=0.0, stars=0.0, 
     else:
         return None
     _clan_ctx_invalidate(clan_id)
-    old_level, new_level = clan_level_for_xp(old_xp), clan_level_for_xp(new_xp)
+    old_level = clan_effective_level(old_xp, data.get('battles') or 0, data.get('levelFloor') or 1)
+    new_level = clan_effective_level(new_xp, data.get('battles') or 0, data.get('levelFloor') or 1)
     if newbie_crossed and pid:
         await _clan_newbie_bonus(session, base, clan_id, pid, now_ms)
     if new_level != old_level:
@@ -3101,8 +3194,7 @@ async def _clan_on_level_change(session, base, clan_id, old_level, new_level):
 async def _clan_level_value(session, base, clan_id):
     """Текущий уровень клана для значка в leaderboard при вступлении."""
     try:
-        async with session.get(f"{base}/clan_xp/{clan_id}/xp.json{FB_AUTH}") as resp:
-            return clan_level_for_xp(float(await resp.json() or 0))
+        return clan_effective_level_of(await _clan_level_fields(session, base, clan_id))
     except Exception:
         return 1
 
@@ -3265,7 +3357,8 @@ async def _clan_progress_view(session, base, clan_id, clan_data, pid):
         xd = await resp.json()
     xd = xd if isinstance(xd, dict) else {}
     xp = float(xd.get('xp') or 0)
-    level = clan_level_for_xp(xp)
+    level = clan_effective_level_of(xd)
+    battles = int(xd.get('battles') or 0)
     xstats = xd.get('members') or {}
     contrib = []
     for mpid, m in (clan_data.get('members') or {}).items():
@@ -3307,6 +3400,10 @@ async def _clan_progress_view(session, base, clan_id, clan_data, pid):
         'levelXp': CLAN_LEVEL_XP[level - 1],
         'nextXp': CLAN_LEVEL_XP[level] if level < len(CLAN_LEVEL_XP) else None,
         'legend': level >= 10,
+        # Опыта на следующий уровень хватает, но нужна завершённая битва (правило с 09.10.2026)
+        'battles': battles,
+        'needBattle': level < len(CLAN_LEVEL_XP) and level + 1 >= CLAN_BATTLE_GATE_FROM_LEVEL
+                      and xp >= CLAN_LEVEL_XP[level] and clan_effective_level(xp, battles + 1, xd.get('levelFloor') or 1) > level,
         'contrib': contrib, 'fishXpDailyCap': CLAN_FISH_XP_DAILY_CAP,
         'month': {'key': month, 'xp': round(month_xp_clan, 1), 'rank': rank, 'clans': len(rows),
                   'leader': leader, 'rewardStars': CLAN_MONTH_REWARD_STARS, 'minXp': CLAN_MONTH_MIN_XP},
@@ -8968,7 +9065,7 @@ async def clanxp_command(message: types.Message):
         xp = float(xd.get('xp') or 0)
         month_xp = float((xd.get('months') or {}).get(_msk_month_key(int(time_module.time() * 1000))) or 0)
         prefix = f"✅ Опыт изменён на {parts[2]}.\n" if len(parts) >= 3 else ""
-        await message.answer(f"{prefix}🛡 «{name}»: {xp:,.1f} XP, уровень {clan_level_for_xp(xp)}, за этот месяц {month_xp:,.1f} XP")
+        await message.answer(f"{prefix}🛡 «{name}»: {xp:,.1f} XP, уровень {clan_effective_level_of(xd)} (по опыту {clan_level_for_xp(xp)}, битв завершено {int(xd.get('battles') or 0)}), за этот месяц {month_xp:,.1f} XP")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
@@ -13482,6 +13579,10 @@ async def main():
             _bf_cache_set(status, (bf.get('participants') or {}).keys() if status == 'active' else [], bf.get('number'))
     except Exception as e:
         print(f"Не удалось загрузить big_fishing/current при старте, _BF_CACHE остаётся 'none': {e}")
+
+    # До приёма запросов: разовый перенос уровней кланов под правило битв (иначе клан 3+ уровня
+    # на секунды «терял» бы уровень). Дальше — одно чтение флага.
+    await clan_battle_gate_migrate()
 
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
