@@ -1888,7 +1888,11 @@ async def _fixate_tournament(session, base, tournament_id):
     return None
 
 
-async def _clan_unresolved_tournament_info(session, base, clan_id):
+_CLAN_TOURNAMENTS_CACHE = {'ts': 0, 'data': None}
+CLAN_TOURNAMENTS_CACHE_TTL_MS = 30000
+
+
+async def _clan_unresolved_tournament_info(session, base, clan_id, cached=False):
     """
     Защита ставок в клановых турнирах: капитан не может ни распустить клан, ни выгнать
     конкретного участника, пока у клана есть незавершённый турнир (funding/open/matching/
@@ -1906,9 +1910,18 @@ async def _clan_unresolved_tournament_info(session, base, clan_id):
     """
     if not clan_id:
         return False, set(), None
-    async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
-        all_t = await resp.json()
-    all_t = all_t or {}
+    # cached=True — только для показа в /clan_status (его каждый игрок клана зовёт раз в минуту,
+    # и весь clan_tournaments качался ~6 800 раз в сутки). Проверки перед роспуском/исключением
+    # и всё денежное читают свежие данные (cached=False).
+    now_ms = int(time_module.time() * 1000)
+    if cached and _CLAN_TOURNAMENTS_CACHE['data'] is not None \
+            and now_ms - _CLAN_TOURNAMENTS_CACHE['ts'] < CLAN_TOURNAMENTS_CACHE_TTL_MS:
+        all_t = _CLAN_TOURNAMENTS_CACHE['data']
+    else:
+        async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as resp:
+            all_t = await resp.json()
+        all_t = all_t or {}
+        _CLAN_TOURNAMENTS_CACHE.update(ts=now_ms, data=all_t)
     has_unresolved = False
     paid_pids = set()
     active_count = 0
@@ -3358,7 +3371,7 @@ async def clan_status(request):
                     clan = _clan_public(clan_id, clan_data, real_user_id)
                     # Флаг для фронта — блокировать/подсвечивать кнопку «Распустить клан» и
                     # «Удалить» у конкретных участников заранее, а не только по ошибке сервера.
-                    has_unresolved, paid_pids, tour_summary = await _clan_unresolved_tournament_info(session, base, clan_id)
+                    has_unresolved, paid_pids, tour_summary = await _clan_unresolved_tournament_info(session, base, clan_id, cached=True)
                     clan['hasUnresolvedTournament'] = has_unresolved
                     clan['tournamentLockedPids'] = list(paid_pids)
                     clan['iAmLocked'] = pid in paid_pids
