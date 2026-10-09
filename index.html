@@ -710,10 +710,10 @@ var MAX_TPS = 5;
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
 var tapAttempts = [];
 var tapIntervals = [];
-var tapPositions = [];            // [x, y, время] принятых тапов за 2 минуты (не сбрасываются на паузах)
+var tapPositions = [];            // [x, y, время] принятых тапов за 5 минут (не сбрасываются на паузах)
 var ROBOT_SPOT_MAX_PX = 3;        // совпадение точки с точностью до 3 px — палец так не попадает
-var ROBOT_REPLAY_TAPS = 24;       // столько последних касаний проверяем на повторяющийся узор
-var ROBOT_REPLAY_MAX_PERIOD = 8;  // узор из 1..8 точек (жест «Виртуального контроллера» iPhone, автокликер)
+var ROBOT_REPLAY_TAPS = 24;       // минимум совпавших касаний подряд, чтобы считать узор повтором
+var ROBOT_REPLAY_MAX_PERIOD = 60; // запись жеста («Виртуальный контроллер» iPhone, автокликер) до 60 касаний
 var ROBOT_RHYTHM_MIN_TAPS = 20;   // столько пауз подряд нужно, чтобы судить о ритме
 var ROBOT_RHYTHM_MAX_CV = 0.02;   // разброс пауз меньше 2% от средней — «механический» ритм (у человека даже в такт — 5–15%)
 
@@ -1389,13 +1389,14 @@ function catchChance() {
 function robotSpot() {
   // Записанный жест повторяется точь-в-точь: касание i совпадает с касанием i-k (k — длина узора).
   // k=1 — все касания в одну точку. Живой палец не повторяет набор точек до 3 px 24 раза подряд.
+  // Окно для длины узора k: k + max(24, k) последних касаний — узор целиком и его повтор.
   var n=tapPositions.length;
-  if (n<ROBOT_REPLAY_TAPS) return false;
-  var p=tapPositions.slice(n-ROBOT_REPLAY_TAPS);
   for (var k=1;k<=ROBOT_REPLAY_MAX_PERIOD;k++) {
+    var w=k+Math.max(ROBOT_REPLAY_TAPS, k);
+    if (n<w) break;
     var ok=true;
-    for (var i=k;i<p.length && ok;i++)
-      if (Math.abs(p[i][0]-p[i-k][0])>ROBOT_SPOT_MAX_PX || Math.abs(p[i][1]-p[i-k][1])>ROBOT_SPOT_MAX_PX) ok=false;
+    for (var i=n-w+k;i<n && ok;i++)
+      if (Math.abs(tapPositions[i][0]-tapPositions[i-k][0])>ROBOT_SPOT_MAX_PX || Math.abs(tapPositions[i][1]-tapPositions[i-k][1])>ROBOT_SPOT_MAX_PX) ok=false;
     if (ok) return true;
   }
   return false;
@@ -1404,9 +1405,16 @@ var ROBOT_DEBUG_IDS = [7236477449, 145841941]; // тестовый и админ
 function robotDebugText() {
   var n=tapIntervals.length, cv='—';
   if (n>=2) { var sm=0,i; for(i=0;i<n;i++) sm+=tapIntervals[i]; var mn=sm/n, v=0; for(i=0;i<n;i++) v+=(tapIntervals[i]-mn)*(tapIntervals[i]-mn); cv=(Math.sqrt(v/n)/mn*100).toFixed(1)+'%'; }
-  var lp=tapPositions.length ? tapPositions[tapPositions.length-1] : null;
-  return '🔧 '+(lp?Math.round(lp[0])+','+Math.round(lp[1]):'—')+' · точек '+tapPositions.length+' · узор '+(robotSpot()?'ДА':'нет')
-    +' · пауз '+n+' разброс '+cv+' · '+tapAttempts.length+'/с · '+scareFactor.toFixed(2);
+  // Лучший кандидат узора: для каждого k (1..12) — наибольшее расхождение касания i с i-k
+  var P=tapPositions, best='—', bestDev=1e9;
+  for (var k=1;k<=ROBOT_REPLAY_MAX_PERIOD && 2*k<=P.length;k++) {
+    var devs=[]; for (var j=k;j<P.length;j++) devs.push(Math.max(Math.abs(P[j][0]-P[j-k][0]), Math.abs(P[j][1]-P[j-k][1])));
+    devs.sort(function(a,b){return a-b;}); var med=devs[Math.floor(devs.length/2)];  // медиана — видно и почти-повторы
+    if (med<bestDev) { bestDev=med; best='k='+k+' откл '+Math.round(med)+'px'; }
+  }
+  var last6=tapPositions.slice(-6).map(function(q){return Math.round(q[0])+','+Math.round(q[1]);}).join(' ');
+  return '🔧 точек '+tapPositions.length+' · узор '+(robotSpot()?'ДА':'нет')+' ('+best+') · пауз '+n+' разброс '+cv
+    +' · '+tapAttempts.length+'/с · '+scareFactor.toFixed(2)+'\n'+last6;
 }
 function robotRhythm() {
   var n=tapIntervals.length;
@@ -1603,7 +1611,7 @@ function updateUI() {
     moodEl.textContent=moodEmoji()+' '+chance+t('% улов','% catch');
     if (ROBOT_DEBUG_IDS.indexOf(userId) !== -1) {
       var dbg = document.createElement('div');
-      dbg.style.cssText = 'font-size:10px;color:#90caf9;font-weight:400;margin-top:2px';
+      dbg.style.cssText = 'font-size:10px;color:#90caf9;font-weight:400;margin-top:2px;white-space:pre-line';
       dbg.textContent = robotDebugText();
       moodEl.appendChild(dbg);
     }
@@ -6555,7 +6563,7 @@ function tapOcean(e) {
     if (tapIntervals.length>20) tapIntervals.shift();
   } else tapIntervals=[]; // для ритма пауза больше 2 с — новая серия
   tapPositions.push([x,y,now]);
-  while (tapPositions.length && (tapPositions.length>40 || now-tapPositions[0][2]>120000)) tapPositions.shift();
+  while (tapPositions.length && (tapPositions.length>150 || now-tapPositions[0][2]>300000)) tapPositions.shift();
   lastTapTime=now; tapTimes.push(now); updateScare();
   if (ROBOT_DEBUG_IDS.indexOf(userId) !== -1) updateUI(); // отладка защиты — обновлять строку на каждом касании
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
