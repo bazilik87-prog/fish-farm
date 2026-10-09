@@ -710,8 +710,10 @@ var MAX_TPS = 5;
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
 var tapAttempts = [];
 var tapIntervals = [];
-var tapPositions = [];            // точки принятых тапов серии — автокликер жмёт в один и тот же пиксель
-var ROBOT_SPOT_MAX_PX = 3;        // все 20 тапов в пределах 3 px от средней точки — палец так не попадает
+var tapPositions = [];            // [x, y, время] принятых тапов за 2 минуты (не сбрасываются на паузах)
+var ROBOT_SPOT_MAX_PX = 3;        // совпадение точки с точностью до 3 px — палец так не попадает
+var ROBOT_REPLAY_TAPS = 24;       // столько последних касаний проверяем на повторяющийся узор
+var ROBOT_REPLAY_MAX_PERIOD = 8;  // узор из 1..8 точек (жест «Виртуального контроллера» iPhone, автокликер)
 var ROBOT_RHYTHM_MIN_TAPS = 20;   // столько пауз подряд нужно, чтобы судить о ритме
 var ROBOT_RHYTHM_MAX_CV = 0.02;   // разброс пауз меньше 2% от средней — «механический» ритм (у человека даже в такт — 5–15%)
 
@@ -1385,13 +1387,18 @@ function catchChance() {
   return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
 }
 function robotSpot() {
+  // Записанный жест повторяется точь-в-точь: касание i совпадает с касанием i-k (k — длина узора).
+  // k=1 — все касания в одну точку. Живой палец не повторяет набор точек до 3 px 24 раза подряд.
   var n=tapPositions.length;
-  if (n<ROBOT_RHYTHM_MIN_TAPS) return false;
-  var mx=0,my=0,i;
-  for (i=0;i<n;i++) { mx+=tapPositions[i][0]; my+=tapPositions[i][1]; }
-  mx/=n; my/=n;
-  for (i=0;i<n;i++) if (Math.abs(tapPositions[i][0]-mx)>ROBOT_SPOT_MAX_PX || Math.abs(tapPositions[i][1]-my)>ROBOT_SPOT_MAX_PX) return false;
-  return true;
+  if (n<ROBOT_REPLAY_TAPS) return false;
+  var p=tapPositions.slice(n-ROBOT_REPLAY_TAPS);
+  for (var k=1;k<=ROBOT_REPLAY_MAX_PERIOD;k++) {
+    var ok=true;
+    for (var i=k;i<p.length && ok;i++)
+      if (Math.abs(p[i][0]-p[i-k][0])>ROBOT_SPOT_MAX_PX || Math.abs(p[i][1]-p[i-k][1])>ROBOT_SPOT_MAX_PX) ok=false;
+    if (ok) return true;
+  }
+  return false;
 }
 function robotRhythm() {
   var n=tapIntervals.length;
@@ -6531,10 +6538,10 @@ function tapOcean(e) {
   var x=(touch.clientX||touch.pageX)-rect.left, y=(touch.clientY||touch.pageY)-rect.top;
   if (lastTapTime && now-lastTapTime<2000) {
     tapIntervals.push(now-lastTapTime);
-    tapPositions.push([x,y]);
     if (tapIntervals.length>20) tapIntervals.shift();
-    if (tapPositions.length>20) tapPositions.shift();
-  } else { tapIntervals=[]; tapPositions=[[x,y]]; } // пауза больше 2 с — новая серия
+  } else tapIntervals=[]; // для ритма пауза больше 2 с — новая серия
+  tapPositions.push([x,y,now]);
+  while (tapPositions.length && (tapPositions.length>40 || now-tapPositions[0][2]>120000)) tapPositions.shift();
   lastTapTime=now; tapTimes.push(now); updateScare();
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
