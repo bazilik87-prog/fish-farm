@@ -710,6 +710,8 @@ var MAX_TPS = 5;
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
 var tapAttempts = [];
 var tapIntervals = [];
+var tapPositions = [];            // точки принятых тапов серии — автокликер жмёт в один и тот же пиксель
+var ROBOT_SPOT_MAX_PX = 3;        // все 20 тапов в пределах 3 px от средней точки — палец так не попадает
 var ROBOT_RHYTHM_MIN_TAPS = 20;   // столько пауз подряд нужно, чтобы судить о ритме
 var ROBOT_RHYTHM_MAX_CV = 0.02;   // разброс пауз меньше 2% от средней — «механический» ритм (у человека даже в такт — 5–15%)
 
@@ -1379,9 +1381,17 @@ function catchChance() {
   var mult;
   if (scareFactor>=0.9)      mult=1.0;   // 😊 спокойная
   else if (scareFactor>=0.6) mult=0.5;   // 😐 насторожена ~50%
-  else if (scareFactor>=0.3) mult=0.17;  // 😨 напугана ~5% от базы
-  else                       mult=0.05;  // 😱 в панике ~1% от базы
+  else                       mult=0;     // 😨 напугана / 😱 в панике — не клюёт совсем (решение Саши, 09.10.2026)
   return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
+}
+function robotSpot() {
+  var n=tapPositions.length;
+  if (n<ROBOT_RHYTHM_MIN_TAPS) return false;
+  var mx=0,my=0,i;
+  for (i=0;i<n;i++) { mx+=tapPositions[i][0]; my+=tapPositions[i][1]; }
+  mx/=n; my/=n;
+  for (i=0;i<n;i++) if (Math.abs(tapPositions[i][0]-mx)>ROBOT_SPOT_MAX_PX || Math.abs(tapPositions[i][1]-my)>ROBOT_SPOT_MAX_PX) return false;
+  return true;
 }
 function robotRhythm() {
   var n=tapIntervals.length;
@@ -1400,7 +1410,7 @@ function updateScare() {
   var na=[]; for (var j=0;j<tapAttempts.length;j++) if(now-tapAttempts[j]<1000) na.push(tapAttempts[j]);
   tapAttempts=na;
   if (tapAttempts.length>MAX_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 5 раз в секунду
-  else if (robotRhythm()) scareFactor=Math.max(0.05,scareFactor-0.08);           // однообразный ритм — рыба пугается
+  else if (robotRhythm() || robotSpot()) scareFactor=Math.max(0.05,scareFactor-0.08); // механический ритм или тапы в одну точку — рыба пугается
   else if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
   else scareFactor=Math.max(0.5,scareFactor-0.03);
 }
@@ -6516,14 +6526,16 @@ function tapOcean(e) {
   }
   tapAttempts.push(now);
   if (now-lastTapTime<200) { updateScare(); return; }
-  if (lastTapTime && now-lastTapTime<2000) {
-    tapIntervals.push(now-lastTapTime);
-    if (tapIntervals.length>20) tapIntervals.shift();
-  } else tapIntervals=[]; // пауза больше 2 с — новая серия
-  lastTapTime=now; tapTimes.push(now); updateScare();
   var touch=e.touches&&e.touches[0]?e.touches[0]:e;
   var rect=document.getElementById('ocean').getBoundingClientRect();
   var x=(touch.clientX||touch.pageX)-rect.left, y=(touch.clientY||touch.pageY)-rect.top;
+  if (lastTapTime && now-lastTapTime<2000) {
+    tapIntervals.push(now-lastTapTime);
+    tapPositions.push([x,y]);
+    if (tapIntervals.length>20) tapIntervals.shift();
+    if (tapPositions.length>20) tapPositions.shift();
+  } else { tapIntervals=[]; tapPositions=[[x,y]]; } // пауза больше 2 с — новая серия
+  lastTapTime=now; tapTimes.push(now); updateScare();
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
   if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
   if (Math.random()>catchChance()) { spawnAnim(x,y,'💨',t('Мимо!','Miss!')); if(currentTab==='upgrades') renderUpgrades(); return; }
