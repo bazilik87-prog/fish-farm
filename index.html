@@ -705,6 +705,13 @@ var lastTapTime = 0;
 var tapTimes = [];
 var scareFactor = 1.0;
 var MAX_TPS = 5;
+// Защита от автокликера (09.10.2026). tapAttempts — ВСЕ нажатия за секунду (до фильтра 200 мс:
+// раньше «паника» была недостижима — принятых тапов не бывает больше 5/с). tapIntervals — паузы
+// между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
+var tapAttempts = [];
+var tapIntervals = [];
+var ROBOT_RHYTHM_MIN_TAPS = 20;   // столько пауз подряд нужно, чтобы судить о ритме
+var ROBOT_RHYTHM_MAX_CV = 0.02;   // разброс пауз меньше 2% от средней — «механический» ритм (у человека даже в такт — 5–15%)
 
 // ── Утилиты ───────────────────────────────────────────
 function fmt(c) {
@@ -1376,14 +1383,26 @@ function catchChance() {
   else                       mult=0.05;  // 😱 в панике ~1% от базы
   return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
 }
+function robotRhythm() {
+  var n=tapIntervals.length;
+  if (n<ROBOT_RHYTHM_MIN_TAPS) return false;
+  var sum=0, i;
+  for (i=0;i<n;i++) sum+=tapIntervals[i];
+  var mean=sum/n, v=0;
+  for (i=0;i<n;i++) v+=(tapIntervals[i]-mean)*(tapIntervals[i]-mean);
+  return mean>0 && Math.sqrt(v/n)/mean < ROBOT_RHYTHM_MAX_CV;
+}
 function updateScare() {
   var now=Date.now(), ntimes=[];
   for (var i=0;i<tapTimes.length;i++) if(now-tapTimes[i]<1000) ntimes.push(tapTimes[i]);
   tapTimes=ntimes;
   var tps=tapTimes.length;
-  if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
-  else if (tps<=MAX_TPS) scareFactor=Math.max(0.5,scareFactor-0.03);
-  else scareFactor=Math.max(0.05,scareFactor-0.15);
+  var na=[]; for (var j=0;j<tapAttempts.length;j++) if(now-tapAttempts[j]<1000) na.push(tapAttempts[j]);
+  tapAttempts=na;
+  if (tapAttempts.length>MAX_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 5 раз в секунду
+  else if (robotRhythm()) scareFactor=Math.max(0.05,scareFactor-0.08);           // однообразный ритм — рыба пугается
+  else if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
+  else scareFactor=Math.max(0.5,scareFactor-0.03);
 }
 function unlockFish() {
   var loc=state.currentLoc;
@@ -6495,7 +6514,12 @@ function tapOcean(e) {
     showNotif(t('⏳ Секунду, обрабатываем оплату энергии...','⏳ One sec, processing your energy purchase...'));
     return;
   }
-  if (now-lastTapTime<200) return;
+  tapAttempts.push(now);
+  if (now-lastTapTime<200) { updateScare(); return; }
+  if (lastTapTime && now-lastTapTime<2000) {
+    tapIntervals.push(now-lastTapTime);
+    if (tapIntervals.length>20) tapIntervals.shift();
+  } else tapIntervals=[]; // пауза больше 2 с — новая серия
   lastTapTime=now; tapTimes.push(now); updateScare();
   var touch=e.touches&&e.touches[0]?e.touches[0]:e;
   var rect=document.getElementById('ocean').getBoundingClientRect();
