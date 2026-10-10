@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-10.1">
+<meta name="ff-build" content="2026-10-10.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -704,6 +704,7 @@ var settingsSubpage = null;
 var leadersLoaded = false; // текущая подстраница настроек // история уведомлений
 var lastTapTime = 0;
 var tapTimes = [];
+var _lastScaredAnimAt = 0;
 var scareFactor = 1.0;
 var MAX_TPS = 5;
 var MASH_TPS = 7;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники
@@ -6619,8 +6620,14 @@ function tapOcean(e) {
   lastTapTime=now; tapTimes.push(now); updateScare();
   if (robotDebugOn()) updateUI(); // отладка защиты — обновлять строку на каждом касании
   if (!tapped) { document.getElementById('hint').style.opacity='0'; tapped=true; }
-  if (scareFactor<0.5) spawnAnim(x,y,'🐟','😨 Напугана!');
-  if (Math.random()>catchChance()) { spawnAnim(x,y,'💨',t('Мимо!','Miss!')); if(currentTab==='upgrades') renderUpgrades(); return; }
+  if (Math.random()>catchChance()) {
+    // Напуганная рыба — одна надпись «Напугана!» не чаще раза в секунду, без «Мимо!» поверх (раньше
+    // обе надписи вылезали в одной точке и громоздились друг на друга).
+    if (scareFactor<0.6) {
+      if (now-_lastScaredAnimAt>1000) { _lastScaredAnimAt=now; spawnAnim(x,y,'🐟',t('😨 Напугана!','😨 Scared!')); }
+    } else spawnAnim(x,y,'💨',t('Мимо!','Miss!'));
+    if(currentTab==='upgrades') renderUpgrades(); return;
+  }
 
   if (!hasEnergy()) {
     spawnAnim(x,y,'⚡',t('Нет энергии!','No energy!'));
