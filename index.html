@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-09.1">
+<meta name="ff-build" content="2026-10-10.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -706,6 +706,7 @@ var lastTapTime = 0;
 var tapTimes = [];
 var scareFactor = 1.0;
 var MAX_TPS = 5;
+var MASH_TPS = 7;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники
 // Защита от автокликера (09.10.2026). tapAttempts — ВСЕ нажатия за секунду (до фильтра 200 мс:
 // раньше «паника» была недостижима — принятых тапов не бывает больше 5/с). tapIntervals — паузы
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
@@ -1384,7 +1385,8 @@ function catchChance() {
   var mult;
   if (scareFactor>=0.9)      mult=1.0;   // 😊 спокойная
   else if (scareFactor>=0.6) mult=0.5;   // 😐 насторожена ~50%
-  else                       mult=0;     // 😨 напугана / 😱 в панике — не клюёт совсем (решение Саши, 09.10.2026)
+  else if (scareFactor>=0.3) return 0.02; // 😨 напугана — 2% (решение Саши, 10.10.2026)
+  else                       return 0;    // 😱 в панике — не клюёт совсем
   return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
 }
 function robotSpot() {
@@ -1440,7 +1442,9 @@ function robotRhythm() {
   for (i=0;i<n;i++) sum+=tapIntervals[i];
   var mean=sum/n, v=0;
   for (i=0;i<n;i++) v+=(tapIntervals[i]-mean)*(tapIntervals[i]-mean);
-  return mean>0 && Math.sqrt(v/n)/mean < ROBOT_RHYTHM_MAX_CV;
+  // Быстрее ~3 касаний/с паузы «прилипают» к фильтру 200 мс и выглядят ровными и у человека —
+  // там ритм не судим (быстрый автокликер ловит robotSpot по повтору точек).
+  return mean>=300 && Math.sqrt(v/n)/mean < ROBOT_RHYTHM_MAX_CV;
 }
 function updateScare() {
   var now=Date.now(), ntimes=[];
@@ -1449,10 +1453,12 @@ function updateScare() {
   var tps=tapTimes.length;
   var na=[]; for (var j=0;j<tapAttempts.length;j++) if(now-tapAttempts[j]<1000) na.push(tapAttempts[j]);
   tapAttempts=na;
-  if (tapAttempts.length>MAX_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 5 раз в секунду
-  else if (robotRhythm() || robotSpot()) scareFactor=Math.max(0.05,scareFactor-0.08); // механический ритм или тапы в одну точку — рыба пугается
-  else if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
-  else scareFactor=Math.max(0.5,scareFactor-0.03);
+  // 10.10.2026 — мягче для живых: до 4 тапов/с рыба спокойна, 5/с — только настораживается (не ниже 😐),
+  // пугается до паники лишь от колочения чаще 7 раз в секунду или от автокликера.
+  if (tapAttempts.length>MASH_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 7 раз в секунду
+  else if (robotRhythm() || robotSpot()) scareFactor=Math.max(0.05,scareFactor-0.08); // механический ритм или повтор точек — автокликер
+  else if (tps<=4) scareFactor=Math.min(1.0,scareFactor+0.05);
+  else scareFactor=Math.max(0.6,scareFactor-0.02);
 }
 function unlockFish() {
   var loc=state.currentLoc;
