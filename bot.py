@@ -7796,6 +7796,78 @@ async def start(message: types.Message):
         pass
 
 
+GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры: +50% к улову на 30 мин, ×2 скорость доставки на 1 ч
+
+
+@dp.message(Command('giftall'))
+async def giftall_command(message: types.Message):
+    """Подарок всем, кто заходил за последние N дней: монеты (через pending_rewards — как /addcoins,
+    игрок получает при заходе) и бустеры (через pending_boosts — начинают действовать с момента
+    захода). Без «да» — только подсчёт. Повторно в тот же день не начисляет (gifts_log/{ключ})."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.strip().split()
+    try:
+        amount = int(parts[1])
+        days = int(parts[2]) if len(parts) > 2 else 30
+    except (IndexError, ValueError):
+        await message.answer("Использование:\n<code>/giftall МОНЕТ [ДНЕЙ]</code> — подсчёт\n"
+                             "<code>/giftall МОНЕТ ДНЕЙ да</code> — начислить\n\n"
+                             "Пример: <code>/giftall 5000 30 да</code> — 5 000 монет и бустеры всем, кто заходил за 30 дней.",
+                             parse_mode="HTML")
+        return
+    confirm = len(parts) > 3 and parts[3].lower() in ('да', 'yes')
+    if amount < 0 or amount > 100000 or days < 1 or days > 365:
+        await message.answer("❌ Монет 0–100 000, дней 1–365.")
+        return
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    key = "gift_" + datetime.now(timezone(timedelta(hours=3))).strftime('%Y%m%d')
+    try:
+        async with aiohttp.ClientSession() as session:
+            lb = await get_leaderboard_cached(session, base, max_age_ms=300000)
+            async with session.get(f"{base}/banned.json{FB_AUTH}") as r:
+                banned = await r.json() or {}
+            pids = [pid for pid, v in (lb or {}).items()
+                    if isinstance(v, dict) and pid.startswith('tg_') and now_ms - int(v.get('ts') or 0) <= days * 86400000
+                    and not is_ban_active(banned.get(pid[3:]), now_ms)]
+            usd = len(pids) * amount / 100000 * 1.5
+            if not confirm:
+                await message.answer(f"🎁 Подарок: {amount:,} монет + бустеры ({', '.join(GIFT_BOOSTS)})\n"
+                                     f"Получат: {len(pids):,} игроков (заходили за {days} дн., без забаненных)\n"
+                                     f"Всего монет: {len(pids) * amount:,} — если все выведут на Пруду, до ${usd:,.0f}\n\n"
+                                     f"Начислить: /giftall {amount} {days} да")
+                return
+            async with session.get(f"{base}/gifts_log/{key}.json{FB_AUTH}") as r:
+                if await r.json():
+                    await message.answer(f"⚠️ Подарок {key} сегодня уже начислен — второй раз не начисляю.")
+                    return
+            await session.put(f"{base}/gifts_log/{key}.json{FB_AUTH}",
+                              json={'amount': amount, 'days': days, 'players': len(pids), 'ts': now_ms})
+            failed = 0
+            for i in range(0, len(pids), 400):
+                chunk = pids[i:i + 400]
+                body_r = {f"{pid}/{key}": amount for pid in chunk} if amount > 0 else {}
+                body_b = {f"{pid}/{b}": True for pid in chunk for b in GIFT_BOOSTS}
+                for path, body in (('pending_rewards', body_r), ('pending_boosts', body_b)):
+                    if not body:
+                        continue
+                    for attempt in range(3):
+                        async with session.patch(f"{base}/{path}.json{FB_AUTH}", json=body) as w:
+                            if w.status == 200:
+                                break
+                        await asyncio.sleep(1 + attempt)
+                    else:
+                        failed += len(chunk)
+        await message.answer(f"✅ Подарок начислен: {len(pids):,} игроков × {amount:,} монет + бустеры.\n"
+                             f"Игроки получат его при следующем заходе в игру."
+                             + (f"\n⚠️ Не записалось для {failed} — повтори позже или напиши Claude." if failed else ""))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('addcoins'))
 async def addcoins_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:

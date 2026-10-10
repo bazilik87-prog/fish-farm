@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-10.2">
+<meta name="ff-build" content="2026-10-10.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6447,6 +6447,7 @@ function applyActionsResult(res, sentAt) {
     (res.claimed.details||[]).forEach(function(d){
       if (d.type==='ref') showNotif(t('👥 Реферальный бонус от ','👥 Referral bonus from ')+d.from+': +🪙'+fmt(d.amount));
       else if (d.type==='purchase') showNotif('💰 '+t('Покупка: +🪙','Purchase: +🪙')+fmt(d.amount));
+      else if (d.source && String(d.source).indexOf('gift_')===0) showNotif('🎂 '+t('Праздничный подарок: +🪙','Holiday gift: +🪙')+fmt(d.amount)+t(' и бустеры!',' and boosters!'));
       else showNotif(t('🎁 Бонус: +🪙','🎁 Bonus: +🪙')+fmt(d.amount));
     });
   }
