@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-10.3">
+<meta name="ff-build" content="2026-10-10.4">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -3808,6 +3808,7 @@ function exchangeCoins() {
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
     if(!res.ok && res.data && res.data.code==='pond_limit') { showNotif('🌿 '+res.data.error); return; }
+    if(!res.ok && res.data && res.data.code==='wallet_taken') { showNotif('🚫 '+res.data.error); return; }
     if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {

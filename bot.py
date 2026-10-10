@@ -775,6 +775,62 @@ async def change_pond_withdrawn(user_id, delta):
         return 'error'
 
 
+def wallet_key(wallet):
+    """Один и тот же TON-кошелёк пишут по-разному (UQ…/EQ…, bounceable или нет) — ключ по самому
+    адресу: «воркчейн_хеш». Если строка не похожа на адрес — очищенная строка (для ключа Firebase)."""
+    import base64 as _b64
+    w = str(wallet or '').strip()
+    try:
+        raw = _b64.urlsafe_b64decode(w.replace('+', '-').replace('/', '_') + '=' * (-len(w) % 4))
+        if len(raw) == 36:
+            return f"{raw[1] if raw[1] < 128 else raw[1] - 256}_{raw[2:34].hex()}"
+    except Exception:
+        pass
+    return 'x_' + _re_traffic.sub(r'[^A-Za-z0-9_-]', '', w)[:80]
+
+
+async def wallet_owner_other(user_id, wallet):
+    """Чей это кошелёк, если не этого игрока (правило «один кошелёк — один игрок», с 10.10.2026):
+    сначала закрытый узел wallet_owner/{ключ}, затем история withdrawals_log (до правила). None — свободен
+    или его. Сбой чтения — None (не блокируем вывод из-за сети)."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    key = wallet_key(wallet)
+    me = str(user_id)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/wallet_owner/{key}.json{FB_AUTH}") as r:
+                owner = await r.json()
+            if owner:
+                return None if str(owner) == me else str(owner)
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
+        first = None
+        for e in sorted((e for e in wl.values() if isinstance(e, dict) and e.get('user_id')), key=lambda e: e.get('ts', 0)):
+            if wallet_key(e.get('wallet')) == key:
+                first = str(e['user_id'])
+                break
+        return None if (first is None or first == me) else first
+    except Exception as e:
+        print(f"[wallet_owner_other] {user_id}: {e}")
+        return None
+
+
+async def wallet_claim(user_id, wallet):
+    """После оплаты вывода закрепляет кошелёк за игроком (если ещё ни за кем)."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    url = f"{base}/wallet_owner/{wallet_key(wallet)}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as r:
+                if await r.json():
+                    return
+            await session.put(url, json=str(user_id))
+    except Exception as e:
+        print(f"[wallet_claim] {user_id}: {e}")
+
+
 async def create_invoice(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -829,6 +885,21 @@ async def create_invoice(request):
                 max_withdraw = 50000 * loc_mult * loc_mult
             if coins < 1000 or coins > max_withdraw or not wallet:
                 return web.json_response({'error': f'сумма должна быть от 1,000 до {max_withdraw:,} монет'}, status=400, headers=CORS)
+            # Один кошелёк — один игрок (10.10.2026): вывод на кошелёк, которым уже выводил другой
+            # аккаунт, не принимаем (фермы аккаунтов собирали выводы на общий кошелёк).
+            other = await wallet_owner_other(user_id, wallet)
+            if other:
+                is_ru = str(real_user_verified.get('language_code') or '').startswith('ru')
+                msg = ('Этот кошелёк уже использовался для вывода с другого аккаунта. Правило: один кошелёк — один игрок. Укажи свой кошелёк.'
+                       if is_ru else
+                       'This wallet was already used for a withdrawal from another account. Rule: one wallet — one player. Please use your own wallet.')
+                if ADMIN_ID:
+                    try:
+                        await bot.send_message(ADMIN_ID, f"🚫 Вывод не принят: ID {user_id} (@{username or '—'}) указал кошелёк "
+                                                         f"{wallet}, которым уже выводил ID {other}. /playerinfo {user_id}")
+                    except Exception:
+                        pass
+                return web.json_response({'error': msg, 'code': 'wallet_taken'}, status=400, headers=CORS)
             # Проверяем реальный баланс в Firebase — не доверяем тому, что coins прислал клиент
             balance = await get_coin_balance(user_id)
             if coins > balance:
@@ -12904,6 +12975,7 @@ async def successful_payment(message: types.Message):
             import aiohttp, time as time_mod
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             entry = {"amount": int(coins), "usdt": usdt_amount, "currency": "usdt", "wallet": wallet, "ts": int(time_mod.time() * 1000), "user_id": user_id}
+            await wallet_claim(user_id, wallet)
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json=entry)
                 await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")  # успешно обработан — черновик больше не нужен
