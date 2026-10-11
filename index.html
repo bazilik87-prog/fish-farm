@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-11.2">
+<meta name="ff-build" content="2026-10-11.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -707,7 +707,7 @@ var tapTimes = [];
 var _lastScaredAnimAt = 0;
 var scareFactor = 1.0;
 var MAX_TPS = 5;
-var MASH_TPS = 7;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники
+var MASH_TPS = 6;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники
 // Защита от автокликера (09.10.2026). tapAttempts — ВСЕ нажатия за секунду (до фильтра 200 мс:
 // раньше «паника» была недостижима — принятых тапов не бывает больше 5/с). tapIntervals — паузы
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
@@ -1454,12 +1454,13 @@ function updateScare() {
   var tps=tapTimes.length;
   var na=[]; for (var j=0;j<tapAttempts.length;j++) if(now-tapAttempts[j]<1000) na.push(tapAttempts[j]);
   tapAttempts=na;
-  // 10.10.2026 — мягче для живых: до 4 тапов/с рыба спокойна, 5/с — только настораживается (не ниже 😐),
-  // пугается до паники лишь от колочения чаще 7 раз в секунду или от автокликера.
-  if (tapAttempts.length>MASH_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 7 раз в секунду
+  // 11.10.2026 (Саша: «чуть чувствительнее»): до 3 тапов/с рыба спокойна, 4/с — настораживается
+  // (😐, вдвое меньше шанс), 5/с — пугается (😨, 2%), колочение чаще 6 раз в секунду или автокликер — паника.
+  if (tapAttempts.length>MASH_TPS) scareFactor=Math.max(0.05,scareFactor-0.15);   // колотят чаще 6 раз в секунду
   else if (robotRhythm() || robotSpot()) scareFactor=Math.max(0.05,scareFactor-0.08); // механический ритм или повтор точек — автокликер
-  else if (tps<=4) scareFactor=Math.min(1.0,scareFactor+0.05);
-  else scareFactor=Math.max(0.6,scareFactor-0.02);
+  else if (tps<=3) scareFactor=Math.min(1.0,scareFactor+0.05);
+  else if (tps===4) scareFactor=Math.max(0.6,scareFactor-0.03);
+  else scareFactor=Math.max(0.3,scareFactor-0.05);
 }
 function unlockFish() {
   var loc=state.currentLoc;
