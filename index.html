@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-11.1">
+<meta name="ff-build" content="2026-10-11.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4110,7 +4110,12 @@ function checkBigFishing() {
       entryFee: bf.entryFee || 10,
       joined: !!participants[myPid],
       myBaseline: (bf.catchBaseline && bf.catchBaseline[myPid]) || 0,
-      endsAt: bf.endsAt || 0
+      endsAt: bf.endsAt || 0,
+      participants: participants,
+      baseline: bf.catchBaseline || {},
+      lastCatchAt: bf.lastCatchAt || {},
+      scores: (bigFishingData && bigFishingData.number === bf.number) ? bigFishingData.scores : null,
+      scoresAt: (bigFishingData && bigFishingData.number === bf.number) ? bigFishingData.scoresAt : 0
     };
     updateBigFishingBanner();
   });
@@ -4177,7 +4182,49 @@ function onBigFishingBannerClick() {
 // stopPropagation) — всегда открывает окно с правилами турнира, независимо от того,
 // вступил игрок уже или нет и идёт ли набор или сам раунд. Кнопка "Вступить"/"Ты в деле"
 // внутри баннера по-прежнему делает саму оплату/показывает статус — это отдельный клик.
+// Таблица участников идущего раунда (11.10.2026): улов = leaderboard/{pid}/caught − catchBaseline,
+// как считает сервер в _settle_big_fishing; при равенстве выше тот, кто раньше (lastCatchAt).
+// Грузится только при открытии окна и не чаще раза в минуту — 25 маленьких чтений.
+function loadBigFishingScores(force) {
+  var d = bigFishingData;
+  if (!firebaseDB || !d || d.status !== 'active' || !d.participants) return;
+  if (!force && d.scoresAt && Date.now() - d.scoresAt < 60000) return;
+  d.scoresAt = Date.now();
+  var pids = Object.keys(d.participants), done = 0, rows = [];
+  pids.forEach(function(pid) {
+    firebaseDB.ref('leaderboard/' + pid + '/caught').once('value', function(snap) {
+      var p = d.participants[pid] || {};
+      rows.push({pid: pid, name: p.username ? '@' + p.username : (p.name || t('Рыбак','Angler')),
+                 c: Math.max(0, Math.floor((snap.val() || 0) - (d.baseline[pid] || 0))), at: d.lastCatchAt[pid] || 9e15});
+      if (++done === pids.length) {
+        rows.sort(function(a, b){ return b.c - a.c || a.at - b.at; });
+        d.scores = rows;
+        renderBigFishingInfoModal();
+      }
+    });
+  });
+}
+function bigFishingTableHtml() {
+  var d = bigFishingData || {};
+  if (d.status !== 'active') return '';
+  var myPid = 'tg_' + (tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0);
+  var html = '<div style="background:#1a1200;border-radius:10px;padding:14px;margin-bottom:14px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    + '<div style="font-size:13px;font-weight:600;color:#ffd77a">🏁 ' + t('Таблица участников','Leaderboard') + '</div>'
+    + '<div onclick="loadBigFishingScores(true)" style="font-size:11px;color:#e6a817;cursor:pointer">🔄 ' + t('Обновить','Refresh') + '</div></div>';
+  if (!d.scores) return html + '<div style="font-size:12px;color:#aaa;text-align:center">' + t('Загружаем…','Loading…') + '</div></div>';
+  var medals = ['🥇','🥈','🥉'];
+  for (var i = 0; i < d.scores.length; i++) {
+    var r = d.scores[i], me = r.pid === myPid;
+    html += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 4px;border-radius:6px;'
+      + (me ? 'background:rgba(230,168,23,0.25);' : '') + 'color:' + (i < 3 ? '#ffd77a' : '#e8d9c0') + '">'
+      + '<span>' + (medals[i] || (i + 1) + '.') + ' ' + String(r.name).replace(/[<>&]/g, '') + (me ? t(' (ты)',' (you)') : '') + '</span>'
+      + '<span>' + r.c + ' 🐟</span></div>';
+  }
+  return html + '</div>';
+}
 function showBigFishingInfo() {
+  loadBigFishingScores(false);
   var modal = document.createElement('div');
   modal.id = 'bigfishing-info-modal';
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -4209,6 +4256,7 @@ function renderBigFishingInfoModal() {
     + '<div style="font-size:16px;font-weight:700;color:#fff">' + t('Большая рыбалка','Big Fishing') + '</div>'
     + '</div>'
     + '<div style="background:rgba(230,168,23,0.15);border-radius:10px;padding:10px;text-align:center;margin-bottom:14px;color:#ffd77a;font-weight:600;font-size:12px">' + statusLine + '</div>'
+    + bigFishingTableHtml()
     + '<div style="background:#1a1200;border-radius:10px;padding:14px;margin-bottom:14px">'
     + '<div style="font-size:13px;font-weight:600;color:#ffd77a;margin-bottom:8px">📋 ' + t('Условия','Rules') + '</div>'
     + '<div style="font-size:12px;color:#e8d9c0;line-height:1.7">'
