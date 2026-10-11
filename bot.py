@@ -2206,9 +2206,11 @@ def _tour_payer_label(v):
 # (450 из 500 — организатору 50⭐/10%). Модель — прямая калька с клановых турниров
 # (_settle_tournament/_tournament_live_catches выше): тот же catchBaseline-снэпшот и та
 # же leaderboard.caught как источник живого счёта.
-BIG_FISHING_MAX_SLOTS = 50
+# 11.10.2026 (решение Саши): 25 мест вместо 50 — набор на 50 стоял с 26.09. Банк 250⭐,
+# призы 115/65/45⭐ (225 — 90% банка, 25⭐ организатору). Действует и на набор, шедший на момент смены.
+BIG_FISHING_MAX_SLOTS = 25
 BIG_FISHING_ENTRY_FEE = 10  # ⭐ с человека
-BIG_FISHING_PRIZES = [225, 135, 90]  # 1/2/3 место
+BIG_FISHING_PRIZES = [115, 65, 45]  # 1/2/3 место
 BIG_FISHING_DURATION_MS = 24 * 3600 * 1000
 
 # Призовой фонд «турнира недели» (общеигровой, /starttournament) — 1/2/3 место, ⭐.
@@ -2347,11 +2349,12 @@ async def _broadcast_big_fishing_start(session, base, bf):
         if not uid:
             continue
         lang = await _player_lang(session, base, pid_p)
-        text = (f"🎣 Старт турнира «Большая рыбалка» #{number}! Все 50 мест заполнены — 24 часа на лов. "
-                f"Топ-3 по улову заберут призы: 🥇225⭐ 🥈135⭐ 🥉90⭐. Удачи!"
+        p1, p2, p3 = BIG_FISHING_PRIZES
+        text = (f"🎣 Старт турнира «Большая рыбалка» #{number}! Все {BIG_FISHING_MAX_SLOTS} мест заполнены — 24 часа на лов. "
+                f"Топ-3 по улову заберут призы: 🥇{p1}⭐ 🥈{p2}⭐ 🥉{p3}⭐. Удачи!"
                 if lang == 'ru' else
-                f"🎣 «Big Fishing» tournament #{number} has started! All 50 slots are filled — 24 hours of fishing. "
-                f"Top 3 by catch win prizes: 🥇225⭐ 🥈135⭐ 🥉90⭐. Good luck!")
+                f"🎣 «Big Fishing» tournament #{number} has started! All {BIG_FISHING_MAX_SLOTS} slots are filled — 24 hours of fishing. "
+                f"Top 3 by catch win prizes: 🥇{p1}⭐ 🥈{p2}⭐ 🥉{p3}⭐. Good luck!")
         try:
             await bot.send_message(uid, text, reply_markup=keyboard)
         except Exception:
@@ -13772,6 +13775,10 @@ async def main():
         if isinstance(bf, dict):
             status = bf.get('status', 'none')
             _bf_cache_set(status, (bf.get('participants') or {}).keys() if status == 'active' else [], bf.get('number'))
+            # Число мест поменяли (BIG_FISHING_MAX_SLOTS) — идущий набор показывает игрокам новое число.
+            if status == 'recruiting' and bf.get('maxSlots') != BIG_FISHING_MAX_SLOTS:
+                async with aiohttp.ClientSession() as session:
+                    await session.patch(f"{base}/big_fishing/current.json{FB_AUTH}", json={'maxSlots': BIG_FISHING_MAX_SLOTS})
     except Exception as e:
         print(f"Не удалось загрузить big_fishing/current при старте, _BF_CACHE остаётся 'none': {e}")
 

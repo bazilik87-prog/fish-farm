@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-10.4">
+<meta name="ff-build" content="2026-10-11.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4093,20 +4093,20 @@ function updateTournamentBanner() {
 // Тот же лёгкий опрос, что и у checkTournament() — сервер отдаёт только маленький узел
 // big_fishing/current (в наборе там всего 50 записей участников, а не тысячи как у
 // клановых турниров), так что читаем его целиком одним запросом, без разбивки по путям.
-var bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:50, entryFee:10, joined:false, myBaseline:0, endsAt:0};
+var bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:25, entryFee:10, joined:false, myBaseline:0, endsAt:0};
 function checkBigFishing() {
   if (!firebaseDB) return;
   firebaseDB.ref('big_fishing/current').once('value', function(snap) {
     var bf = snap.val();
     var myId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
     var myPid = 'tg_' + myId;
-    if (!bf) { bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:50, entryFee:10, joined:false, myBaseline:0, endsAt:0}; updateBigFishingBanner(); return; }
+    if (!bf) { bigFishingData = {status:'none', number:null, filledCount:0, maxSlots:25, entryFee:10, joined:false, myBaseline:0, endsAt:0}; updateBigFishingBanner(); return; }
     var participants = bf.participants || {};
     bigFishingData = {
       status: bf.status || 'none',
       number: bf.number,
       filledCount: Object.keys(participants).length,
-      maxSlots: bf.maxSlots || 50,
+      maxSlots: bf.maxSlots || 25,
       entryFee: bf.entryFee || 10,
       joined: !!participants[myPid],
       myBaseline: (bf.catchBaseline && bf.catchBaseline[myPid]) || 0,
@@ -4131,7 +4131,7 @@ function updateBigFishingBanner() {
     // Раунда ещё не существует в Firebase вообще — он создаётся сам при первом join
     // (см. _big_fishing_join_atomic в bot.py), так что баннер всё равно нужно показывать
     // с призывом вступить, иначе первому игроку буквально негде нажать эту кнопку.
-    if (subEl) subEl.textContent = t('Набери 50 игроков и выиграй звёзды!','Get 50 players together and win Stars!');
+    if (subEl) subEl.textContent = t('Набери '+(d.maxSlots||25)+' игроков и выиграй звёзды!','Get '+(d.maxSlots||25)+' players together and win Stars!');
     if (btnEl) btnEl.textContent = t('Открыть набор — ','Open signup — ')+(d.entryFee||10)+'⭐';
   } else if (d.status === 'recruiting') {
     if (subEl) subEl.textContent = t('Собрано ','Filled ')+d.filledCount+'/'+d.maxSlots+' · '+t('Банк: ','Bank: ')+(d.filledCount*d.entryFee)+'⭐';
@@ -4213,13 +4213,13 @@ function renderBigFishingInfoModal() {
     + '<div style="font-size:13px;font-weight:600;color:#ffd77a;margin-bottom:8px">📋 ' + t('Условия','Rules') + '</div>'
     + '<div style="font-size:12px;color:#e8d9c0;line-height:1.7">'
     + '🎫 ' + t('Взнос — ','Entry fee — ') + (d.entryFee || 10) + t('⭐, невозвратно','⭐, non-refundable') + '<br>'
-    + '👥 ' + t('Набирается ','Signup for ') + (d.maxSlots || 50) + t(' игроков — при заполнении старт автоматом',' players — starts automatically once full') + '<br>'
+    + '👥 ' + t('Набирается ','Signup for ') + (d.maxSlots || 25) + t(' игроков — при заполнении старт автоматом',' players — starts automatically once full') + '<br>'
     + '⏱ ' + t('24 часа на лов — считается улов и тапами, и рыбой из лотереи','24 hours of fishing — counts both tap catches and lottery fish prizes') + '<br>'
     + '⚖️ ' + t('При равном улове выше место у того, кто набрал его быстрее','On a tie, whoever reached that catch count first gets the higher place')
     + '</div></div>'
     + '<div style="background:linear-gradient(135deg,#3a2400,#5a3a00);border-radius:10px;padding:14px;margin-bottom:16px">'
     + '<div style="font-size:13px;font-weight:600;color:#ffd77a;margin-bottom:8px">🏆 ' + t('Призы','Prizes') + '</div>'
-    + '<div style="font-size:12px;color:#e8d9c0;line-height:1.8">🥇 ' + t('1 место','1st place') + ' — 225⭐<br>🥈 ' + t('2 место','2nd place') + ' — 135⭐<br>🥉 ' + t('3 место','3rd place') + ' — 90⭐</div>'
+    + '<div style="font-size:12px;color:#e8d9c0;line-height:1.8">🥇 ' + t('1 место','1st place') + ' — 115⭐<br>🥈 ' + t('2 место','2nd place') + ' — 65⭐<br>🥉 ' + t('3 место','3rd place') + ' — 45⭐</div>'
     + '</div>'
     + '<button onclick="document.getElementById(\'bigfishing-info-modal\').remove()" style="width:100%;padding:12px;background:#e6a817;border:none;border-radius:10px;color:#2b1a00;font-size:14px;font-weight:700;cursor:pointer">' + t('Закрыть','Close') + '</button>'
     + '</div>';
