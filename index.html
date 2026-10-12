@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-12.2">
+<meta name="ff-build" content="2026-10-12.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6880,7 +6880,7 @@ function sendDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); /* остаток партии сохраняет срок годности */ }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -7044,7 +7044,7 @@ function sendDriverDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); /* остаток партии сохраняет срок годности */ }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -7126,7 +7126,7 @@ function hireDriver(transportId) {
           earn+=mpF.cur*5*pk; takenF+=pk;
         } else {
           earn+=mpF.cur*5*room; takenF+=room;
-          restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности
+          restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); /* остаток партии сохраняет срок годности */
         }
       } else restFilets.push(ff);
     }
