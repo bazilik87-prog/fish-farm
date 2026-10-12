@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-12.1">
+<meta name="ff-build" content="2026-10-12.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1351,6 +1351,12 @@ function processOffline() {
   }
   // Убираем просроченную сушёную рыбу (6ч с момента endsAt)
   state.driedFish=state.driedFish.filter(function(f){ return f.dieAt>now; });
+  // Готовое филе без срока годности (остатки после частичной продажи — до 12.10 срок терялся) — даём 3 часа
+  for (var fx=0;fx<(state.filets||[]).length;fx++) {
+    var fxf=state.filets[fx];
+    if (!fxf.packingEndsAt && !fxf.dieAt) fxf.dieAt = now + 10800000;
+    if (!fxf.bid) fxf.bid = genBid();
+  }
   // Убираем погибшую свежую рыбу
   var dead=[], live=[];
   for (var i=0;i<state.liveFish.length;i++) {
@@ -3560,8 +3566,8 @@ function activateBoost(id, growJackpot) {
     var now2=Date.now();
     for (var pi=0;pi<(state.filets||[]).length;pi++) {
       if (state.filets[pi].packingEndsAt) {
-        state.filets[pi].dieAt = state.filets[pi].packingEndsAt + 10800000;
         state.filets[pi].packingEndsAt = now2;
+        state.filets[pi].dieAt = now2 + 10800000; // 3 часа от фактического окончания упаковки
       }
     }
     showNotif(t('📦 Вся упаковка завершена мгновенно! Зайди на кухню.','📦 All packing finished instantly! Check the kitchen.'));
@@ -4594,8 +4600,8 @@ function activateBoostWithTime(id, elapsed) {
   if (id==='turboPack') {
     for (var pi=0;pi<(state.filets||[]).length;pi++) {
       if (state.filets[pi].packingEndsAt) {
-        state.filets[pi].dieAt = state.filets[pi].packingEndsAt + 10800000;
         state.filets[pi].packingEndsAt = now;
+        state.filets[pi].dieAt = now + 10800000; // 3 часа от фактического окончания упаковки
       }
     }
     showNotif(t('📦 Вся упаковка завершена мгновенно!','📦 All packing finished instantly!'));
@@ -6874,7 +6880,7 @@ function sendDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0}); }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -7038,7 +7044,7 @@ function sendDriverDelivery() {
           var pk=ff.packets||1;
           var mpF=marketPrices[item.name]||{cur:BASE_PRICES[item.name]||1};
           if (pk<=room) { earn+=mpF.cur*5*pk; takenF+=pk; }
-          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0}); }
+          else { earn+=mpF.cur*5*room; takenF+=room; restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности }
         } else restFilets.push(ff);
       }
       state.filets=restFilets; sentCount+=takenF;
@@ -7120,7 +7126,7 @@ function hireDriver(transportId) {
           earn+=mpF.cur*5*pk; takenF+=pk;
         } else {
           earn+=mpF.cur*5*room; takenF+=room;
-          restFilets.push({name:ff.name,emoji:ff.emoji,packets:pk-room,packingEndsAt:ff.packingEndsAt||0});
+          restFilets.push({bid:ff.bid,name:ff.name,emoji:ff.emoji,packets:pk-room,dieAt:ff.dieAt}); // остаток партии сохраняет срок годности
         }
       } else restFilets.push(ff);
     }
