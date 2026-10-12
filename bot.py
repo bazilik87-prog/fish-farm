@@ -11644,6 +11644,12 @@ async def players_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+# /audit: служебные аккаунты Саши не проверяем; поправка на реферальный заработок (см. audit_command)
+AUDIT_SKIP_IDS = {145841941, 7236477449, 8824257585}  # @diskontisrael, @elbanderass, @mapitom
+AUDIT_REF_PER_FRIEND = 1100  # до 08.10: +100 за 1-ю рыбу друга + 1000 за его удочку ур.2
+AUDIT_REF_FLAT = 10000       # запас на подарки/бонусы/квесты (напр. /giftall 5000 от 10.10)
+
+
 @dp.message(Command('audit'))
 async def audit_command(message: types.Message):
     """
@@ -11660,15 +11666,47 @@ async def audit_command(message: types.Message):
     from datetime import datetime, timezone, timedelta
     try:
         base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
-                players = await resp.json()
-            async with session.get(f"{base}/known_starts.json{FB_AUTH}") as resp:
-                known_starts = await resp.json()
+        session = aiohttp.ClientSession()
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            players = await resp.json()
+        async with session.get(f"{base}/known_starts.json{FB_AUTH}") as resp:
+            known_starts = await resp.json()
 
         if not players:
+            await session.close()
             await message.answer("Пока нет игроков.")
             return
+
+        # Реферальный заработок: до 08.10 рефереру платили +100 за 1-ю рыбу друга и +1000 за его
+        # удочку ур.2 (без условий), плюс 10% с выводов друга — у «зазывал» со 150+ рефералами это
+        # 150–200 тыс. монет почти без улова (@user1zakaria, @dreamdarescom, 13.10). Без поправки
+        # /audit поднимал на них ложную тревогу. Рефералов читаем только у тех, кто уже под подозрением.
+        earned_by_uid = {str(pv.get('userId')): (pv.get('totalEarned', 0) or 0)
+                         for pv in players.values() if isinstance(pv, dict) and pv.get('userId')}
+        ref_cache = {}
+
+        async def ref_allowance(uid):
+            uid = str(uid)
+            if uid not in ref_cache:
+                try:
+                    async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as rresp:
+                        refs = await rresp.json()
+                except Exception:
+                    refs = None
+                refs = refs if isinstance(refs, dict) else {}
+                refs_earned = sum(earned_by_uid.get(str(r), 0) for r in refs)
+                ref_cache[uid] = (len(refs), AUDIT_REF_FLAT + len(refs) * AUDIT_REF_PER_FRIEND + refs_earned * 0.1)
+            return ref_cache[uid]
+
+        explained = []
+
+        async def explained_by_refs(identity, user_id, total_earned, ceiling, caught):
+            n_refs, allow = await ref_allowance(user_id)
+            if n_refs and total_earned <= ceiling + allow:
+                explained.append(f"{identity} | заработано:{total_earned:,.0f} | поймано:{caught} | "
+                                 f"рефералов: {n_refs} (до ~{allow:,.0f} монет)")
+                return True
+            return False
 
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         flagged = []
@@ -11682,6 +11720,8 @@ async def audit_command(message: types.Message):
             user_id = v.get('userId')
             if not user_id:
                 continue
+            if int(user_id) in AUDIT_SKIP_IDS or int(user_id) == ADMIN_ID:
+                continue  # служебные аккаунты Саши
             total_earned = v.get('totalEarned', 0) or 0
             # Купленные за ⭐ монеты не «заработаны» — без этого покупатель крупного пакета
             # выглядел бы как подделка баланса (баланс сильно больше заработанного).
@@ -11722,13 +11762,15 @@ async def audit_command(message: types.Message):
                 max_fish_price = LOCATION_MAX_FISH_PRICE.get(loc, 6)
                 max_sale_per_catch = max_fish_price * MARKET_PRICE_MAX_MULT * FILET_SELL_MULT_EXACT
                 catches_ceiling = caught * (max_tap_per_catch + max_sale_per_catch) * 2  # x2 запас, как и выше
-                if total_earned > catches_ceiling:
+                if total_earned > catches_ceiling and not await explained_by_refs(identity, user_id, total_earned, catches_ceiling, caught):
                     flagged.append(
                         f"{identity} (ID:{user_id}) — БЕЗ ДАТЫ РЕГИСТРАЦИИ\n"
                         f"  📍 Локация: {loc} · 🐟 Поймано: {caught}\n"
                         f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f}\n"
                         f"  ⚠️ Потолок по уловам: {catches_ceiling:,.0f} — превышен в {(total_earned/max(catches_ceiling,1)):.1f}x раз"
                     )
+                elif total_earned > catches_ceiling:
+                    pass  # объяснено рефералами — уже в списке explained
                 elif coins > 5000 and total_earned < coins * 0.1:
                     flagged.append(
                         f"{identity} (ID:{user_id}) — БЕЗ ДАТЫ РЕГИСТРАЦИИ, РАСХОЖДЕНИЕ coins/totalEarned\n"
@@ -11746,7 +11788,7 @@ async def audit_command(message: types.Message):
             # но лучше перебдеть и не пометить честного игрока как подозрительного
             ceiling = ceiling * 2
 
-            if total_earned > ceiling:
+            if total_earned > ceiling and not await explained_by_refs(identity, user_id, total_earned, ceiling, caught):
                 reg_dt = datetime.fromtimestamp(registered_at / 1000, tz=timezone(timedelta(hours=3)))
                 age_min = elapsed_ms / 60000
                 flagged.append(
@@ -11755,6 +11797,8 @@ async def audit_command(message: types.Message):
                     f"  🪙 Баланс: {coins:,.0f} · Заработано: {total_earned:,.0f} · Поймано: {caught}\n"
                     f"  ⚠️ Теоретический потолок: {ceiling:,.0f} — превышен в {(total_earned/max(ceiling,1)):.1f}x раз"
                 )
+            elif total_earned > ceiling:
+                pass  # объяснено рефералами
             elif coins > 5000 and total_earned < coins * 0.1:
                 # Баланс сильно больше заработанного — при честной игре coins не может
                 # надолго превышать totalEarned (заработанное растёт вместе с балансом
@@ -11770,6 +11814,7 @@ async def audit_command(message: types.Message):
                     f"  ⚠️ Баланс в {(coins/max(total_earned,1)):.0f}x больше заработанного — похоже на sync_state-эксплойт"
                 )
 
+        await session.close()
         lines = []
         if flagged:
             lines.append(f"🚨 ПОДОЗРИТЕЛЬНЫЕ АККАУНТЫ ({len(flagged)}):\n")
@@ -11781,16 +11826,25 @@ async def audit_command(message: types.Message):
             lines.append(f"\n\nℹ️ Крупные балансы без даты регистрации ({len(no_reg_date)}) — проверить вручную:\n")
             lines.extend(no_reg_date)
 
+        if explained:
+            lines.append(f"\n\n👥 Заработок объясняется рефералами ({len(explained)}) — не читеры, для справки:\n")
+            lines.extend(explained)
+
         content = "\n".join(lines)
         if len(content) > 3500:
             filename = f"fishfarm_audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.txt"
             await message.answer_document(
                 types.BufferedInputFile(content.encode('utf-8'), filename=filename),
-                caption=f"🚨 Подозрительных: {len(flagged)} · Без даты регистрации: {len(no_reg_date)}"
+                caption=f"🚨 Подозрительных: {len(flagged)} · Без даты регистрации: {len(no_reg_date)} · "
+                        f"Объяснено рефералами: {len(explained)}"
             )
         else:
             await message.answer(content)
     except Exception as e:
+        try:
+            await session.close()
+        except Exception:
+            pass
         await message.answer(f"❌ Ошибка: {e}")
 
 
