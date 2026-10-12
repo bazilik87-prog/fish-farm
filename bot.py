@@ -9480,13 +9480,24 @@ async def clanslist_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
-@dp.message(Command('getchatid'))
-async def getchatid_command(message: types.Message):
+@dp.my_chat_member()
+async def bot_added_to_chat(event: types.ChatMemberUpdated):
     """
-    Написать эту команду ПРЯМО В ГРУППЕ рекламодателя (после добавления туда бота) —
-    покажет chat_id этой группы, нужен для /addsocial.
+    Бота добавили в группу/канал — шлём админу chat_id (нужен для /addsocial).
+    Заменяет команду /getchatid (убрана 13.10 по просьбе Саши: отвечала кому угодно).
     """
-    await message.answer(f"🆔 Chat ID этой группы: <code>{message.chat.id}</code>", parse_mode="HTML")
+    try:
+        if event.chat.type == 'private' or not ADMIN_ID:
+            return
+        if event.new_chat_member.status not in ('member', 'administrator'):
+            return
+        if event.old_chat_member.status in ('member', 'administrator'):
+            return
+        who = f"@{event.from_user.username}" if event.from_user and event.from_user.username else str(event.from_user.id if event.from_user else '?')
+        await bot.send_message(ADMIN_ID, f"➕ Бота добавили в «{event.chat.title or ''}» ({who}).\n"
+                                         f"🆔 Chat ID: <code>{event.chat.id}</code> — для /addsocial", parse_mode="HTML")
+    except Exception as e:
+        print(f"[bot_added_to_chat] {e}")
 
 
 @dp.message(Command('addsocial'))
@@ -9505,8 +9516,7 @@ async def addsocial_command(message: types.Message):
         await message.answer(
             "Использование:\n<code>/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ</code>\n\n"
             "Пример:\n<code>/addsocial https://t.me/+abc123|-1001234567890|100|Крипто-канал XYZ</code>\n\n"
-            "CHAT_ID узнать командой /getchatid, написанной ПРЯМО В ГРУППЕ рекламодателя "
-            "(бот должен быть туда уже добавлен).",
+            "CHAT_ID бот пришлёт тебе сам, когда его добавят в группу рекламодателя.",
             parse_mode="HTML"
         )
         return
@@ -9514,7 +9524,7 @@ async def addsocial_command(message: types.Message):
     try:
         chat_id = int(parts[1].strip())
     except ValueError:
-        await message.answer("❌ CHAT_ID должен быть числом (обычно отрицательным для групп). Используй /getchatid в группе.")
+        await message.answer("❌ CHAT_ID должен быть числом (обычно отрицательным для групп). Его присылает бот, когда его добавляют в группу.")
         return
     try:
         reward = float(parts[2].strip())
@@ -9887,7 +9897,6 @@ async def comm_command(message: types.Message):
         "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
         "/voteresults — текущий счёт активного/последнего голосования\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
-        "/getchatid — узнать ID группы (написать прямо в группе рекламодателя)\n"
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
         "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
         "/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ — соц.задание-ссылка БЕЗ проверки (сразу по клику)\n"
