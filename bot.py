@@ -276,7 +276,7 @@ _support_group_chat_id = SUPPORT_GROUP_ID
 _support_group_broken = False
 
 
-async def notify_support_group(text):
+async def notify_support_group(text, reply_markup=None):
     """
     Единая точка дублирования в группу поддержки — используй её вместо прямого
     bot.send_message(SUPPORT_GROUP_ID, ...), чтобы сбой отправки никогда больше не
@@ -295,7 +295,7 @@ async def notify_support_group(text):
     global _support_group_broken, _support_group_chat_id
     for attempt in range(3):
         try:
-            await bot.send_message(_support_group_chat_id, text)
+            await bot.send_message(_support_group_chat_id, text, reply_markup=reply_markup)
             if _support_group_broken:
                 # Снова заработало — сбрасываем флаг, чтобы СЛЕДУЮЩИЙ сбой (если будет)
                 # не потерялся из-за того, что "мы же уже предупреждали один раз".
@@ -325,7 +325,7 @@ async def notify_support_group(text):
             new_id = e.migrate_to_chat_id
             _support_group_chat_id = new_id  # дальше в этом процессе шлём сразу на новый ID
             try:
-                await bot.send_message(new_id, text)
+                await bot.send_message(new_id, text, reply_markup=reply_markup)
                 healed = True
             except Exception:
                 healed = False
@@ -829,6 +829,195 @@ async def wallet_claim(user_id, wallet):
             await session.put(url, json=str(user_id))
     except Exception as e:
         print(f"[wallet_claim] {user_id}: {e}")
+
+
+# ── Отметка «проверен» для заявок на вывод (с 13.10.2026, просьба Саши) ─────────────
+# verified_players/{uid} = {ts, wallets: {wallet_key: true}} — закрытый узел (пишет только бот).
+# В «💰 Новый обмен!» после имени: ✅ проверен / ❌ не проверен / ⚠️ проверен, но … (новый кошелёк,
+# подозрительные действия после проверки, бан) — чтобы однажды проверенный не начал хитрить незаметно.
+VERIFIED_SEED = {  # проверены вручную в переписке с Claude до 13.10 — разовая отметка при старте
+    6118945800: 'Oksan_1710', 875558128: 'BonyTa1990', 872942902: 'Kirill_Shulga22', 6712072748: 'kodji67',
+    1026073437: 'GokuVanta', 1714272195: 'Alexander5551', 829362447: 'M_chem_97', 1005773561: 'legitpanorama',
+    5702511970: 'BaBaI_BDM', 8061543166: 'aartem090', 6048686173: 'abcrelax993', 5430884914: 'a1357ung',
+    8083896943: 'Kellogs030', 947008976: 'firecathrine', 1979318945: 'Berdnik9969', 7823484781: 'Sergomend',
+    8098701170: 'managersefa', 712385774: 'Andriysaletskiy', 98667432: 'Amirmohsen11', 7291790313: 'yanmaster777',
+    6812141175: 'bhlut', 161134707: 'Fa02Ra', 7839766076: 'Sepehr1olia', 189387352: 'Elhamfnn',
+    1018495986: 'user1zakaria', 6073254872: 'bahromjontredr', 6362672824: 'Gtrrx',
+}
+
+
+async def _player_wallet_keys(session, base, user_id, wl=None):
+    """Ключи всех кошельков, на которые игрок уже выводил (по withdrawals_log)."""
+    if wl is None:
+        async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+            wl = await r.json() or {}
+    me = str(user_id)
+    return {wallet_key(e.get('wallet')): True for e in wl.values()
+            if isinstance(e, dict) and str(e.get('user_id')) == me and e.get('wallet')}
+
+
+async def verify_player(user_id, on=True):
+    """Ставит/снимает отметку «проверен». Запоминает кошельки игрока на момент проверки."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    url = f"{base}/verified_players/{int(user_id)}.json{FB_AUTH}"
+    async with aiohttp.ClientSession() as session:
+        if not on:
+            await session.delete(url)
+            return True
+        wallets = await _player_wallet_keys(session, base, user_id)
+        await session.put(url, json={'ts': int(time_module.time() * 1000), 'wallets': wallets or {'none': True}})
+    return True
+
+
+async def verify_status(user_id, wallet=None):
+    """Строка-метка для заявки: '✅ проверен 13.10' / '❌ не проверен' / '⚠️ проверен 13.10, но …'."""
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/verified_players/{int(user_id)}.json{FB_AUTH}") as r:
+                v = await r.json()
+            if not isinstance(v, dict):
+                return '❌ не проверен', False
+            when = datetime.fromtimestamp((v.get('ts') or 0) / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m')
+            why = []
+            if wallet and wallet_key(wallet) not in (v.get('wallets') or {}):
+                why.append('новый кошелёк')
+            async with session.get(f"{base}/suspicious_actions/tg_{int(user_id)}.json{FB_AUTH}") as r:
+                sus = await r.json()
+            if isinstance(sus, dict) and (sus.get('lastTs') or 0) > (v.get('ts') or 0):
+                why.append('подозрительные действия после проверки')
+            async with session.get(f"{base}/banned/{int(user_id)}.json{FB_AUTH}") as r:
+                if await r.json():
+                    why.append('ЗАБАНЕН')
+        if why:
+            return f"⚠️ проверен {when}, но " + ', '.join(why), False
+        return f"✅ проверен {when}", True
+    except Exception as e:
+        print(f"[verify_status] {user_id}: {e}")
+        return '❔ статус проверки не прочитался', False
+
+
+def verify_keyboard(user_id, verified, paid_btn=None):
+    """paid_btn — готовая кнопка «💸 Выплачено» (только у заявки в группе «Выплаты»)."""
+    rows = []
+    if not verified:
+        rows.append(InlineKeyboardButton(text="✅ Отметить проверенным", callback_data=f"vfy:{int(user_id)}"))
+    rows.append(InlineKeyboardButton(text="🔍 Проверить", callback_data=f"vinfo:{int(user_id)}"))
+    kb = [rows]
+    if paid_btn is not None:
+        kb.append([paid_btn])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def paid_button(user_id, amount, req_id, kind='usdt'):
+    """kind: 'usdt' — вывод USDT, 's' — выплата звёздами (призы, джекпот, возвраты)."""
+    if kind == 's':
+        return InlineKeyboardButton(text="⭐ Выплачено", callback_data=f"paid:{int(user_id)}:{amount}:{req_id}:s")
+    return InlineKeyboardButton(text="💸 Выплачено", callback_data=f"paid:{int(user_id)}:{amount}:{req_id}")
+
+
+def _parse_paid(data):
+    parts = data.split(':')
+    uid, amount, rid = parts[1], parts[2], parts[3]
+    kind = 's' if len(parts) > 4 and parts[4] == 's' else 'usdt'
+    return uid, amount, rid, kind
+
+
+def _paid_amount_text(amount, kind):
+    return f"{amount}⭐" if kind == 's' else f"${amount}"
+
+
+def _paid_btn_from_markup(markup):
+    """Достаёт кнопку «💸 Выплачено» из клавиатуры сообщения (чтобы не потерять её при перерисовке)."""
+    for row in (getattr(markup, 'inline_keyboard', None) or []):
+        for b in row:
+            if str(getattr(b, 'callback_data', '') or '').startswith('paid:'):
+                return b
+    return None
+
+
+async def send_stars_notice(user_id, amount):
+    """Уведомление игроку о выплате звёздами — то же, что шлёт /paystars."""
+    await bot.send_message(
+        int(user_id),
+        f"✅ <b>Выплата выполнена!</b>\n\n"
+        f"⭐ {amount} Stars отправлены тебе.\n\n"
+        f"Спасибо что играешь в FishFarm! 🎣",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+    )
+
+
+async def notify_star_payout(user_id, display, stars, reason):
+    """Выплата звёздами — отдельной заявкой на КАЖДОГО игрока в группу «Выплаты» (как вывод USDT):
+    метка ✅/❌/⚠️, «🔍 Проверить», «⭐ Выплачено» (уведомит игрока, как /paystars, и удалит заявку).
+    Без user_id — просто текст (кнопкам не на кого сослаться)."""
+    try:
+        stars = int(stars)
+    except Exception:
+        pass
+    if not stars:
+        return
+    if not user_id:
+        await notify_support_group(f"⭐ Выплата звёздами: {reason}\n👤 {display}\n⭐ К выплате: {stars}\n\n(ID неизвестен — кнопок нет)")
+        return
+    label, ok = await verify_status(user_id)
+    await notify_support_group(
+        f"⭐ Выплата звёздами: {reason}\n👤 {display} {label}\n⭐ К выплате: {stars}\n\n⭐ Требует выплаты!",
+        reply_markup=verify_keyboard(user_id, ok, paid_button(user_id, stars, int(time_module.time()), 's'))
+    )
+
+
+def _uid_of(v, pid=None):
+    """userId участника из записи турнира/клана, иначе из pid вида tg_123."""
+    uid = v.get('userId') if isinstance(v, dict) else None
+    if not uid and pid and str(pid).startswith('tg_'):
+        uid = str(pid)[3:]
+    return uid
+
+
+async def send_payout_notice(user_id, amount):
+    """Уведомление игроку «✅ Выплата выполнена!» — то же, что шлёт /pay."""
+    await bot.send_message(
+        int(user_id),
+        f"✅ <b>Выплата выполнена!</b>\n\n"
+        f"💵 ${amount} USDT (TON) отправлены на твой кошелёк.\n\n"
+        f"Спасибо что играешь в FishFarm! 🎣",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
+        ]])
+    )
+
+
+async def verified_seed_migrate():
+    """Разово при старте: отмечает проверенными игроков из VERIFIED_SEED (флаг verified_players/_seeded)."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/verified_players/_seeded.json{FB_AUTH}") as r:
+                if await r.json():
+                    return
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
+            now_ms = int(time_module.time() * 1000)
+            for uid in VERIFIED_SEED:
+                async with session.get(f"{base}/verified_players/{uid}.json{FB_AUTH}") as r:
+                    if await r.json():
+                        continue
+                wallets = await _player_wallet_keys(session, base, uid, wl)
+                await session.put(f"{base}/verified_players/{uid}.json{FB_AUTH}",
+                                  json={'ts': now_ms, 'wallets': wallets or {'none': True}})
+            await session.put(f"{base}/verified_players/_seeded.json{FB_AUTH}", json=True)
+            print(f"[verified_seed_migrate] отмечено: {len(VERIFIED_SEED)}")
+    except Exception as e:
+        print(f"[verified_seed_migrate] ошибка: {e}")
 
 
 async def create_invoice(request):
@@ -2468,7 +2657,10 @@ async def _settle_big_fishing(session, base):
                         await bot.send_message(ADMIN_ID, admin_text)
                     except Exception:
                         pass
-                await notify_support_group(admin_text)
+                for r in results_list[:3]:
+                    pv = participants.get(r['pid'], {})
+                    await notify_star_payout(_uid_of(pv, r['pid']), _tour_payer_label(pv), r['prize'],
+                                             f"«Большая рыбалка» #{finished_number}, {r['place']} место (улов {r['catches']})")
                 total_prize_stars = sum(r['prize'] for r in results_list[:3])
                 if total_prize_stars > 0:
                     await log_finance('expense', 'big_fishing', total_prize_stars * STAR_TO_USD,
@@ -2698,7 +2890,9 @@ async def _settle_tournament(session, base, tournament_id):
                     await bot.send_message(ADMIN_ID, text)
                 except Exception:
                     pass
-            await notify_support_group(text)
+            for wp, wv in winner_participants.items():
+                await notify_star_payout(_uid_of(wv, wp), _tour_payer_label(wv), payout,
+                                         f"клановая битва #{number}, победа «{winner_name}»")
             total_payout_stars = payout * len(winner_participants)
             if total_payout_stars > 0:
                 await log_finance('expense', 'clan_tournament', total_payout_stars * STAR_TO_USD,
@@ -2744,7 +2938,10 @@ async def _expire_open_tournament(session, base, tournament_id):
                     await bot.send_message(ADMIN_ID, text)
                 except Exception:
                     pass
-            await notify_support_group(text)
+            for rp, rv in participants_a.items():
+                await notify_star_payout(_uid_of(rv, rp), _tour_payer_label(rv),
+                                         rv.get('amount', tdata.get('amountPerPerson', 0)) if isinstance(rv, dict) else 0,
+                                         f"ВОЗВРАТ — битва #{tdata.get('number')} истекла, никто не принял")
             total_refund_stars = sum(v.get('amount', tdata.get('amountPerPerson', 0)) for v in participants_a.values())
             if total_refund_stars > 0:
                 await log_finance('expense', 'clan_tournament_refund', total_refund_stars * STAR_TO_USD,
@@ -5560,7 +5757,7 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
 
         if prize['kind'] == 'jackpot':
             # пул уже сброшен в claim_jackpot_prize
-            await broadcast_jackpot_win(username, prize['amount'])
+            await broadcast_jackpot_win(username, prize['amount'], _uid_of(None, pid))
         elif grow_jackpot:
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
             for j_attempt in range(6):
@@ -6052,7 +6249,7 @@ async def lottery_spin(request):
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
             if prize['kind'] == 'jackpot':
                 # пул уже сброшен в claim_jackpot_prize
-                await broadcast_jackpot_win(username, prize['amount'])
+                await broadcast_jackpot_win(username, prize['amount'], _uid_of(None, pid))
             elif grow_jackpot:
                 for j_attempt in range(6):
                     async with session.get(jackpot_url, headers={"X-Firebase-ETag": "true"}) as jresp:
@@ -7655,7 +7852,7 @@ async def sync_state(request):
     return web.json_response(result, headers=CORS)
 
 
-async def broadcast_jackpot_win(username, amount):
+async def broadcast_jackpot_win(username, amount, user_id=None):
     """
     Оповещает вас лично и рассылает всем игрокам объявление о выигрыше джекпота.
     Сброс самого джекпота на 50 делает вызывающий код (apply_lottery_prize) —
@@ -7674,9 +7871,7 @@ async def broadcast_jackpot_win(username, amount):
             )
         except Exception:
             pass
-    await notify_support_group(
-        f"🎰⭐ ДЖЕКПОТ ВЫИГРАН!\n👤 @{username}\n💰 {amount:,}⭐ Stars\n\nТребует выплаты звёздами!"
-    )
+    await notify_star_payout(user_id, f"@{username}", amount, "🎰 ДЖЕКПОТ")
 
     await log_finance('expense', 'jackpot', amount * STAR_TO_USD, note=f"джекпот — @{username}", stars=amount)
 
@@ -8589,7 +8784,7 @@ async def _settle_weekly_tournament(session, base, t):
         username = v.get('username')
         first_name = v.get('firstName')
         display = f"@{username}" if username else (first_name or f"ID:{uid}")
-        results.append((display, delta))
+        results.append((display, delta, uid))
 
     await session.patch(f"{base}/tournament.json{FB_AUTH}",
                          json={"active": False, "settledAt": int(time_module.time() * 1000)})
@@ -8609,7 +8804,7 @@ async def _settle_weekly_tournament(session, base, t):
     top = results[:3]
     lines = []
     total_stars = 0
-    for i, (name, delta) in enumerate(top):
+    for i, (name, delta, _uid) in enumerate(top):
         prize = WEEKLY_TOURNAMENT_PRIZES[i] if i < len(WEEKLY_TOURNAMENT_PRIZES) else 0
         total_stars += prize
         lines.append(f"{medals[i]} {name} — {delta:,} монет — {prize}⭐")
@@ -8620,10 +8815,12 @@ async def _settle_weekly_tournament(session, base, t):
             await bot.send_message(ADMIN_ID, text)
         except Exception:
             pass
-    await notify_support_group(text)
+    for i, (name, delta, w_uid) in enumerate(top):
+        prize = WEEKLY_TOURNAMENT_PRIZES[i] if i < len(WEEKLY_TOURNAMENT_PRIZES) else 0
+        await notify_star_payout(w_uid, name, prize, f"турнир недели, {i + 1} место ({delta:,} монет)")
 
     if total_stars > 0:
-        top_names = ", ".join(n for n, _ in top)
+        top_names = ", ".join(n for n, _, _ in top)
         await log_finance('expense', 'weekly_tournament', total_stars * STAR_TO_USD,
                            note=f"турнир недели, топ-3: {top_names}", stars=total_stars, session=session)
 
@@ -9897,6 +10094,7 @@ async def comm_command(message: types.Message):
         "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
         "/voteresults — текущий счёт активного/последнего голосования\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
+        "/verify @ник|ID — отметить игрока проверенным (✅ в заявках на вывод), /unverify — снять\n"
         "/addsocial ССЫЛКА|CHAT_ID|НАГРАДА|НАЗВАНИЕ — добавить соц.задание (группа/канал)\n"
         "/addsocialbot ССЫЛКА|VERIFY_URL|VERIFY_KEY|НАГРАДА|НАЗВАНИЕ — соц.задание за бота-партнёра\n"
         "/addsociallink ССЫЛКА|НАГРАДА|НАЗВАНИЕ — соц.задание-ссылка БЕЗ проверки (сразу по клику)\n"
@@ -10078,6 +10276,174 @@ async def syncerrors_command(message: types.Message):
         await message.answer("\n".join(lines))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.callback_query(F.data.startswith('vfy:'))
+async def verify_button(cb: types.CallbackQuery):
+    """Кнопка «✅ Отметить проверенным» под заявкой на вывод."""
+    if cb.from_user.id != ADMIN_ID:
+        await cb.answer()
+        return
+    uid = cb.data.split(':', 1)[1]
+    try:
+        await verify_player(uid, True)
+        label, ok = await verify_status(uid)
+        await cb.answer("✅ Отмечен проверенным")
+        try:
+            text = cb.message.text or ''
+            lines = text.split('\n')
+            if len(lines) > 1 and lines[1].startswith('👤'):
+                name = lines[1].split(' ')[1] if len(lines[1].split(' ')) > 1 else ''
+                lines[1] = f"👤 {name} {label}"
+            await cb.message.edit_text('\n'.join(lines),
+                                       reply_markup=verify_keyboard(uid, ok, _paid_btn_from_markup(getattr(cb.message, 'reply_markup', None))))
+        except Exception:
+            pass
+    except Exception as e:
+        await cb.answer(f"❌ Ошибка: {e}", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith('paid:'))
+async def paid_button_press(cb: types.CallbackQuery):
+    """«💸 Выплачено» — сначала переспрашиваем (случайное нажатие = ложное уведомление игроку)."""
+    if cb.from_user.id != ADMIN_ID:
+        await cb.answer()
+        return
+    uid, amount, rid, kind = _parse_paid(cb.data)
+    tail = ':s' if kind == 's' else ''
+    await cb.answer()
+    await cb.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"✅ Да, выплатил {_paid_amount_text(amount, kind)}", callback_data=f"paidok:{uid}:{amount}:{rid}{tail}"),
+        InlineKeyboardButton(text="↩️ Отмена", callback_data=f"paidno:{uid}:{amount}:{rid}{tail}"),
+    ]]))
+
+
+@dp.callback_query(F.data.startswith('paidno:'))
+async def paid_cancel(cb: types.CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        await cb.answer()
+        return
+    uid, amount, rid, kind = _parse_paid(cb.data)
+    await cb.answer("Отменено")
+    _, ok = await verify_status(uid)
+    await cb.message.edit_reply_markup(reply_markup=verify_keyboard(uid, ok, paid_button(uid, amount, rid, kind)))
+
+
+@dp.callback_query(F.data.startswith('paidok:'))
+async def paid_confirm(cb: types.CallbackQuery):
+    """Подтверждено: уведомление игроку (как /pay), запись в paid_log, заявка удаляется из группы."""
+    if cb.from_user.id != ADMIN_ID:
+        await cb.answer()
+        return
+    import aiohttp
+    uid, usdt, rid, kind = _parse_paid(cb.data)
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    # Защита от двойного уведомления (двойное нажатие, повтор колбэка Telegram).
+    flag_url = f"{base}/paid_log/{uid}_{rid}{'s' if kind == 's' else ''}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(flag_url) as r:
+                already = await r.json()
+            if already:
+                await cb.answer("Уже отмечено выплаченным", show_alert=True)
+                try:
+                    await cb.message.delete()
+                except Exception:
+                    pass
+                return
+            rec = {'uid': str(uid), 'ts': int(time_module.time() * 1000)}
+            rec['stars' if kind == 's' else 'usdt'] = usdt
+            await session.put(flag_url, json=rec)
+    except Exception as e:
+        await cb.answer(f"❌ Не записалось в базу: {e}. Попробуй ещё раз.", show_alert=True)
+        return
+    try:
+        if kind == 's':
+            await send_stars_notice(uid, usdt)
+        else:
+            await send_payout_notice(uid, usdt)
+    except Exception as e:
+        # Игрок заблокировал бота и т.п. — выплата всё равно отмечена, заявку оставляем с пометкой.
+        await cb.answer("⚠️ Отмечено, но уведомление игроку не дошло (наверное, заблокировал бота)", show_alert=True)
+        try:
+            await cb.message.edit_text((cb.message.text or '') + f"\n\n💸 Выплачено, но уведомление не дошло: {e}",
+                                       reply_markup=None)
+        except Exception:
+            pass
+        return
+    await cb.answer(f"✅ Игрок уведомлён о выплате {_paid_amount_text(usdt, kind)}")
+    try:
+        await cb.message.delete()
+    except Exception:
+        # Старое сообщение (>48 ч) бот может не суметь удалить — тогда хотя бы помечаем.
+        try:
+            await cb.message.edit_text((cb.message.text or '') + "\n\n💸 Выплачено, игрок уведомлён.", reply_markup=None)
+        except Exception:
+            pass
+
+
+@dp.callback_query(F.data.startswith('vinfo:'))
+async def verify_info_button(cb: types.CallbackQuery):
+    """Кнопка «🔍 Проверить» — присылает /playerinfo игрока."""
+    if cb.from_user.id != ADMIN_ID:
+        await cb.answer()
+        return
+    await cb.answer("⏳ Собираю данные…")
+    uid = cb.data.split(':', 1)[1]
+    msg = _AdminMsgProxy(cb.message, cb.from_user, f"/playerinfo {uid}")
+    await playerinfo_command(msg)
+
+
+class _AdminMsgProxy:
+    """Минимальная «обёртка-сообщение» для вызова админ-команды из кнопки."""
+    def __init__(self, message, from_user, text):
+        self._m, self.from_user, self.text = message, from_user, text
+        self.chat = message.chat
+
+    async def answer(self, *a, **k):
+        return await self._m.answer(*a, **k)
+
+    async def answer_document(self, *a, **k):
+        return await self._m.answer_document(*a, **k)
+
+
+async def _verify_cmd(message, on):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    cmd = '/verify' if on else '/unverify'
+    if len(args) < 2:
+        await message.answer(f"Использование: <code>{cmd} @ник</code> или <code>{cmd} ID</code>", parse_mode="HTML")
+        return
+    arg = args[1].lstrip('@')
+    uid = int(arg) if arg.isdigit() else None
+    if uid is None:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            lb = await get_leaderboard_cached(session, "https://fishfarm-3a4f8-default-rtdb.firebaseio.com")
+        for v in (lb or {}).values():
+            if isinstance(v, dict) and str(v.get('username', '')).lower() == arg.lower():
+                uid = v.get('userId')
+                break
+    if not uid:
+        await message.answer(f"❌ Игрок @{arg} не найден в рейтинге. Попробуй по ID.")
+        return
+    await verify_player(uid, on)
+    if on:
+        label, _ = await verify_status(uid)
+        await message.answer(f"👤 {args[1]} (ID {uid}) — {label}. Следующие заявки придут с ✅.")
+    else:
+        await message.answer(f"👤 {args[1]} (ID {uid}) — отметка снята, заявки снова придут с ❌.")
+
+
+@dp.message(Command('verify'))
+async def verify_command(message: types.Message):
+    await _verify_cmd(message, True)
+
+
+@dp.message(Command('unverify'))
+async def unverify_command(message: types.Message):
+    await _verify_cmd(message, False)
 
 
 @dp.message(Command('playerinfo'))
@@ -11472,16 +11838,7 @@ async def pay_command(message: types.Message):
                 await message.answer(f"❌ Игрок @{username} не найден. Попробуй по ID.\nИмена в базе: {', '.join(found_names[:10])}")
                 return
             display = f"@{username}"
-        await bot.send_message(
-            user_id,
-            f"✅ <b>Выплата выполнена!</b>\n\n"
-            f"💵 ${amount} USDT (TON) отправлены на твой кошелёк.\n\n"
-            f"Спасибо что играешь в FishFarm! 🎣",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
-            ]])
-        )
+        await send_payout_notice(user_id, amount)
         await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате ${amount} USDT")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -11568,16 +11925,7 @@ async def paystars_command(message: types.Message):
                 await message.answer(f"❌ Игрок @{username} не найден. Попробуй по ID.\nИмена в базе: {', '.join(found_names[:10])}")
                 return
             display = f"@{username}"
-        await bot.send_message(
-            user_id,
-            f"✅ <b>Выплата выполнена!</b>\n\n"
-            f"⭐ {amount} Stars отправлены тебе.\n\n"
-            f"Спасибо что играешь в FishFarm! 🎣",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🎣 Играть", web_app=WebAppInfo(url=GAME_URL))
-            ]])
-        )
+        await send_stars_notice(user_id, amount)
         await message.answer(f"✅ Уведомление отправлено {display} (ID: {user_id}) о выплате {amount}⭐ Stars")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -13059,15 +13407,22 @@ async def successful_payment(message: types.Message):
         )
         if ADMIN_ID:
             ul = f"@{username}" if username else f"ID: {user_id}"
+            v_label, v_ok = await verify_status(user_id, wallet)
             try:
                 await bot.send_message(
                     ADMIN_ID,
-                    f"💰 Новый обмен!\n👤 {ul}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Отправь токены!"
+                    f"💰 Новый обмен!\n👤 {ul} {v_label}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Отправь токены!",
+                    reply_markup=verify_keyboard(user_id, v_ok)
                 )
             except Exception:
                 pass
+            # Метка ✅/❌/⚠️ и кнопки — и в группе поддержки: Саша платит именно оттуда (13.10).
+            # Нажимать кнопки может только ADMIN_ID (проверка в verify_button / verify_info_button).
+            # «💸 Выплачено» — только здесь (Саша платит из группы «Выплаты»): уведомляет игрока, как
+            # /pay, и убирает заявку. В личке кнопки нет — чтобы не уведомить игрока дважды.
             await notify_support_group(
-                f"💰 Новый запрос на вывод!\n👤 {ul}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!"
+                f"💰 Новый запрос на вывод!\n👤 {ul} {v_label}\n🪙 Монет: {coins}\n💵 USDT (TON): {usdt_amount}\n👛 {wallet}\n\n⭐ Требует выплаты!",
+                reply_markup=verify_keyboard(user_id, v_ok, paid_button(user_id, usdt_amount, int(time_module.time())))
             )
 
         # Реферальный бонус: 10% от суммы вывода — начисляем на сервере, после того как
@@ -13718,7 +14073,9 @@ async def settle_clan_month(month_key):
                 await bot.send_message(ADMIN_ID, text)
             except Exception:
                 pass
-        await notify_support_group(text)
+        for w in winners:
+            await notify_star_payout(_uid_of(w, w.get('pid')), _tour_payer_label(w), CLAN_MONTH_REWARD_STARS,
+                                     f"«Клан месяца» {month_key} — «{name}»")
         total_stars = CLAN_MONTH_REWARD_STARS * len(winners)
         if total_stars:
             await log_finance('expense', 'clan_month', total_stars * STAR_TO_USD,
@@ -13849,6 +14206,7 @@ async def main():
     # До приёма запросов: разовый перенос уровней кланов под правило битв (иначе клан 3+ уровня
     # на секунды «терял» бы уровень). Дальше — одно чтение флага.
     await clan_battle_gate_migrate()
+    await verified_seed_migrate()
 
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
