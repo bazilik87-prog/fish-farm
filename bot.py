@@ -904,7 +904,7 @@ def verify_keyboard(user_id, verified, paid_btn=None):
     """paid_btn — готовая кнопка «💸 Выплачено» (только у заявки в группе «Выплаты»)."""
     rows = []
     if not verified:
-        rows.append(InlineKeyboardButton(text="✅ Отметить проверенным", callback_data=f"vfy:{int(user_id)}"))
+        rows.append(InlineKeyboardButton(text="✅ Проверен", callback_data=f"vfy:{int(user_id)}"))
     rows.append(InlineKeyboardButton(text="🔍 Проверить", callback_data=f"vinfo:{int(user_id)}"))
     kb = [rows]
     if paid_btn is not None:
@@ -10313,7 +10313,7 @@ async def paid_button_press(cb: types.CallbackQuery):
     tail = ':s' if kind == 's' else ''
     await cb.answer()
     await cb.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Да, выплатил {_paid_amount_text(amount, kind)}", callback_data=f"paidok:{uid}:{amount}:{rid}{tail}"),
+        InlineKeyboardButton(text=f"✅ Да, {_paid_amount_text(amount, kind)}", callback_data=f"paidok:{uid}:{amount}:{rid}{tail}"),
         InlineKeyboardButton(text="↩️ Отмена", callback_data=f"paidno:{uid}:{amount}:{rid}{tail}"),
     ]]))
 
