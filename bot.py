@@ -177,6 +177,9 @@ BOOST_NAMES = {
     'weather_rain':    'Weather Change - Rain for 30 minutes',
     'weather_storm':   'Weather Change - Storm for 30 minutes',
     'weather_perfect': 'Weather Change - Perfect Fishing for 30 minutes',
+    'fridge':          'Fridge - fish and products keep longer for 24 hours',
+    'umbrella':        'Umbrella - lock the current weather for 10 minutes',
+    'clanBoost':       'Treat your clan - +20pct catch for the whole clan for 1 hour',
 }
 BOOST_LABELS = {
     'doubleTap':       '⚡ Авто-буст (+2 автодобычи/мин на 1 час)',
@@ -194,9 +197,14 @@ BOOST_LABELS = {
     'weather_rain':    '🌧 Погода: Дождь',
     'weather_storm':   '⛈ Погода: Шторм',
     'weather_perfect': '🌟 Погода: Отличный клёв',
+    'fridge':          '🧊 Холодильник (24ч)',
+    'umbrella':        '☂️ Зонт (погода закреплена на 10 мин)',
+    'clanBoost':       '🎁 Угостить клан (+20% улова, 1ч)',
 }
 # Цена в Stars за буст — по умолчанию 1, для отдельных бустов можно переопределить
 BOOST_PRICES = {
+    'fridge': 2,
+    'umbrella': 3,
     'repairAll': 2,
     'truckRental': 5,
     'energyFull': 5,
@@ -208,6 +216,10 @@ SCALING_BOOST_STEP = {
     'doubleTap': 1, 'turboDry': 1, 'luckyRod': 1, 'turboSpeed': 1,
     'turboPack': 1, 'instantDelivery': 1,
     'repairAll': 2,
+    # Смена погоды (13.10.2026, решение Саши): раньше везде 1⭐, теперь растёт с локацией, как обычные бусты.
+    'weather_sunny': 1, 'weather_cloudy': 1, 'weather_rain': 1, 'weather_storm': 1, 'weather_perfect': 1,
+    # Бустеры 13.10.2026: Холодильник ⭐2→2→3→4→5, Зонт ⭐3→3→4→5→6
+    'fridge': 1, 'umbrella': 1,
 }
 # В Космосе (order=5) цена не по формуле база+step*3, а заданное вручную значение —
 # обычные бусты ⭐5, ремонт ⭐10 (просьба Sasha).
@@ -215,13 +227,45 @@ SPACE_PRICE_OVERRIDE = {
     'doubleTap': 5, 'turboDry': 5, 'luckyRod': 5, 'turboSpeed': 5,
     'turboPack': 5, 'instantDelivery': 5,
     'repairAll': 10,
+    'weather_sunny': 5, 'weather_cloudy': 5, 'weather_rain': 5, 'weather_storm': 5, 'weather_perfect': 5,
 }
 # Бусты с нелинейной прогрессией цены — фиксированная таблица по order (1..5):
 # Пруд/Река 5⭐, Тропики 10⭐, Глубины 15⭐, Космос 25⭐.
 CUSTOM_SCALED_BOOST_PRICES = {
     'truckRental': {1: 5, 2: 5, 3: 10, 4: 15, 5: 25},
     'energyFull':  {1: 5, 2: 5, 3: 10, 4: 15, 5: 25},
+    'clanBoost':   {1: 10, 2: 10, 3: 15, 4: 20, 5: 30},   # «Угостить клан» (13.10.2026)
 }
+UMBRELLA_LOCK_MS = 10 * 60 * 1000       # ☂️ Зонт: погоду нельзя сменить 10 минут
+CLAN_BOOST_MS = 60 * 60 * 1000          # 🎁 Угостить клан: +20% к улову всему клану на 1 час
+
+
+async def weather_locked_until():
+    """До какого момента погода закреплена зонтом (0 — не закреплена)."""
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/weather/lockedUntil.json{FB_AUTH}") as r:
+                v = await r.json()
+        v = int(v or 0)
+        return v if v > int(time_module.time() * 1000) else 0
+    except Exception:
+        return 0
+
+
+async def refund_stars(message, user_id, amount, reason_ru, reason_en):
+    """Возврат звёзд за покупку, которую нельзя выполнить (погода закреплена, нет клана). Сбой — алерт админу."""
+    try:
+        await bot.refund_star_payment(user_id=int(user_id),
+                                      telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id)
+        await log_finance('expense', 'stars_refund', amount * STAR_TO_USD, note=f"возврат: {reason_ru}", stars=amount)
+        try:
+            await message.answer(t(message.from_user, f"↩️ {reason_ru} Звёзды ({amount}⭐) возвращены.",
+                                   f"↩️ {reason_en} Your stars ({amount}⭐) have been refunded."))
+        except Exception:
+            pass
+    except Exception as e:
+        await _alert_payment_fulfillment_failed(user_id, "Возврат звёзд", detail=f"{reason_ru} — refund не прошёл: {e}. Верни {amount}⭐ вручную.")
 
 def scaled_boost_price(boost_id, base_price, location_order):
     """Базовая цена не меняется на Пруду/Реке (order 1-2). С Тропиков (order>=3)
@@ -1208,6 +1252,18 @@ async def create_invoice(request):
             boost_id = str(data.get('boost', ''))
             user_id  = real_user_id  # берём из проверенной подписи, а не из тела запроса
             name = BOOST_NAMES.get(boost_id, 'Boost')
+            if boost_id.startswith('weather_') or boost_id == 'umbrella':
+                locked = await weather_locked_until()
+                if locked:
+                    return web.json_response({'error': 'weather_locked', 'code': 'weather_locked', 'lockedUntil': locked},
+                                             status=409, headers=CORS)
+            if boost_id == 'clanBoost':
+                import aiohttp
+                async with aiohttp.ClientSession() as cb_session:
+                    async with cb_session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/saves/tg_{user_id}/clanId.json{FB_AUTH}") as cb_resp:
+                        cb_clan = await cb_resp.json()
+                if not cb_clan:
+                    return web.json_response({'error': 'no_clan', 'code': 'no_clan'}, status=409, headers=CORS)
             if boost_id == 'lottery':
                 price = await get_location_order(user_id)
             else:
@@ -3772,6 +3828,8 @@ async def clan_status(request):
                     clan['tournamentLockedPids'] = list(paid_pids)
                     clan['iAmLocked'] = pid in paid_pids
                     clan['activeTournament'] = tour_summary
+                    cb = clan_data.get('boost') if isinstance(clan_data.get('boost'), dict) else None
+                    clan['boost'] = cb if cb and int(cb.get('until') or 0) > int(time_module.time() * 1000) else None
                     try:
                         clan['progress'] = await _clan_progress_view(session, base, clan_id, clan_data, pid)
                     except Exception as e:
@@ -6035,7 +6093,8 @@ async def weather_check(request):
                     etag = resp.headers.get("ETag")
                     w = await resp.json()
                 if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
-                    return web.json_response({'ok': True, 'id': w.get('id', 'sunny'), 'endsAt': w.get('endsAt')}, headers=CORS)
+                    return web.json_response({'ok': True, 'id': w.get('id', 'sunny'), 'endsAt': w.get('endsAt'),
+                                              'lockedUntil': w.get('lockedUntil') or 0}, headers=CORS)
                 new_id = pick_random_weather()
                 new_ends_at = now_ms + WEATHER_DURATION_MS
                 headers = {"If-Match": etag} if etag else {}
@@ -12823,6 +12882,87 @@ async def successful_payment(message: types.Message):
                     else:
                         raise RuntimeError("too many conflicts")
                     await session.put(f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}", json=now_ms_tr)
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
+        elif boost_id.startswith('weather_') and await weather_locked_until():
+            # Пока счёт был открыт, кто-то закрепил погоду зонтом — сменить нельзя, возвращаем звёзды.
+            await refund_stars(message, user_id, message.successful_payment.total_amount,
+                               "Погоду только что закрепили зонтом — сменить её пока нельзя.",
+                               "The weather was just locked with an umbrella — it can't be changed yet.")
+        elif boost_id == 'umbrella':
+            # ☂️ Зонт: закрепляет ТЕКУЩУЮ погоду на 10 минут (lockedUntil в weather), продлевает её endsAt.
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                now_u = int(time_module.time() * 1000)
+                done_u = None
+                async with aiohttp.ClientSession() as session:
+                    for _ in range(6):
+                        async with session.get(f"{base}/weather.json{FB_AUTH}", headers={"X-Firebase-ETag": "true"}) as wr:
+                            etag = wr.headers.get("ETag")
+                            w = await wr.json()
+                        w = w if isinstance(w, dict) else {}
+                        if int(w.get('lockedUntil') or 0) > now_u:
+                            done_u = 'locked'
+                            break
+                        if int(w.get('endsAt') or 0) <= now_u:
+                            w = {'id': pick_random_weather(), 'endsAt': now_u + WEATHER_DURATION_MS}
+                        w['lockedUntil'] = now_u + UMBRELLA_LOCK_MS
+                        w['endsAt'] = max(int(w.get('endsAt') or 0), w['lockedUntil'])
+                        w['lockedBy'] = message.from_user.username or message.from_user.first_name or ''
+                        async with session.put(f"{base}/weather.json{FB_AUTH}", json=w,
+                                               headers={"If-Match": etag} if etag else {}) as pr:
+                            if pr.status == 412:
+                                continue
+                            if pr.status not in (200, 204):
+                                raise RuntimeError(f"weather PUT failed: {pr.status}")
+                        done_u = 'ok'
+                        break
+                    if done_u == 'ok':
+                        await session.put(f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}", json=now_u)
+                if done_u == 'locked':
+                    await refund_stars(message, user_id, message.successful_payment.total_amount,
+                                       "Погоду уже закрепил другой игрок.", "Another player has already locked the weather.")
+                elif done_u != 'ok':
+                    raise RuntimeError("too many conflicts")
+            except Exception as e:
+                await _alert_payment_fulfillment_failed(user_id, label, str(e))
+        elif boost_id == 'clanBoost':
+            # 🎁 Угостить клан: +20% к улову всему клану на 1 час (clans/{id}/boost, отдаётся в /clan_status).
+            try:
+                base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+                now_c = int(time_module.time() * 1000)
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/saves/{pid}/clanId.json{FB_AUTH}") as cr:
+                        cb_clan_id = await cr.json()
+                    if not cb_clan_id:
+                        cb_clan = None
+                    else:
+                        async with session.get(f"{base}/clans/{cb_clan_id}.json{FB_AUTH}") as cr2:
+                            cb_clan = await cr2.json()
+                    if not isinstance(cb_clan, dict):
+                        await refund_stars(message, user_id, message.successful_payment.total_amount,
+                                           "Ты не состоишь в клане.", "You are not in a clan.")
+                    else:
+                        prev_until = int(((cb_clan.get('boost') or {}).get('until')) or 0)
+                        buyer = message.from_user.username and '@' + message.from_user.username or message.from_user.first_name or 'Игрок'
+                        until = max(now_c, prev_until) + CLAN_BOOST_MS
+                        async with session.patch(f"{base}/clans/{cb_clan_id}/boost.json{FB_AUTH}",
+                                                 json={'until': until, 'by': buyer, 'ts': now_c}) as pr:
+                            if pr.status not in (200, 204):
+                                raise RuntimeError(f"clan boost PATCH failed: {pr.status}")
+                        await session.put(f"{base}/pending_boosts/{pid}/{boost_id}.json{FB_AUTH}", json=now_c)
+                        for mpid, m in (cb_clan.get('members') or {}).items():
+                            muid = m.get('userId') if isinstance(m, dict) else None
+                            if not muid or str(muid) == str(user_id):
+                                continue
+                            try:
+                                lang = await _player_lang(session, base, mpid)
+                                await bot.send_message(int(muid),
+                                    f"🎁 {buyer} угостил клан: +20% к улову всем на 1 час! Беги рыбачить 🎣" if lang == 'ru' else
+                                    f"🎁 {buyer} treated the clan: +20% catch for everyone for 1 hour! Go fishing 🎣")
+                            except Exception:
+                                pass
+                            await asyncio.sleep(0.05)
             except Exception as e:
                 await _alert_payment_fulfillment_failed(user_id, label, str(e))
         elif boost_id.startswith('weather_'):

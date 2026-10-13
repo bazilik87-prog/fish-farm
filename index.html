@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-13.2">
+<meta name="ff-build" content="2026-10-13.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -477,7 +477,7 @@ var state = {
   selectedItems:[],
   driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,selectedDriverItems:[],driverSaltOrder:0,driverKnifeOrder:0,
   drying:[],driedFish:[],
-  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
+  boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0, fridge:0},
   truckTickets:0,
   premiumUntil:0, premiumFreeSpinDate:0, premiumFreeRepairDate:0, // premiumUntil — кэш из Firebase, не сохраняется локально как источник истины
   energy:100, lastEnergyUpdate:0, lastAdEnergyRefill:0, lastAdLotterySpin:0, fishSinceEnergySpend:0,
@@ -500,6 +500,7 @@ var WEATHER_TYPES = [
 ];
 var currentWeather = WEATHER_TYPES[0];
 var weatherEndsAt = 0;
+var weatherLockedUntil = 0; // ☂️ Зонт: до этого момента погоду нельзя сменить (пишет сервер)
 var WEATHER_DURATION = 30 * 60 * 1000; // 30 минут
 function weatherName(id) {
   if (id==='sunny') return t('Ясно','Clear');
@@ -608,6 +609,8 @@ function loadWeather() {
       var changed = currentWeather.id !== res.id;
       currentWeather = getWeatherById(res.id);
       weatherEndsAt = res.endsAt;
+      weatherLockedUntil = res.lockedUntil || 0;
+      if (currentTab==='boosts') renderBoosts();
       if (changed) showNotif(currentWeather.emoji + ' ' + t('Погода изменилась: ','Weather changed: ') + weatherName(currentWeather.id));
       updateWeatherUI();
     }).catch(function(){});
@@ -619,6 +622,11 @@ function listenWeather() {
   if (!firebaseDB) return;
   firebaseDB.ref('weather').on('value', function(snap) {
     var w = snap.val();
+    if (w) {
+      var lockChanged = (w.lockedUntil||0) !== weatherLockedUntil;
+      weatherLockedUntil = w.lockedUntil || 0;
+      if (lockChanged && w.id === currentWeather.id && currentTab==='boosts') renderBoosts();
+    }
     if (w && w.id !== currentWeather.id) {
       currentWeather = getWeatherById(w.id);
       weatherEndsAt = w.endsAt;
@@ -1383,6 +1391,28 @@ function calcStats() {
   var premiumMult=isPremiumActive()?1.25:1;
   state.autoPerMin=Math.round(auto*lm*premiumMult*(1+clanBonus('autoPct',0)/100)*10)/10;
 }
+// 🧊 Холодильник (бустер, 24 ч): живая рыба живёт ×3, филе и сушёная хранятся ×2.
+var FRIDGE_MS = 86400000;
+function fridgeOn() { return (state.boosts.fridge||0) > Date.now(); }
+function liveLifeMult() { return fridgeOn() ? 3 : 1; }
+function filetLifeMs() { return fridgeOn() ? 21600000 : 10800000; }
+function driedLifeMs() { return fridgeOn() ? 43200000 : 21600000; }
+// Включили холодильник — уже лежащий товар тоже получает продлённый срок
+function applyFridgeToStock() {
+  var now = Date.now(), i;
+  for (i=0;i<(state.liveFish||[]).length;i++) if (state.liveFish[i].dieAt>now) state.liveFish[i].dieAt += 7200000;
+  for (i=0;i<(state.filets||[]).length;i++) if (state.filets[i].dieAt && state.filets[i].dieAt>now) state.filets[i].dieAt += 10800000;
+  for (i=0;i<(state.driedFish||[]).length;i++) if (state.driedFish[i].dieAt>now) state.driedFish[i].dieAt += 21600000;
+}
+function activateFridge(remainingMs) {
+  var wasOn = fridgeOn();
+  state.boosts.fridge = Math.max(Date.now(), state.boosts.fridge||0) + remainingMs;
+  if (!wasOn) applyFridgeToStock();
+}
+// 🎁 Клановый бустер: +20% к шансу улова всему клану (срок приходит с /clan_status)
+function clanBoostOn() { return !!(typeof myClan !== 'undefined' && myClan && myClan.boost && myClan.boost.until > Date.now()); }
+var CLAN_BOOST_PRICES = {1:10, 2:10, 3:15, 4:20, 5:30};
+function clanBoostPrice() { return CLAN_BOOST_PRICES[maxUnlockedOrder()] || 10; }
 function catchChance() {
   var rod=null;
   for (var i=0;i<UPGRADES.length;i++) if(UPGRADES[i].id==='rod') rod=UPGRADES[i];
@@ -1394,7 +1424,8 @@ function catchChance() {
   else if (scareFactor>=0.6) mult=0.5;   // 😐 насторожена ~50%
   else if (scareFactor>=0.3) return 0.02; // 😨 напугана — 2% (решение Саши, 10.10.2026)
   else                       return 0;    // 😱 в панике — не клюёт совсем
-  return Math.min(0.95, Math.round(base*mult*lucky*(currentWeather.catchMult||1)*100)/100);
+  var clanB = clanBoostOn() ? 1.2 : 1;
+  return Math.min(0.95, Math.round(base*mult*lucky*clanB*(currentWeather.catchMult||1)*100)/100);
 }
 function robotSpot() {
   // Записанный жест повторяется точь-в-точь: касание i совпадает с касанием i-k (k — длина узора).
@@ -2251,7 +2282,7 @@ function renderKitchen() {
         var ddur=slot.endsAt-slot.startedAt;
         var dpct=ddur>0?Math.min(100,Math.round((now-slot.startedAt)/ddur*100)):100;
         var ddone=now>=slot.endsAt;
-        var expiresAt=slot.endsAt+21600000;
+        var expiresAt=slot.endsAt+driedLifeMs();
         var expireLeft=Math.max(0,Math.round((expiresAt-now)/3600000*10)/10);
         html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
@@ -2404,7 +2435,7 @@ function collectFilet(bid) {
   if (idx<0) return;
   var slot=state.filets[idx];
   if (!slot||!slot.packingEndsAt||Date.now()<slot.packingEndsAt) return;
-  var expiresAt = slot.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
+  var expiresAt = slot.packingEndsAt + filetLifeMs(); // 3 часа с момента окончания упаковки (с холодильником 6)
   state.filets[idx]={bid:slot.bid,name:slot.name,emoji:slot.emoji,packets:slot.packets,dieAt:expiresAt};
   showNotif('🍱 '+t('Филе','Filet')+' '+fishName(slot.name)+' '+t('готово! Продай на рынке.','ready! Sell it at the market.'));
   updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
@@ -2513,7 +2544,7 @@ function collectDried(bid) {
   if (!slot || Date.now()<slot.endsAt) return;
   var packs = slot.packets||1;
   for (var p=0;p<packs;p++) {
-    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+21600000}); // 6 часов с момента окончания сушки
+    state.driedFish.push({name:slot.name, emoji:slot.emoji, dieAt:slot.endsAt+driedLifeMs()}); // 6 часов с момента окончания сушки (с холодильником 12)
   }
   state.drying.splice(idx,1);
   addQuestProgress('dry', packs);
@@ -2573,7 +2604,7 @@ function checkCutting() {
     var fl=state.filets[j];
     if (fl.packingEndsAt && now>=fl.packingEndsAt) {
       if (!fl.dieAt) {
-        fl.dieAt = fl.packingEndsAt + 10800000; // 3 часа с момента окончания упаковки
+        fl.dieAt = fl.packingEndsAt + filetLifeMs(); // 3 часа с момента окончания упаковки
         changed=true;
       }
       if (!fl.packNotified) {
@@ -3147,6 +3178,19 @@ function renderBoosts() {
       disabled: !state.delivery && !state.delivery2
     },
     {
+      id:'fridge', name:t('Холодильник','Fridge'), emoji:'🧊', price:scaledBoostPrice(2,1),
+      desc:t('24 часа: живая рыба живёт 3 ч вместо 1, филе и сушёная хранятся вдвое дольше','24 hours: live fish lasts 3h instead of 1, filet and dried keep twice as long'),
+      active: fridgeOn(),
+      timeLeft: fridgeOn() ? Math.ceil((b.fridge-now)/60000) : 0
+    },
+    {
+      id:'clanBoost', name:t('Угостить клан','Treat your clan'), emoji:'🎁', price:clanBoostPrice(),
+      desc:t('+20% к шансу улова ВСЕМУ клану на 1 час. Клан получит сообщение, кто угостил','+20% catch chance for your WHOLE clan for 1 hour. The clan gets a message who treated them'),
+      active: clanBoostOn(),
+      timeLeft: clanBoostOn() ? Math.ceil((myClan.boost.until-now)/60000) : 0,
+      disabled: !(typeof myClan !== 'undefined' && myClan)
+    },
+    {
       id:'repairAll', name:t('Ремонт всего транспорта','Repair all transport'), emoji:'🔧', price:scaledBoostPrice(2,2),
       desc:t('Полностью чинит все виды транспорта разом','Fully repairs all vehicles at once'),
       active: false,
@@ -3227,11 +3271,15 @@ function renderBoosts() {
   ];
   for (var wi=0;wi<weathers.length;wi++) {
     var isCurrent = currentWeather.id === weathers[wi].id;
-    html += '<button class="btn" onclick="buyWeather(\''+weathers[wi].id+'\')" '+(isCurrent?'disabled':'')+' style="background:'+(isCurrent?'#1565c0':'#0a1a3a')+';font-size:12px;padding:6px 10px">'
+    var wLocked = weatherLockedUntil > Date.now();
+    html += '<button class="btn" onclick="buyWeather(\''+weathers[wi].id+'\')" '+((isCurrent||wLocked)?'disabled':'')+' style="background:'+(isCurrent?'#1565c0':'#0a1a3a')+';font-size:12px;padding:6px 10px">'
       +weathers[wi].label+(isCurrent?' ✓':'')+'</button>';
   }
   html += '</div>'
-    +'<div style="font-size:11px;color:#666;margin-top:8px;text-align:right">⭐ 1 '+t('за смену','per change')+'</div>'
+    +'<div style="font-size:11px;color:#666;margin-top:8px;text-align:right">⭐ '+scaledBoostPrice(1,1)+' '+t('за смену','per change')+'</div>'
+    +(weatherLockedUntil > Date.now()
+      ? '<div style="font-size:12px;color:#FFD700;margin-top:8px">🔒 '+t('Погода закреплена зонтом ещё ','Weather is locked by an umbrella for ')+Math.ceil((weatherLockedUntil-Date.now())/60000)+t(' мин',' min')+'</div>'
+      : '<button class="btn btn-gold" onclick="buyBoost(\'umbrella\')" style="width:100%;margin-top:8px">☂️ '+t('Закрепить текущую погоду на 10 мин','Lock current weather for 10 min')+' · ⭐'+scaledBoostPrice(3,1)+'</button>')
     +'</div>';
 
   for (var i=0;i<boostList.length;i++) {
@@ -3248,7 +3296,7 @@ function renderBoosts() {
         : '')
       +'</div>'
       +'<button class="btn '+(bst.active?'':'btn-gold')+'" onclick="buyBoost(\''+bst.id+'\')" '+((bst.active||bst.disabled)?'disabled':'')+'>'
-      +(bst.active?t('Активен','Active'):bst.disabled?(bst.id==='repairAll'?t('Всё исправно','All fine'):t('Нет доставок','No deliveries')):(bst.id==='repairAll'&&isPremiumActive()&&state.premiumFreeRepairDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ '+(bst.price||1)))
+      +(bst.active?t('Активен','Active'):bst.disabled?(bst.id==='repairAll'?t('Всё исправно','All fine'):bst.id==='clanBoost'?t('Нет клана','No clan'):t('Нет доставок','No deliveries')):(bst.id==='repairAll'&&isPremiumActive()&&state.premiumFreeRepairDate!==getTodayDate()?t('💎 Бесплатно','💎 Free'):'⭐ '+(bst.price||1)))
       +'</button>'
       +'</div>';
   }
@@ -3311,7 +3359,7 @@ function displayServerLotteryPrize(prize) {
       window._lastFishGrantAt = Date.now();
       for (var fi=0; fi<prize.amount; fi++) {
         var rf=randFish();
-        pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000*clanBonus('fishLifeH',1)});
+        pushLiveFish({name:rf.name, emoji:rf.emoji, dieAt:Date.now()+3600000*clanBonus('fishLifeH',1)*liveLifeMult()});
       }
       state.caught += prize.amount;
     } else if (prize.kind === 'salt') {
@@ -3481,6 +3529,13 @@ function buyBoost(id) {
   }).then(function(r){
     return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
   }).then(function(res){
+    if (res.data && res.data.code === 'weather_locked') {
+      weatherLockedUntil = res.data.lockedUntil || weatherLockedUntil;
+      showNotif(t('🔒 Погода закреплена зонтом ещё ','🔒 Weather is locked by an umbrella for ')+Math.max(1,Math.ceil(((res.data.lockedUntil||0)-Date.now())/60000))+t(' мин',' min'), true);
+      if(currentTab==='boosts') renderBoosts();
+      return;
+    }
+    if (res.data && res.data.code === 'no_clan') { showNotif(t('🛡️ Сначала вступи в клан','🛡️ Join a clan first'), true); return; }
     if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
@@ -3567,7 +3622,7 @@ function activateBoost(id, growJackpot) {
     for (var pi=0;pi<(state.filets||[]).length;pi++) {
       if (state.filets[pi].packingEndsAt) {
         state.filets[pi].packingEndsAt = now2;
-        state.filets[pi].dieAt = now2 + 10800000; // 3 часа от фактического окончания упаковки
+        state.filets[pi].dieAt = now2 + filetLifeMs(); // 3 часа от фактического окончания упаковки
       }
     }
     showNotif(t('📦 Вся упаковка завершена мгновенно! Зайди на кухню.','📦 All packing finished instantly! Check the kitchen.'));
@@ -3584,6 +3639,18 @@ function activateBoost(id, growJackpot) {
   }
 
   if (id==='luckyRod') state.boosts.luckyRod = now + 1800000;
+  if (id==='fridge') {
+    activateFridge(FRIDGE_MS);
+    showNotif(t('🧊 Холодильник включён на 24 часа! Рыба и заготовки хранятся дольше.','🧊 Fridge on for 24 hours! Fish and products keep longer.'));
+  }
+  if (id==='umbrella') {
+    showNotif(t('☂️ Погода закреплена на 10 минут — сменить её никто не сможет!','☂️ Weather locked for 10 minutes — nobody can change it!'), true);
+    loadWeather();
+  }
+  if (id==='clanBoost') {
+    showNotif(t('🎁 Ты угостил клан: +20% к улову всем на 1 час!','🎁 You treated your clan: +20% catch for everyone for 1 hour!'), true);
+    checkClanStatus();
+  }
   if (id==='truckRental') {
     state.boosts.truckRental = now + 43200000; // 12 часов
     showNotif(t('🚛 Грузовик с прицепом арендован на 12 часов! Вместимость доставки: 200','🚛 Truck with trailer rented for 12 hours! Delivery capacity: 200'));
@@ -4584,6 +4651,16 @@ function activateBoostWithTime(id, elapsed) {
     if (remainingRental > 0) state.boosts.truckRental = now + remainingRental;
     return;
   }
+  if (id==='fridge') {
+    var remainingFridge = FRIDGE_MS - elapsed; // холодильник — 24 часа
+    if (remainingFridge > 0 && !fridgeOn()) activateFridge(remainingFridge);
+    return;
+  }
+  if (id==='umbrella' || id==='clanBoost') {
+    // Срок держит сервер (weather.lockedUntil / clans/{id}/boost) — просто обновляем данные
+    if (id==='umbrella') loadWeather(); else checkClanStatus();
+    return;
+  }
   if (id==='luckyRod') {
     var remainingLucky = 1800000 - elapsed; // у удачной рыбалки своя длительность — 30 минут
     if (remainingLucky > 0) state.boosts.luckyRod = now + remainingLucky;
@@ -4601,7 +4678,7 @@ function activateBoostWithTime(id, elapsed) {
     for (var pi=0;pi<(state.filets||[]).length;pi++) {
       if (state.filets[pi].packingEndsAt) {
         state.filets[pi].packingEndsAt = now;
-        state.filets[pi].dieAt = now + 10800000; // 3 часа от фактического окончания упаковки
+        state.filets[pi].dieAt = now + filetLifeMs(); // 3 часа от фактического окончания упаковки
       }
     }
     showNotif(t('📦 Вся упаковка завершена мгновенно!','📦 All packing finished instantly!'));
@@ -6413,6 +6490,9 @@ function showInstructions() {
     +'🏎 '+t('Турбо скорость (⭐1→1→2→3→5) — ×2 скорость транспорта на 1 час','Turbo speed (⭐1→1→2→3→5) — ×2 transport speed for 1 hour')+'<br>'
     +'📦 '+t('Мгновенная упаковка (⭐1→1→2→3→5) — вся текущая упаковка филе завершается мгновенно','Instant packing (⭐1→1→2→3→5) — all current filet packing finishes instantly')+'<br>'
     +'🚀 '+t('Мгновенная доставка (⭐1→1→2→3→5) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1→1→2→3→5) — all active deliveries (yours + driver) finish instantly')+'<br>'
+    +'🧊 '+t('Холодильник (⭐2→2→3→4→5) — на 24 часа: живая рыба живёт 3 ч вместо 1, филе и сушёная хранятся вдвое дольше','Fridge (⭐2→2→3→4→5) — for 24 hours: live fish lasts 3h instead of 1, filet and dried keep twice as long')+'<br>'
+    +'🎁 '+t('Угостить клан (⭐10→10→15→20→30) — +20% к шансу улова всему клану на 1 час','Treat your clan (⭐10→10→15→20→30) — +20% catch chance for the whole clan for 1 hour')+'<br>'
+    +'☂️ '+t('Зонт (⭐3→3→4→5→6) — закрепляет текущую погоду на 10 минут, сменить её никто не сможет. Смена погоды стоит ⭐1→1→2→3→5','Umbrella (⭐3→3→4→5→6) — locks the current weather for 10 minutes, nobody can change it. Weather change costs ⭐1→1→2→3→5')+'<br>'
     +'🔧 '+t('Ремонт всего транспорта (⭐2→2→4→6→10) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2→2→4→6→10) — repairs bike, moped, car and truck all at once to 100%')+'<br>'
     +t('(цены указаны для Пруда → Реки → Тропиков → Глубин → Космоса)','(prices shown for Pond → River → Tropics → Deep → Space)')+'<br><br>'
     +'<b style="color:#fff">'+t('⚡ Энергия','⚡ Energy')+'</b><br>'+t('На каждые 3 пойманные рыбы тратится 1 энергия. Максимум — 100 (150 для Premium). Полностью восстанавливается сама за ~3.5 часа. Без энергии тап не приносит улов. Пополнить: ⭐5→5→10→15→25 (растёт с локацией) мгновенно, либо бесплатно за просмотр рекламы (+25 энергии, +50 для Premium, доступно раз в 10 минут).','1 energy is spent per every 3 fish caught. Max — 100 (150 for Premium). Fully regenerates on its own in ~3.5 hours. Without energy, tapping won\'t catch fish. Refill: ⭐5→5→10→15→25 (grows with location) instantly, or free by watching an ad (+25 energy, +50 for Premium, available once every 10 minutes).')+'<br><br>'
@@ -6753,7 +6833,7 @@ function tapOcean(e) {
   checkAdMilestone();
   spendEnergyForCatch();
   state.caughtFish[f.name]=(state.caughtFish[f.name]||0)+1;
-  pushLiveFish({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000*clanBonus('fishLifeH',1)});
+  pushLiveFish({name:f.name,emoji:f.emoji,dieAt:Date.now()+f.life*3600000*clanBonus('fishLifeH',1)*liveLifeMult()});
   unlockFish();
   // Квест: улов
   var isRare = (FISH[state.currentLoc]||[]).indexOf(f) > 0;
@@ -7286,7 +7366,7 @@ function resetGame() {
       selectedItems:[],
       driverTransport:null,selectedDriverFish:null,selectedDriverDried:false,selectedDriverFilet:false,selectedDriverItems:[],driverSaltOrder:0,driverKnifeOrder:0,
       drying:[],driedFish:[],
-      boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0},
+      boosts:{doubleTap:0, turboDry:false, luckyRod:0, turboSpeed:0, turboPack:false, truckRental:0, fridge:0},
       truckTickets:0,
       premiumUntil:0, premiumFreeSpinDate:0, premiumFreeRepairDate:0,
       energy:100, lastEnergyUpdate:Date.now(), lastAdEnergyRefill:0, lastAdLotterySpin:0, fishSinceEnergySpend:0,
