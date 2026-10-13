@@ -5484,13 +5484,20 @@ MARKET_REVERSION = 0.02  # доля разрыва до центра корид�
 # примерно совпадает со старыми множителями (1.0/1.1/1.25/1.5/0.9), поэтому средний
 # уровень цен в экономике почти не меняется — меняется только то, что при плохой погоде
 # цена больше не может "провалиться" ниже нижней границы коридора (шторм — не ниже 100%).
-WEATHER_PRICE_RANGE = {
+# 13.10.2026 (решение Саши): все коридоры ×9/7 (~×1.29) — чтобы в шторм обычная цена пачки филе щуки
+# доходила до 90🪙 (было ~70). Заработок с продажи рыбы вырос примерно на 25%.
+WEATHER_PRICE_SCALE = 9 / 7
+WEATHER_PRICE_RANGE = {k: tuple(round(x * WEATHER_PRICE_SCALE, 3) for x in v) for k, v in {
     'sunny':   (0.5, 2.0, 1.0),
     'cloudy':  (0.6, 2.2, 1.1),
     'rain':    (0.8, 2.5, 1.25),
     'storm':   (1.0, 3.0, 1.5),
     'perfect': (0.4, 1.8, 0.9),
-}
+}.items()}
+# Сразу после смены погоды цена тянется к центру нового коридора сильнее (за 2–3 минуты, а не 15–20) —
+# чтобы купленный шторм чувствовался сразу. Дальше — обычные MARKET_REVERSION.
+MARKET_REVERSION_AFTER_CHANGE = 0.25
+MARKET_FAST_REVERSION_MS = 3 * 60 * 1000
 # Точная копия весов из WEATHER_TYPES в index.html — единственное место, где теперь
 # решается смена погоды по истечении срока (раньше это делал ЛЮБОЙ клиент, у которого
 # истекло по ЕГО собственным часам — если часы устройства спешили, погода могла
@@ -5818,16 +5825,21 @@ async def get_market_prices():
         prev = data.get('cur') if isinstance(data, dict) else None
         if not isinstance(prev, dict):
             prev = {}
+        prev_weather = data.get('weather') if isinstance(data, dict) else None
+        changed_at = (data.get('weatherChangedAt') if isinstance(data, dict) else None) or 0
+        if prev_weather != weather_id:
+            changed_at = now_ms
+        reversion = MARKET_REVERSION_AFTER_CHANGE if now_ms - changed_at < MARKET_FAST_REVERSION_MS else MARKET_REVERSION
         new_cur = {}
         for name, base_price in BASE_PRICES.items():
             p = prev.get(name, base_price * center_m)
             target = base_price * center_m
             chg = (random.random() - 0.5) * 0.3
-            nv = p * (1 + chg) + MARKET_REVERSION * (target - p)
+            nv = p * (1 + chg) + reversion * (target - p)
             nv = max(base_price * lo_m, min(base_price * hi_m, nv))
             new_cur[name] = round(nv * 100) / 100
         await session.put(f"{base}/market/prices.json{FB_AUTH}",
-                          json={'cur': new_cur, 'weather': weather_id, 'ts': now_ms})
+                          json={'cur': new_cur, 'weather': weather_id, 'weatherChangedAt': changed_at, 'ts': now_ms})
         return new_cur
 
 

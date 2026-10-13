@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-12.3">
+<meta name="ff-build" content="2026-10-13.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -492,11 +492,11 @@ var state = {
 var marketPrices = {};
 var lastPriceUpdate = 0;
 var WEATHER_TYPES = [
-  {id:'sunny',    emoji:'☀️',  name:'Ясно',          catchMult:1.0,  priceMult:1.0,  weight:25},
-  {id:'cloudy',   emoji:'🌥',  name:'Облачно',        catchMult:0.9,  priceMult:1.1,  weight:30},
-  {id:'rain',     emoji:'🌧',  name:'Дождь',          catchMult:0.75, priceMult:1.25, weight:25},
-  {id:'storm',    emoji:'⛈',  name:'Шторм',          catchMult:0.6,  priceMult:1.5,  weight:10},
-  {id:'perfect',  emoji:'🌟',  name:'Отличный клёв!', catchMult:1.3,  priceMult:0.9,  weight:10},
+  {id:'sunny',    emoji:'☀️',  name:'Ясно',          catchMult:1.0,  priceMult:1.29, weight:25},
+  {id:'cloudy',   emoji:'🌥',  name:'Облачно',        catchMult:0.9,  priceMult:1.41, weight:30},
+  {id:'rain',     emoji:'🌧',  name:'Дождь',          catchMult:0.75, priceMult:1.61, weight:25},
+  {id:'storm',    emoji:'⛈',  name:'Шторм',          catchMult:0.6,  priceMult:1.93, weight:10},
+  {id:'perfect',  emoji:'🌟',  name:'Отличный клёв!', catchMult:1.3,  priceMult:1.16, weight:10},
 ];
 var currentWeather = WEATHER_TYPES[0];
 var weatherEndsAt = 0;
@@ -6291,41 +6291,41 @@ function showInstructions() {
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0">'
         +'<td style="padding:3px 4px;text-align:left">'+t('Погода','Weather')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Улов','Catch')+'</td>'
-        +'<td style="padding:3px 4px;text-align:right">'+t('Цена (от базовой)','Price (of base)')+'</td>'
+        +'<td style="padding:3px 4px;text-align:right">'+t('Наценка','Markup')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('В среднем','Average')+'</td>'
       +'</tr>'
       +'<tr style="border-bottom:1px solid #16213e">'
         +'<td style="padding:3px 4px;">☀️ '+t('Ясно','Clear')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">±0%</td>'
-        +'<td style="padding:3px 4px;text-align:right">50–200%</td>'
-        +'<td style="padding:3px 4px;text-align:right">~100%</td>'
+        +'<td style="padding:3px 4px;text-align:right">−36…+157%</td>'
+        +'<td style="padding:3px 4px;text-align:right">~+34%</td>'
       +'</tr>'
       +'<tr style="border-bottom:1px solid #16213e">'
         +'<td style="padding:3px 4px;">🌥 '+t('Облачно','Cloudy')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−10%</td>'
-        +'<td style="padding:3px 4px;text-align:right">60–220%</td>'
-        +'<td style="padding:3px 4px;text-align:right">~110%</td>'
+        +'<td style="padding:3px 4px;text-align:right">−23…+183%</td>'
+        +'<td style="padding:3px 4px;text-align:right">~+41%</td>'
       +'</tr>'
       +'<tr style="border-bottom:1px solid #16213e">'
         +'<td style="padding:3px 4px;">🌧 '+t('Дождь','Rain')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−25%</td>'
-        +'<td style="padding:3px 4px;text-align:right">80–250%</td>'
-        +'<td style="padding:3px 4px;text-align:right">~120%</td>'
+        +'<td style="padding:3px 4px;text-align:right">+3…+221%</td>'
+        +'<td style="padding:3px 4px;text-align:right">~+61%</td>'
       +'</tr>'
       +'<tr style="border-bottom:1px solid #16213e">'
         +'<td style="padding:3px 4px;">⛈ '+t('Шторм','Storm')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−40%</td>'
-        +'<td style="padding:3px 4px;text-align:right">100–300%</td>'
-        +'<td style="padding:3px 4px;text-align:right">~150%</td>'
+        +'<td style="padding:3px 4px;text-align:right">+29…+286%</td>'
+        +'<td style="padding:3px 4px;text-align:right">~+86%</td>'
       +'</tr>'
       +'<tr>'
         +'<td style="padding:3px 4px;">🌟 '+t('Отличный клёв','Great bite')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">+30%</td>'
-        +'<td style="padding:3px 4px;text-align:right">40–180%</td>'
-        +'<td style="padding:3px 4px;text-align:right">~90%</td>'
+        +'<td style="padding:3px 4px;text-align:right">−49…+131%</td>'
+        +'<td style="padding:3px 4px;text-align:right">~+25%</td>'
       +'</tr>'
     +'</table>'
-    +t('Погода задаёт коридор, внутри которого цена сама гуляет каждые 30 сек. Чем хуже погода — тем выше и стабильнее цены: при шторме цена никогда не опускается ниже базовой. Пример: рыба с базовой ценой 10🪙 при шторме стоит от 10🪙 до 30🪙, в среднем ~15🪙; при отличном клёве — от 4🪙 до 18🪙, в среднем ~9🪙.','Weather sets the range the price wanders within every 30 sec. The worse the weather, the higher and steadier the prices: during a storm the price never drops below base. Example: a fish with a base price of 10🪙 costs 10–30🪙 in a storm (~15🪙 on average); during great bite — 4–18🪙 (~9🪙 on average).')+'<br>'
+    +t('Наценка — насколько цена выше (или ниже) базовой, она видна рядом с ценой на рынке. Погода задаёт пределы, внутри которых цена сама гуляет каждые 30 сек. Чем хуже погода — тем дороже рыба: при шторме цена всегда минимум на 29% выше базовой. После смены погоды цены за 2–3 минуты переходят на новый уровень. Пример: пачка филе щуки (база 30🪙) при шторме стоит от 39🪙 до 116🪙, чаще всего 40–80🪙, в среднем ~58🪙; при отличном клёве — чаще всего 22–51🪙, в среднем ~35🪙.','Markup is how much the price is above (or below) base — shown next to the price at the market. Weather sets the limits the price wanders within every 30 sec. The worse the weather, the pricier the fish: in a storm the price is always at least 29% above base. After the weather changes, prices move to the new level within 2–3 minutes. Example: a pack of pike filet (base 30🪙) costs 39–116🪙 in a storm, usually 40–80🪙, ~58🪙 on average; during great bite — usually 22–51🪙, ~35🪙 on average.')+'<br>'
     +t('Следи за погодой внизу экрана — при шторме выгоднее продавать, при отличном клёве — ловить!','Watch the weather at the bottom of the screen — sell during storms, fish during great bite!')+'<br><br>'
     +'<b style="color:#fff">'+t('🍳 Кухня — засолка, сушка и филе','🍳 Kitchen — salting, drying and filet')+'</b><br>'
     +'<u>'+t('Засолка и сушка:','Salting and drying:')+'</u><br>'
@@ -6342,7 +6342,7 @@ function showInstructions() {
     +'5️⃣ '+t('Собери филе — продай на рынке (срок годности 3 часа)','Collect the filet — sell at the market (expires in 3 hours)')+'<br><br>'
     +'<b style="color:#fff">'+t('🧂 Соль','🧂 Salt')+'</b><br>'+t('Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙','Bought when sending delivery at the market. On the way back the transport brings salt. Price depends on location: Pond 1🪙 · River 2🪙 · Tropics 5🪙 · Deep 15🪙 · Space 50🪙')+'<br><br>'
     +'<b style="color:#fff">'+t('🔪 Нож','🔪 Knife')+'</b><br>'+t('Покупается так же как соль — при отправке доставки на рынке, на обратном пути. Нужен для разделки рыбы на филе. Цена зависит от локации: Пруд 3🪙 · Река 6🪙 · Тропики 15🪙 · Глубины 45🪙 · Космос 150🪙','Bought the same way as salt — when sending delivery at the market, on the way back. Needed to cut fish into filet. Price depends on location: Pond 3🪙 · River 6🪙 · Tropics 15🪙 · Deep 45🪙 · Space 150🪙')+'<br><br>'
-    +'<b style="color:#fff">'+t('🏪 Рынок и доставка','🏪 Market and delivery')+'</b><br>'+t('Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. Цены меняются каждые 30 сек 📈📉 — внутри диапазона, который задаёт текущая погода (от 40% до 300% базовой цены). Следи за ценами и продавай на пике!','Choose a fish type (fresh, dried, or filet) and send it by transport. Prices change every 30 sec 📈📉 — within a range set by the current weather (from 40% to 300% of base price). Watch prices and sell at the peak!')+'<br>'
+    +'<b style="color:#fff">'+t('🏪 Рынок и доставка','🏪 Market and delivery')+'</b><br>'+t('Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. Цены меняются каждые 30 сек 📈📉 — внутри диапазона, который задаёт текущая погода (наценка от −49% до +286%). Следи за ценами и продавай на пике!','Choose a fish type (fresh, dried, or filet) and send it by transport. Prices change every 30 sec 📈📉 — within a range set by the current weather (markup from −49% to +286%). Watch prices and sell at the peak!')+'<br>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Вид рыбы','Fish type')+'</td><td style="padding:3px 4px;text-align:right">'+t('Цена за штуку','Price per fish')+'</td></tr>'
       +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px;">🐟 '+t('Свежая','Fresh')+'</td><td style="padding:3px 4px;text-align:right">'+t('×1 (цена рынка)','×1 (market price)')+'</td></tr>'
