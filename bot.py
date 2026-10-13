@@ -12482,8 +12482,13 @@ async def repost_to_news_topic(html, document_id, caption, caption_mode, admin_m
 
 @dp.message(Command('setnews'))
 async def setnews_command(message: types.Message):
-    """Написать В ТЕМЕ News чата игроков — туда будут дублироваться рассылки /broadcast. «/setnews off» — выключить."""
-    if not message.from_user or message.from_user.id != ADMIN_ID:
+    """Написать В ТЕМЕ News чата игроков — туда будут дублироваться рассылки /broadcast. «/setnews off» — выключить.
+    Принимается от ADMIN_ID или от анонимного админа ЭТОГО ЖЕ чата (sender_chat == chat): писать от имени группы
+    могут только её админы — у Саши в чате включена «Анонимность» (13.10)."""
+    is_admin = bool(message.from_user and message.from_user.id == ADMIN_ID)
+    anon_group_admin = bool(getattr(message, 'sender_chat', None) and message.chat.type != 'private'
+                            and message.sender_chat.id == message.chat.id)
+    if not (is_admin or anon_group_admin):
         return
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
