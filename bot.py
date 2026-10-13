@@ -10157,7 +10157,8 @@ async def comm_command(message: types.Message):
         "/noads @username|ID [off] — исключить/вернуть межстраничную рекламу во время рыбалки\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
-        "/broadcast ТЕКСТ — рассылка всем игрокам\n"
+        "/broadcast ТЕКСТ — рассылка всем игрокам (+ копия в тему News чата, если задана /setnews)\n"
+        "/setnews — написать в теме News чата игроков: туда будут дублироваться рассылки; /setnews off — выключить\n"
         "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
         "/voteresults — текущий счёт активного/последнего голосования\n"
         "/pushcomeback ТЕКСТ — пуш только тем, кто заходил 1-3 дня назад\n"
@@ -12375,6 +12376,7 @@ async def broadcast_command(message: types.Message):
         await message.answer(f"❌ Рассылка не начата — Telegram не принял оформление: {e}")
         return
     await message.answer("👆 Так увидят игроки.\n⏳ Рассылка начата...")
+    await repost_to_news_topic(html, document_id, caption, caption_mode, message)
     import aiohttp
     from datetime import datetime, timezone
     try:
@@ -12433,6 +12435,72 @@ async def broadcast_command(message: types.Message):
             f"👥 Всего: {total}",
             parse_mode="HTML"
         )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+# ── Дубль рассылки в тему «News» чата игроков (с 13.10.2026, просьба Саши) ───────────
+# Куда — задаёт сам Саша командой /setnews, написанной В НУЖНОЙ ТЕМЕ чата (бот — админ чата);
+# хранится в закрытом узле config/news_target {chatId, threadId}. «/setnews off» — выключить.
+_NEWS_TARGET = {'loaded': False, 'v': None}
+
+
+async def get_news_target():
+    if not _NEWS_TARGET['loaded']:
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/config/news_target.json{FB_AUTH}") as r:
+                    v = await r.json()
+            _NEWS_TARGET['v'] = v if isinstance(v, dict) and v.get('chatId') else None
+            _NEWS_TARGET['loaded'] = True
+        except Exception as e:
+            print(f"[get_news_target] {e}")
+            return None
+    return _NEWS_TARGET['v']
+
+
+async def repost_to_news_topic(html, document_id, caption, caption_mode, admin_message):
+    """Копия рассылки в тему News. Кнопка web_app в группах не работает — даём ссылку на бота."""
+    target = await get_news_target()
+    if not target:
+        return
+    try:
+        me = await bot.get_me()
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎣 Играть / Play", url=f"https://t.me/{me.username}?start=news")
+        ]])
+        kw = {'message_thread_id': target.get('threadId')} if target.get('threadId') else {}
+        if document_id:
+            await bot.send_document(target['chatId'], document=document_id, caption=caption, parse_mode=caption_mode, reply_markup=kb, **kw)
+        else:
+            await bot.send_message(target['chatId'], html, parse_mode="HTML", reply_markup=kb, **kw)
+        await admin_message.answer("📰 Продублировано в тему News чата игроков.")
+    except Exception as e:
+        await admin_message.answer(f"⚠️ В тему News не отправилось: {e}\nПроверь, что бот — админ чата, и при необходимости заново напиши /setnews в теме.")
+
+
+@dp.message(Command('setnews'))
+async def setnews_command(message: types.Message):
+    """Написать В ТЕМЕ News чата игроков — туда будут дублироваться рассылки /broadcast. «/setnews off» — выключить."""
+    if not message.from_user or message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    off = (message.text or '').strip().lower().endswith('off')
+    try:
+        async with aiohttp.ClientSession() as session:
+            if off:
+                await session.delete(f"{base}/config/news_target.json{FB_AUTH}")
+            else:
+                if message.chat.type == 'private':
+                    await message.answer("Напиши /setnews прямо в теме News чата игроков (бот должен быть админом чата).")
+                    return
+                await session.put(f"{base}/config/news_target.json{FB_AUTH}", json={
+                    'chatId': message.chat.id, 'threadId': message.message_thread_id,
+                    'title': message.chat.title or '', 'ts': int(time_module.time() * 1000)})
+        _NEWS_TARGET.update(loaded=True, v=None if off else {'chatId': message.chat.id, 'threadId': message.message_thread_id})
+        await message.answer("📰 Дубли рассылок выключены." if off else "✅ Рассылки /broadcast теперь будут дублироваться в эту тему.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
