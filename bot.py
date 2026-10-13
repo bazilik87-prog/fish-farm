@@ -5478,26 +5478,32 @@ def rare_fish_status(now_ms=None):
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
-MARKET_REVERSION = 0.02  # доля разрыва до центра коридора погоды, закрываемая за один шаг (30с) — см. get_market_prices
-# Погода НЕ множит цену, а задаёт коридор, внутри которого она гуляет (в долях от базовой):
-# (мин, макс, центр). Центр — точка, к которой цена возвращается (MARKET_REVERSION); он
-# примерно совпадает со старыми множителями (1.0/1.1/1.25/1.5/0.9), поэтому средний
-# уровень цен в экономике почти не меняется — меняется только то, что при плохой погоде
-# цена больше не может "провалиться" ниже нижней границы коридора (шторм — не ниже 100%).
-# 13.10.2026 (решение Саши): все коридоры ×9/7 (~×1.29) — чтобы в шторм обычная цена пачки филе щуки
-# доходила до 90🪙 (было ~70). Заработок с продажи рыбы вырос примерно на 25%.
-WEATHER_PRICE_SCALE = 9 / 7
-WEATHER_PRICE_RANGE = {k: tuple(round(x * WEATHER_PRICE_SCALE, 3) for x in v) for k, v in {
-    'sunny':   (0.5, 2.0, 1.0),
-    'cloudy':  (0.6, 2.2, 1.1),
-    'rain':    (0.8, 2.5, 1.25),
-    'storm':   (1.0, 3.0, 1.5),
-    'perfect': (0.4, 1.8, 0.9),
-}.items()}
-# Сразу после смены погоды цена тянется к центру нового коридора сильнее (за 2–3 минуты, а не 15–20) —
-# чтобы купленный шторм чувствовался сразу. Дальше — обычные MARKET_REVERSION.
-MARKET_REVERSION_AFTER_CHANGE = 0.25
-MARKET_FAST_REVERSION_MS = 3 * 60 * 1000
+# Цены рынка (13.10.2026, Саша задал сам): у каждой погоды 5 вариантов цены, каждые 30 с у КАЖДОЙ рыбы
+# отдельно случайно выбирается один из них. Цифры — цена пачки филе щуки (база 30🪙); для остальных рыб
+# пропорционально их базовой цене (вариант / 30 × базовая). Раньше был широкий коридор со случайным
+# блужданием — в шторм рыба могла сидеть на «полу», погода не ощущалась.
+WEATHER_PRICE_OPTIONS_PIKE_FILET = {
+    'perfect': (16, 18, 20, 22, 24),
+    'sunny':   (22, 26, 30, 34, 38),
+    'cloudy':  (24, 28, 32, 36, 40),
+    'rain':    (38, 46, 52, 60, 65),
+    'storm':   (70, 75, 80, 85, 90),
+}
+WEATHER_PRICE_OPTIONS = {k: tuple(round(x / 30, 4) for x in v) for k, v in WEATHER_PRICE_OPTIONS_PIKE_FILET.items()}
+# «Колода»: за одну погоду (60 смен по 30 с) каждый из 5 вариантов выпадает ровно 12 раз, порядок случайный
+# и свой у каждой рыбы. Колода выводится из (погода, её endsAt, рыба) + секрет бота — хранить её не нужно
+# (трафик не растёт), повторный расчёт даёт ту же карту, а игроки не могут заранее вычислить порядок.
+WEATHER_PRICE_DECK_REPEAT = 12
+
+
+def weather_price_deck(deck_key, fish_name, weather_id):
+    import random as _r
+    seed = hmac.new(BOT_TOKEN.encode(), f"{deck_key}|{fish_name}".encode(), hashlib.sha256).hexdigest()
+    deck = list(WEATHER_PRICE_OPTIONS.get(weather_id, WEATHER_PRICE_OPTIONS['sunny'])) * WEATHER_PRICE_DECK_REPEAT
+    _r.Random(seed).shuffle(deck)
+    return deck
+# (мин, макс, средний) множитель — для отчётов и проверок
+WEATHER_PRICE_RANGE = {k: (min(v), max(v), round(sum(v) / len(v), 4)) for k, v in WEATHER_PRICE_OPTIONS.items()}
 # Точная копия весов из WEATHER_TYPES в index.html — единственное место, где теперь
 # решается смена погоды по истечении срока (раньше это делал ЛЮБОЙ клиент, у которого
 # истекло по ЕГО собственным часам — если часы устройства спешили, погода могла
@@ -5781,14 +5787,13 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
 
 async def get_market_prices():
     """
-    Глобальные серверные цены рынка — общие для всех игроков, генерируются случайным
-    блужданием на сервере, поэтому их нельзя подделать записью в собственное сохранение.
+    Глобальные серверные цены рынка — общие для всех игроков, генерируются на сервере,
+    поэтому их нельзя подделать записью в собственное сохранение.
     Обновляются раз в 30с (PRICE_INTERVAL_MS) фоновым циклом price_regeneration_loop.
-    Погода задаёт КОРИДОР цены (WEATHER_PRICE_RANGE), а не множитель: цена каждые 30с
-    делает случайный шаг ±15% с возвратом к центру коридора и зажимается в коридор
-    текущей погоды. При смене погоды цена сразу попадает в новый коридор.
+    Каждые 30с у каждой рыбы берётся следующая «карта» её колоды текущей погоды (weather_price_deck):
+    5 вариантов цены по 12 раз в случайном порядке. При смене погоды — новая колода (≤30с).
     """
-    import aiohttp, time, random
+    import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{base}/market/prices.json{FB_AUTH}") as resp:
@@ -5802,14 +5807,17 @@ async def get_market_prices():
         # Firebase погода молча превращалась в "ясно". Теперь 3 попытки, а если не вышло —
         # берём ПОСЛЕДНЮЮ известную погоду из предыдущей записи цен, а не "ясно".
         weather_id = None
+        deck_key = None
         for w_attempt in range(3):
             try:
                 async with session.get(f"{base}/weather.json{FB_AUTH}") as wresp:
                     w = await wresp.json()
                 if w and isinstance(w, dict) and w.get('endsAt', 0) > now_ms:
                     weather_id = w.get('id')
+                    deck_key = f"{weather_id}:{w.get('endsAt')}"
                 else:
                     weather_id = 'sunny'  # погода истекла и ещё не обновлена — нейтральная
+                    deck_key = f"sunny:expired:{(w or {}).get('endsAt') if isinstance(w, dict) else 0}"
                 break
             except Exception as e:
                 if w_attempt == 2:
@@ -5818,28 +5826,16 @@ async def get_market_prices():
                     await asyncio.sleep(0.3)
         if weather_id is None:
             weather_id = (data.get('weather') if isinstance(data, dict) else None) or 'sunny'
-        lo_m, hi_m, center_m = WEATHER_PRICE_RANGE.get(weather_id, WEATHER_PRICE_RANGE['sunny'])
-
-        # Предыдущие цены: 'raw' (формат прошлой версии, без погоды) или 'cur' — для нового
-        # коридора это одно и то же, просто берём как стартовую точку и зажимаем в коридор.
-        prev = data.get('cur') if isinstance(data, dict) else None
-        if not isinstance(prev, dict):
-            prev = {}
-        prev_weather = data.get('weather') if isinstance(data, dict) else None
-        changed_at = (data.get('weatherChangedAt') if isinstance(data, dict) else None) or 0
-        if prev_weather != weather_id:
-            changed_at = now_ms
-        reversion = MARKET_REVERSION_AFTER_CHANGE if now_ms - changed_at < MARKET_FAST_REVERSION_MS else MARKET_REVERSION
+            deck_key = (data.get('deck') if isinstance(data, dict) else None) or f"{weather_id}:fallback"
+        # Номер карты в колоде: следующая после прошлой, если колода та же; новая погода — с начала.
+        # Детерминированно: два одновременных пересчёта запишут одно и то же.
+        prev_n = data.get('n') if isinstance(data, dict) and data.get('deck') == deck_key else None
+        n = 0 if prev_n is None else (int(prev_n) + 1) % (len(WEATHER_PRICE_OPTIONS['sunny']) * WEATHER_PRICE_DECK_REPEAT)
         new_cur = {}
         for name, base_price in BASE_PRICES.items():
-            p = prev.get(name, base_price * center_m)
-            target = base_price * center_m
-            chg = (random.random() - 0.5) * 0.3
-            nv = p * (1 + chg) + reversion * (target - p)
-            nv = max(base_price * lo_m, min(base_price * hi_m, nv))
-            new_cur[name] = round(nv * 100) / 100
+            new_cur[name] = round(base_price * weather_price_deck(deck_key, name, weather_id)[n] * 100) / 100
         await session.put(f"{base}/market/prices.json{FB_AUTH}",
-                          json={'cur': new_cur, 'weather': weather_id, 'weatherChangedAt': changed_at, 'ts': now_ms})
+                          json={'cur': new_cur, 'weather': weather_id, 'deck': deck_key, 'n': n, 'ts': now_ms})
         return new_cur
 
 
