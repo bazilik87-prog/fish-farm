@@ -5611,6 +5611,33 @@ async def report_legacy_prize_attempt(pid, user_id, count, now_ms):
 _SPECIES_CAP_ALERTED = set()
 
 
+# Осетрина (14.10.2026): раньше rare_fish_catch не тратила энергию и не ограничивалась по количеству —
+# сервер проверял только, что окно открыто, и скрипт мог «поймать» тысячи Осетрин за окно. Теперь каждая
+# тратит 1/3 энергии, как обычная рыба, а за одно окно принимается не больше
+# RARE_FISH_MAX_SHARE × обычных уловов в этом же окне + RARE_FISH_FREE (честные — ~0.15–0.18).
+RARE_FISH_MAX_SHARE = 0.3
+RARE_FISH_FREE = 5
+_RARE_WINDOW = {}          # pid -> {'w': начало окна, 'c': обычных уловов в окне, 'r': Осетрин}
+_RARE_CAP_ALERTED = set()
+
+
+async def report_rare_cap(pid, user_id, over, now_ms):
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/suspicious_actions/{pid}.json{FB_AUTH}",
+                                json={'rareCap': {".sv": {"increment": over}}, 'lastTs': now_ms})
+    except Exception as e:
+        print(f"[report_rare_cap] {pid}: {e}")
+    if ADMIN_ID and pid not in _RARE_CAP_ALERTED:
+        _RARE_CAP_ALERTED.add(pid)
+        try:
+            await bot.send_message(ADMIN_ID, f"🐟 Слишком много Осетрин: ID {user_id} — отклонено {over} сверх возможной доли "
+                                             f"(честные ловят ~15% от улова). Подробнее: /actionlog {user_id}")
+        except Exception:
+            pass
+
+
 async def report_species_cap(pid, user_id, hits, now_ms):
     """Продажа вида сверх возможной доли улова (FISH_MAX_SHARE) — в suspicious_actions и админу."""
     import aiohttp
@@ -6893,6 +6920,13 @@ async def process_actions(request):
     purchased_stars_delta = 0
     response_truck = {}        # truckTickets / truckRentalUntil после записи — для клиента
     rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
+    rare_over = 0  # Осетрины сверх возможной доли за окно (см. RARE_FISH_MAX_SHARE)
+    _rf_now = rare_fish_status(now_ms)
+    _rf_window = (_rf_now['endsAt'] - RARE_FISH_DURATION_MS) if now_ms < _rf_now['endsAt'] + 5000 else None
+    _rw = _RARE_WINDOW.get(pid)
+    if _rf_window is not None and (not _rw or _rw.get('w') != _rf_window):
+        _rw = {'w': _rf_window, 'c': 0, 'r': 0}
+        _RARE_WINDOW[pid] = _rw
     claim_result = None
     # Старые аккаунты (до переименования полей в клиенте) хранят этот же список под именем
     # utrans/dur вместо unlockedTransports/durability — если новое поле отсутствует, но
@@ -6977,6 +7011,8 @@ async def process_actions(request):
                 continue
             if not has_unlimited_energy:
                 energy -= 1/3
+            if _rf_window is not None:
+                _rw['c'] += 1
             lv = upg_levels.get(loc, {}) if isinstance(upg_levels.get(loc), dict) else {}
             rod_level = max(0, min(int(lv.get('rod', 0) or 0), len(ROD_TAP) - 1))
             earned = round(ROD_TAP[rod_level] * mult * 10) / 10
@@ -7264,9 +7300,21 @@ async def process_actions(request):
             # игрок поймал рыбу буквально в последние секунды 10-минутного окна — без
             # этого запаса честный улов у самой границы отклонялся бы, а игрок не видел
             # никакой причины (клиент молча откатывал уже показанные монеты).
-            if not rf_active:
+            if not rf_active or _rf_window is None:
                 rejected += 1
                 continue
+            has_unlimited_energy = real_user_id in UNLIMITED_ENERGY_USER_IDS
+            if not has_unlimited_energy and energy < 1/3:
+                rejected += 1
+                rejected_energy += 1
+                continue
+            if _rw['r'] + 1 > RARE_FISH_MAX_SHARE * _rw['c'] + RARE_FISH_FREE:
+                rejected += 1
+                rare_over += 1
+                continue
+            _rw['r'] += 1
+            if not has_unlimited_energy:
+                energy -= 1/3
             reward = round(RARE_FISH_PRICE * mult)
             coins += reward
             total_earned += reward
@@ -7478,6 +7526,8 @@ async def process_actions(request):
         _spawn_bg(bump_fish_stats(pid, fish_stats_updates))
     if species_cap_hits:
         _spawn_bg(report_species_cap(pid, real_user_id, species_cap_hits, now_ms))
+    if rare_over:
+        _spawn_bg(report_rare_cap(pid, real_user_id, rare_over, now_ms))
     # Уведомление об отклонённых действиях отключено по просьбе — слишком много шума.
     # Сама защита (отклонение подозрительных действий) продолжает работать как прежде.
 
