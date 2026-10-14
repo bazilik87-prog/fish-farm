@@ -5970,6 +5970,134 @@ async def reset_progress(request):
     return web.json_response({'ok': True}, headers=CORS)
 
 
+# ── Подтверждение рекламы от AdsGram (Reward URL, с 14.10.2026) ─────────────────────────
+# Раньше энергия/крутка за рекламу выдавались «на слово» игры. Теперь AdsGram после просмотра шлёт
+# GET на /adsgram_reward/<секрет>?userid=<telegram id> (адрес выдаёт /adsgramurl, секрет — из BOT_TOKEN,
+# Claude его не знает). Сервер копит «кредиты просмотров» в закрытом узле ad_credits/{uid} (до 3 шт.,
+# живут 15 мин) и при награде за рекламу забирает один. Режим — config/ads_strict: выключен (мягкий) —
+# награда как раньше, но неподтверждённые считаются (ad_unconfirmed/{uid}, /adsstats); включён
+# (/adsstrict on) — без подтверждения награды нет. AdsGram шлёт подтверждение ПОСЛЕ награды в игре,
+# поэтому в строгом режиме ждём его до ADS_WAIT_S секунд.
+ADS_CREDIT_TTL_MS = 15 * 60 * 1000
+ADS_CREDIT_CAP = 3
+ADS_WAIT_S = 8
+ADS_SOFT_WAIT_S = 30   # мягкий режим: сколько фоном ждать подтверждения для статистики
+_ADS_STATS = {'since': 0, 'callbacks': 0, 'claims': 0, 'confirmed': 0, 'unconfirmed': 0, 'bad_secret': 0}
+_ADS_STRICT = {'v': False, 'ts': 0}
+
+
+def adsgram_secret():
+    return hmac.new(BOT_TOKEN.encode(), b"adsgram-reward", hashlib.sha256).hexdigest()[:24]
+
+
+async def ads_strict_mode():
+    now = time_module.time()
+    if now - _ADS_STRICT['ts'] > 60:
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/config/ads_strict.json{FB_AUTH}") as r:
+                    _ADS_STRICT['v'] = bool(await r.json())
+            _ADS_STRICT['ts'] = now
+        except Exception as e:
+            print(f"[ads_strict_mode] {e}")
+    return _ADS_STRICT['v']
+
+
+async def adsgram_reward(request):
+    """GET от AdsGram: игрок досмотрел рекламу — кладём кредит просмотра."""
+    if not hmac.compare_digest(str(request.match_info.get('secret', '')), adsgram_secret()):
+        _ADS_STATS['bad_secret'] += 1
+        return web.Response(status=404, text='not found')
+    uid = str(request.query.get('userid') or request.query.get('userId') or '').strip()
+    if not uid.isdigit():
+        return web.Response(status=400, text='bad userid')
+    import aiohttp
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ad_credits/{uid}.json{FB_AUTH}"
+    now_ms = int(time_module.time() * 1000)
+    try:
+        async with aiohttp.ClientSession() as session:
+            for _ in range(5):
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+                    etag = r.headers.get("ETag")
+                    cur = await r.json()
+                ts = [t for t in (cur if isinstance(cur, list) else []) if isinstance(t, (int, float)) and now_ms - t < ADS_CREDIT_TTL_MS]
+                ts = (ts + [now_ms])[-ADS_CREDIT_CAP:]
+                async with session.put(url, json=ts, headers={"If-Match": etag} if etag else {}) as w:
+                    if w.status == 412:
+                        continue
+                    break
+    except Exception as e:
+        print(f"[adsgram_reward] {uid}: {e}")
+        return web.Response(status=500, text='error')
+    _ADS_STATS['callbacks'] += 1
+    return web.Response(text='ok')
+
+
+async def ad_credit_take(uid, wait_s=0):
+    """Забирает один кредит просмотра (самый старый). Ждёт до wait_s секунд, если его ещё нет."""
+    import aiohttp
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ad_credits/{uid}.json{FB_AUTH}"
+    deadline = time_module.time() + wait_s
+    try:
+        async with aiohttp.ClientSession() as session:
+            while True:
+                now_ms = int(time_module.time() * 1000)
+                async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+                    etag = r.headers.get("ETag")
+                    cur = await r.json()
+                ts = sorted(t for t in (cur if isinstance(cur, list) else []) if isinstance(t, (int, float)) and now_ms - t < ADS_CREDIT_TTL_MS)
+                if ts:
+                    async with session.put(url, json=ts[1:], headers={"If-Match": etag} if etag else {}) as w:
+                        if w.status == 412:
+                            continue
+                    return True
+                if time_module.time() >= deadline:
+                    return False
+                await asyncio.sleep(1)
+    except Exception as e:
+        print(f"[ad_credit_take] {uid}: {e}")
+        return False
+
+
+async def _ad_mark_unconfirmed(uid, kind):
+    import aiohttp
+    _ADS_STATS['unconfirmed'] += 1
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.patch(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ad_unconfirmed/{uid}.json{FB_AUTH}",
+                                json={kind: {".sv": {"increment": 1}}, 'n': {".sv": {"increment": 1}},
+                                      'last': int(time_module.time() * 1000)})
+    except Exception as e:
+        print(f"[_ad_mark_unconfirmed] {uid}: {e}")
+
+
+async def _ad_soft_check(uid, kind):
+    if await ad_credit_take(uid, wait_s=ADS_SOFT_WAIT_S):
+        _ADS_STATS['confirmed'] += 1
+    else:
+        await _ad_mark_unconfirmed(uid, kind)
+
+
+async def ad_view_allowed(uid, kind):
+    """Награда за рекламу: True — выдавать. Мягкий режим — всегда True, проверка фоном для статистики."""
+    if not _ADS_STATS['since']:
+        _ADS_STATS['since'] = int(time_module.time() * 1000)
+    _ADS_STATS['claims'] += 1
+    if not await ads_strict_mode():
+        _spawn_bg(_ad_soft_check(str(uid), kind))
+        return True
+    if await ad_credit_take(str(uid), wait_s=ADS_WAIT_S):
+        _ADS_STATS['confirmed'] += 1
+        return True
+    await _ad_mark_unconfirmed(str(uid), kind)
+    return False
+
+
+def ad_not_confirmed_response():
+    return web.json_response({'error': 'ad_not_confirmed', 'code': 'ad_not_confirmed'}, status=403, headers=CORS)
+
+
 async def refill_energy_ad(request):
     """
     +25 энергии за просмотр рекламы (+50 для Premium), не чаще раза в 10 минут. Раньше
@@ -6009,6 +6137,8 @@ async def refill_energy_ad(request):
     is_prem = await is_premium(real_user_id)
     base_max_energy = 150 if is_prem else 100
     ad_bonus = 50 if is_prem else 25
+    if not await ad_view_allowed(real_user_id, 'energy'):
+        return ad_not_confirmed_response()
 
     final_energy = None
     try:
@@ -6158,6 +6288,8 @@ async def lottery_spin(request):
 
     if via == 'premium' and not await is_premium(real_user_id):
         return web.json_response({'error': 'not premium'}, status=403, headers=CORS)
+    if via == 'ad' and not await ad_view_allowed(real_user_id, 'lottery'):
+        return ad_not_confirmed_response()
 
     import aiohttp, time
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
@@ -10158,6 +10290,7 @@ async def comm_command(message: types.Message):
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам (+ копия в тему News чата, если задана /setnews)\n"
+        "/adsgramurl — адрес для Reward URL в AdsGram; /adsstats — подтверждения рекламы; /adsstrict on|off — строгий режим\n"
         "/setnews — написать в теме News чата игроков: туда будут дублироваться рассылки; /setnews off — выключить\n"
         "/startvote ... — запустить голосование игроков (формат — см. /startvote без аргументов)\n"
         "/voteresults — текущий счёт активного/последнего голосования\n"
@@ -12510,6 +12643,65 @@ async def setnews_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('adsgramurl'))
+async def adsgramurl_command(message: types.Message):
+    """Адрес для поля Reward URL в кабинете AdsGram (с секретом — никому не показывать)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    url = f"https://fish-farm-production-436a.up.railway.app/adsgram_reward/{adsgram_secret()}?userid=[userId]"
+    await message.answer("🔐 Вставь это в AdsGram → блок → <b>Reward URL</b> → Update. Никому не показывай:\n\n"
+                         f"<code>{url}</code>", parse_mode="HTML")
+
+
+@dp.message(Command('adsstrict'))
+async def adsstrict_command(message: types.Message):
+    """/adsstrict on — награда за рекламу только с подтверждением AdsGram; off — мягкий режим."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    arg = (message.text or '').strip().split()[1:] or ['']
+    if arg[0] not in ('on', 'off'):
+        await message.answer(f"Сейчас: {'🔒 строгий' if await ads_strict_mode() else '🟡 мягкий'} режим.\n"
+                             "<code>/adsstrict on</code> — без подтверждения AdsGram награды нет\n"
+                             "<code>/adsstrict off</code> — награда как раньше, только статистика", parse_mode="HTML")
+        return
+    import aiohttp
+    on = arg[0] == 'on'
+    async with aiohttp.ClientSession() as session:
+        await session.put(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/config/ads_strict.json{FB_AUTH}", json=on)
+    _ADS_STRICT.update(v=on, ts=time_module.time())
+    await message.answer("🔒 Строгий режим: энергия и крутки за рекламу — только после подтверждения AdsGram." if on
+                         else "🟡 Мягкий режим: награды как раньше, неподтверждённые просмотры только считаются.")
+
+
+@dp.message(Command('adsstats'))
+async def adsstats_command(message: types.Message):
+    """Сколько наград за рекламу подтвердил AdsGram (с перезапуска бота) и кто чаще всего без подтверждения."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    from datetime import datetime, timezone, timedelta
+    st = _ADS_STATS
+    since = datetime.fromtimestamp((st['since'] or time_module.time() * 1000) / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m %H:%M') if st['since'] else '—'
+    lines = [f"📺 Реклама с {since} МСК (с перезапуска бота), режим: {'🔒 строгий' if await ads_strict_mode() else '🟡 мягкий'}",
+             f"Подтверждений от AdsGram: {st['callbacks']}",
+             f"Наград за рекламу запрошено: {st['claims']}",
+             f"✅ подтверждено: {st['confirmed']} · ❌ без подтверждения: {st['unconfirmed']}"]
+    if st['bad_secret']:
+        lines.append(f"⚠️ Запросов с неверным ключом: {st['bad_secret']}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ad_unconfirmed.json{FB_AUTH}") as r:
+                un = await r.json() or {}
+        top = sorted(((uid, v) for uid, v in un.items() if isinstance(v, dict)), key=lambda x: -(x[1].get('n') or 0))[:10]
+        if top:
+            lines.append("\nЧаще всего без подтверждения (за всё время):")
+            for uid, v in top:
+                lines.append(f"• ID {uid}: {v.get('n', 0)} (энергия {v.get('energy', 0)}, лотерея {v.get('lottery', 0)})")
+    except Exception as e:
+        lines.append(f"(список не прочитался: {e})")
+    await message.answer("\n".join(lines))
+
+
 @dp.message(Command('startvote'))
 async def startvote_command(message: types.Message):
     """
@@ -14491,6 +14683,7 @@ async def main():
     app.router.add_post('/vote_cast', vote_cast)
     app.router.add_options('/vote_cast', vote_cast)
     app.router.add_get('/health', health)
+    app.router.add_get('/adsgram_reward/{secret}', adsgram_reward)
     app.router.add_get('/online_count', online_count)
     app.router.add_post('/clear_pending_boosts', clear_pending_boosts)
     app.router.add_options('/clear_pending_boosts', clear_pending_boosts)

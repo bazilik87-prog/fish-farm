@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-13.3">
+<meta name="ff-build" content="2026-10-14.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -3403,6 +3403,12 @@ function spinLotteryServer(via) {
   }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; }); })
     .then(function(res){
       if (!res.ok) {
+        if (res.data && res.data.code === 'ad_not_confirmed') {
+          state.lastAdLotterySpin = 0; /* сервер не засчитал — таймер не запускаем */
+          showNotif(t('📺 Реклама не подтвердилась — досмотри её до конца и попробуй ещё раз','📺 Ad view not confirmed — watch it to the end and try again'), true);
+          if (currentTab==='boosts') renderBoosts();
+          return;
+        }
         if (res.status === 429) {
           showNotif(t('⏳ Крутка уже использована — попробуй позже','⏳ Spin already used — try again later'));
         } else {
@@ -3450,6 +3456,12 @@ function watchAdForEnergy() {
     }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; }); })
       .then(function(res){
         if (!res.ok) {
+          if (res.data && res.data.code === 'ad_not_confirmed') {
+            state.lastAdEnergyRefill = 0; /* сервер не засчитал — таймер не запускаем */
+            showNotif(t('📺 Реклама не подтвердилась — досмотри её до конца и попробуй ещё раз','📺 Ad view not confirmed — watch it to the end and try again'), true);
+            if (currentTab==='boosts') renderBoosts();
+            return;
+          }
           showNotif(t('❌ Не удалось начислить энергию — попробуй позже','❌ Failed to add energy — try again later'));
           return;
         }
