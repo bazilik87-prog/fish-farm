@@ -6008,8 +6008,36 @@ async def reset_progress(request):
 ADS_CREDIT_TTL_MS = 15 * 60 * 1000
 ADS_CREDIT_CAP = 3
 ADS_WAIT_S = 8
-ADS_SOFT_WAIT_S = 30   # мягкий режим: сколько фоном ждать подтверждения для статистики
-_ADS_STATS = {'since': 0, 'callbacks': 0, 'claims': 0, 'confirmed': 0, 'unconfirmed': 0, 'bad_secret': 0}
+ADS_SOFT_WAIT_S = 3    # мягкий режим: короткая проверка, дальше ждём событие от AdsGram (_ADS_PENDING)
+_ADS_STATS = {'since': 0, 'callbacks': 0, 'claims': 0, 'confirmed': 0, 'unconfirmed': 0, 'bad_secret': 0,
+              'late': 0, 'delays': []}
+# Замер задержки подтверждений (15.10.2026): в мягком режиме награды, для которых подтверждение ещё не
+# пришло, ждут здесь до ADS_PENDING_MAX_MS; пришло позже — считаем «поздним» и запоминаем задержку,
+# не пришло совсем — только тогда пишем в ad_unconfirmed. Без опроса Firebase — по событию от AdsGram.
+ADS_PENDING_MAX_MS = 15 * 60 * 1000
+_ADS_PENDING = {}   # uid -> [(ts заявки, вид награды)]
+
+
+def _ads_record_delay(ms):
+    d = _ADS_STATS['delays']
+    d.append(int(ms))
+    if len(d) > 300:
+        del d[:len(d) - 300]
+
+
+def _ads_expire_pending(now_ms):
+    """Заявки без подтверждения дольше ADS_PENDING_MAX_MS — окончательно неподтверждённые."""
+    for uid in list(_ADS_PENDING):
+        keep = []
+        for ts, kind in _ADS_PENDING[uid]:
+            if now_ms - ts > ADS_PENDING_MAX_MS:
+                _spawn_bg(_ad_mark_unconfirmed(uid, kind))
+            else:
+                keep.append((ts, kind))
+        if keep:
+            _ADS_PENDING[uid] = keep
+        else:
+            _ADS_PENDING.pop(uid, None)
 _ADS_STRICT = {'v': False, 'ts': 0}
 
 
@@ -6042,6 +6070,18 @@ async def adsgram_reward(request):
     import aiohttp
     url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ad_credits/{uid}.json{FB_AUTH}"
     now_ms = int(time_module.time() * 1000)
+    _ads_expire_pending(now_ms)
+    _ADS_STATS['callbacks'] += 1
+    pend = _ADS_PENDING.get(uid)
+    if pend:
+        # Награда уже выдана раньше (мягкий режим) — это её подтверждение, пришедшее с задержкой.
+        ts, kind = pend.pop(0)
+        if not pend:
+            _ADS_PENDING.pop(uid, None)
+        _ADS_STATS['late'] += 1
+        _ADS_STATS['confirmed'] += 1
+        _ads_record_delay(now_ms - ts)
+        return web.Response(text='ok')
     try:
         async with aiohttp.ClientSession() as session:
             for _ in range(5):
@@ -6057,7 +6097,6 @@ async def adsgram_reward(request):
     except Exception as e:
         print(f"[adsgram_reward] {uid}: {e}")
         return web.Response(status=500, text='error')
-    _ADS_STATS['callbacks'] += 1
     return web.Response(text='ok')
 
 
@@ -6099,11 +6138,14 @@ async def _ad_mark_unconfirmed(uid, kind):
         print(f"[_ad_mark_unconfirmed] {uid}: {e}")
 
 
-async def _ad_soft_check(uid, kind):
+async def _ad_soft_check(uid, kind, claim_ms=None):
+    claim_ms = claim_ms or int(time_module.time() * 1000)
     if await ad_credit_take(uid, wait_s=ADS_SOFT_WAIT_S):
         _ADS_STATS['confirmed'] += 1
+        _ads_record_delay(0)   # подтверждение уже было (пришло раньше заявки или в первые секунды)
     else:
-        await _ad_mark_unconfirmed(uid, kind)
+        _ADS_PENDING.setdefault(uid, []).append((claim_ms, kind))
+    _ads_expire_pending(int(time_module.time() * 1000))
 
 
 async def ad_view_allowed(uid, kind):
@@ -10339,6 +10381,7 @@ async def comm_command(message: types.Message):
         "/noads @username|ID [off] — исключить/вернуть межстраничную рекламу во время рыбалки\n"
         "/pay @username|ID СУММА — уведомить игрока о выплате GRAM\n"
         "/paystars @username СУММА — уведомить о выплате Stars (джекпот)\n"
+        "/broadcaststop — остановить идущую рассылку (после перезапуска бота рассылка продолжается сама)\n"
         "/broadcast ТЕКСТ — рассылка всем игрокам (+ копия в тему News чата, если задана /setnews)\n"
         "/adsgramurl — адрес для Reward URL в AdsGram; /adsstats — подтверждения рекламы; /adsstrict on|off — строгий режим\n"
         "/setnews — написать в теме News чата игроков: туда будут дублироваться рассылки; /setnews off — выключить\n"
@@ -12521,6 +12564,11 @@ async def broadcast_command(message: types.Message):
     raw = message.text or message.caption or ''
     text = raw.strip()[len('/broadcast'):].strip()
     document_id = message.document.file_id if message.document else None
+    running = await _broadcast_job_get()
+    if text and running:
+        await message.answer(f"⏳ Сейчас идёт другая рассылка ({running.get('pos', 0)} из {len(running.get('ids') or [])}). "
+                             f"Дождись её окончания или останови: /broadcaststop")
+        return
     # Жирный текст: форматирование Telegram (выделить → Жирный) приходит как entities, и
     # message.html_text уже превращает его в HTML (с экранированием < > &). Плюс ручной
     # вариант **текст** → <b>текст</b>. Тот же HTML пишем и в новости — игра показывает
@@ -12591,35 +12639,116 @@ async def broadcast_command(message: types.Message):
         if not data:
             await message.answer("❌ Игроков не найдено.")
             return
-        total = 0
-        success = 0
-        failed = 0
-        for v in data.values():
-            user_id = v.get('userId')
-            if not user_id:
-                continue
-            total += 1
-            try:
-                if document_id:
-                    # file_id переиспользуем как есть — Telegram не требует заново
-                    # загружать байты файла на каждого получателя, одного file_id
-                    # (полученного из сообщения админа) достаточно для всей рассылки.
-                    await bot.send_document(user_id, document=document_id, caption=caption, parse_mode=caption_mode, reply_markup=keyboard)
-                else:
-                    await bot.send_message(user_id, html, parse_mode="HTML", reply_markup=keyboard)
-                success += 1
-            except Exception:
-                failed += 1
-            await asyncio.sleep(0.05)
-        await message.answer(
-            f"✅ <b>Рассылка завершена</b>\n\n"
-            f"📨 Отправлено: {success}\n"
-            f"❌ Не доставлено: {failed}\n"
-            f"👥 Всего: {total}",
-            parse_mode="HTML"
-        )
+        ids = [int(v.get('userId')) for v in data.values() if isinstance(v, dict) and str(v.get('userId') or '').isdigit()]
+        job = {'html': html, 'documentId': document_id, 'caption': caption, 'captionMode': caption_mode,
+               'ids': ids, 'pos': 0, 'success': 0, 'failed': 0, 'chatId': message.chat.id,
+               'startedAt': int(time_module.time() * 1000)}
+        async with aiohttp.ClientSession() as session:
+            await session.put(BROADCAST_JOB_URL, json=job)
+        _spawn_bg(_broadcast_runner(job))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+# ── Рассылка, которая переживает перезапуск бота (с 15.10.2026) ─────────────────────────
+# Railway перезапускает бота при ЛЮБОЙ загрузке в репозиторий — раньше рассылка просто обрывалась.
+# Теперь задание лежит в закрытом узле broadcast_job (текст, список получателей, позиция), позиция
+# сохраняется каждые BROADCAST_SAVE_EVERY сообщений, а при старте бот продолжает с неё (дубли —
+# максимум последние ~20 получателей).
+BROADCAST_JOB_URL = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/broadcast_job.json{FB_AUTH}"
+BROADCAST_SAVE_EVERY = 20
+_BROADCAST_STOP = {'v': False}
+_BROADCAST_RUNNING = {'v': False}
+
+
+async def _broadcast_job_get():
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(BROADCAST_JOB_URL) as r:
+                job = await r.json()
+        return job if isinstance(job, dict) and job.get('ids') else None
+    except Exception as e:
+        print(f"[_broadcast_job_get] {e}")
+        return None
+
+
+async def _broadcast_runner(job):
+    import aiohttp
+    if _BROADCAST_RUNNING['v']:
+        return
+    _BROADCAST_RUNNING['v'] = True
+    _BROADCAST_STOP['v'] = False
+    ids = job.get('ids') or []
+    pos = int(job.get('pos') or 0)
+    success, failed = int(job.get('success') or 0), int(job.get('failed') or 0)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    stopped = False
+    try:
+        async with aiohttp.ClientSession() as session:
+            for i in range(pos, len(ids)):
+                if _BROADCAST_STOP['v']:
+                    stopped = True
+                    break
+                try:
+                    if job.get('documentId'):
+                        await bot.send_document(ids[i], document=job['documentId'], caption=job.get('caption'),
+                                                parse_mode=job.get('captionMode'), reply_markup=keyboard)
+                    else:
+                        await bot.send_message(ids[i], job['html'], parse_mode="HTML", reply_markup=keyboard)
+                    success += 1
+                except Exception:
+                    failed += 1
+                if (i + 1) % BROADCAST_SAVE_EVERY == 0:
+                    try:
+                        await session.patch(BROADCAST_JOB_URL, json={'pos': i + 1, 'success': success, 'failed': failed})
+                    except Exception as e:
+                        print(f"[_broadcast_runner] save pos: {e}")
+                await asyncio.sleep(0.05)
+            await session.delete(BROADCAST_JOB_URL)
+        await bot.send_message(job.get('chatId') or ADMIN_ID,
+                               ("⏹ <b>Рассылка остановлена</b>\n\n" if stopped else "✅ <b>Рассылка завершена</b>\n\n")
+                               + f"📨 Отправлено: {success}\n❌ Не доставлено: {failed}\n👥 Всего: {len(ids)}",
+                               parse_mode="HTML")
+    except Exception as e:
+        try:
+            await bot.send_message(ADMIN_ID, f"⚠️ Рассылка прервалась с ошибкой: {e}. Позиция сохранена — продолжу после перезапуска.")
+        except Exception:
+            pass
+    finally:
+        _BROADCAST_RUNNING['v'] = False
+
+
+async def broadcast_resume_on_start():
+    """При старте бота: если рассылка была прервана перезапуском — продолжаем с сохранённой позиции."""
+    job = await _broadcast_job_get()
+    if not job:
+        return
+    pos, total = int(job.get('pos') or 0), len(job.get('ids') or [])
+    try:
+        await bot.send_message(job.get('chatId') or ADMIN_ID,
+                               f"▶️ Рассылка была прервана перезапуском бота — продолжаю с {pos} из {total}.")
+    except Exception:
+        pass
+    _spawn_bg(_broadcast_runner(job))
+
+
+@dp.message(Command('broadcaststop'))
+async def broadcaststop_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    job = await _broadcast_job_get()
+    if not job:
+        await message.answer("Сейчас рассылка не идёт.")
+        return
+    _BROADCAST_STOP['v'] = True
+    if not _BROADCAST_RUNNING['v']:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            await session.delete(BROADCAST_JOB_URL)
+    await message.answer(f"⏹ Останавливаю рассылку ({job.get('pos', 0)} из {len(job.get('ids') or [])}).")
 
 
 # ── Дубль рассылки в тему «News» чата игроков (с 13.10.2026, просьба Саши) ───────────
@@ -12735,7 +12864,18 @@ async def adsstats_command(message: types.Message):
     lines = [f"📺 Реклама с {since} МСК (с перезапуска бота), режим: {'🔒 строгий' if await ads_strict_mode() else '🟡 мягкий'}",
              f"Подтверждений от AdsGram: {st['callbacks']}",
              f"Наград за рекламу запрошено: {st['claims']}",
-             f"✅ подтверждено: {st['confirmed']} · ❌ без подтверждения: {st['unconfirmed']}"]
+             f"✅ подтверждено: {st['confirmed']} · ❌ без подтверждения (за 15 мин так и не пришло): {st['unconfirmed']}"]
+    _ads_expire_pending(int(time_module.time() * 1000))
+    waiting = sum(len(v) for v in _ADS_PENDING.values())
+    if waiting:
+        lines.append(f"⏳ ждут подтверждения (до 15 мин): {waiting}")
+    d = sorted(st['delays'])
+    if d:
+        def _fmt(ms):
+            return f"{ms / 1000:.0f} с" if ms < 120000 else f"{ms / 60000:.1f} мин"
+        lines.append(f"⏱ Задержка подтверждения ({len(d)} шт.): обычно {_fmt(d[len(d) // 2])}, "
+                     f"у 90% — до {_fmt(d[int(len(d) * 0.9) - 1 if len(d) > 1 else 0])}, максимум {_fmt(d[-1])}"
+                     + (f" · пришли с опозданием: {st['late']}" if st['late'] else ""))
     if st['bad_secret']:
         lines.append(f"⚠️ Запросов с неверным ключом: {st['bad_secret']}")
     try:
@@ -14670,6 +14810,7 @@ async def main():
     # на секунды «терял» бы уровень). Дальше — одно чтение флага.
     await clan_battle_gate_migrate()
     await verified_seed_migrate()
+    _spawn_bg(broadcast_resume_on_start())
 
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
