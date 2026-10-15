@@ -6028,6 +6028,43 @@ ADS_PENDING_MAX_MS = 15 * 60 * 1000
 _ADS_PENDING = {}   # uid -> [(ts заявки, вид награды)]
 
 
+# Статистика рекламы переживает перезапуск бота (15.10.2026): раньше любая загрузка на GitHub обнуляла /adsstats.
+# Раз в минуту сохраняем _ADS_STATS в закрытый узел ads_stats (только если изменилась), при старте — читаем.
+ADS_STATS_URL = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/ads_stats.json{FB_AUTH}"
+_ADS_STATS_SAVED = {'json': None}
+
+
+async def ads_stats_load():
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(ADS_STATS_URL) as r:
+                saved = await r.json()
+        if isinstance(saved, dict):
+            for k in ('since', 'callbacks', 'claims', 'confirmed', 'unconfirmed', 'bad_secret', 'late'):
+                if isinstance(saved.get(k), (int, float)):
+                    _ADS_STATS[k] = int(saved[k])
+            if isinstance(saved.get('delays'), list):
+                _ADS_STATS['delays'] = [int(x) for x in saved['delays'] if isinstance(x, (int, float))][-300:]
+            _ADS_STATS_SAVED['json'] = json.dumps(_ADS_STATS, sort_keys=True)
+    except Exception as e:
+        print(f"[ads_stats_load] {e}")
+
+
+async def ads_stats_saver_loop():
+    import aiohttp
+    while True:
+        await asyncio.sleep(60)
+        try:
+            cur = json.dumps(_ADS_STATS, sort_keys=True)
+            if cur != _ADS_STATS_SAVED['json']:
+                async with aiohttp.ClientSession() as session:
+                    await session.put(ADS_STATS_URL, json=_ADS_STATS)
+                _ADS_STATS_SAVED['json'] = cur
+        except Exception as e:
+            print(f"[ads_stats_saver_loop] {e}")
+
+
 def _ads_record_delay(ms):
     d = _ADS_STATS['delays']
     d.append(int(ms))
@@ -12875,7 +12912,7 @@ async def adsstats_command(message: types.Message):
     from datetime import datetime, timezone, timedelta
     st = _ADS_STATS
     since = datetime.fromtimestamp((st['since'] or time_module.time() * 1000) / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m %H:%M') if st['since'] else '—'
-    lines = [f"📺 Реклама с {since} МСК (с перезапуска бота), режим: {'🔒 строгий' if await ads_strict_mode() else '🟡 мягкий'}",
+    lines = [f"📺 Реклама с {since} МСК, режим: {'🔒 строгий' if await ads_strict_mode() else '🟡 мягкий'}",
              f"Подтверждений от AdsGram: {st['callbacks']}",
              f"Наград за рекламу запрошено: {st['claims']}",
              f"✅ подтверждено: {st['confirmed']} · ❌ без подтверждения (за 15 мин так и не пришло): {st['unconfirmed']}"]
@@ -14825,6 +14862,8 @@ async def main():
     await clan_battle_gate_migrate()
     await verified_seed_migrate()
     _spawn_bg(broadcast_resume_on_start())
+    await ads_stats_load()
+    _spawn_bg(ads_stats_saver_loop())
 
     app = web.Application()
     app.router.add_post('/invoice', create_invoice)
