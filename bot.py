@@ -489,6 +489,7 @@ LOCATION_ORDER = {'pond': 1, 'river': 2, 'tropics': 3, 'deep': 4, 'space': 5}
 # верхнего "потолка" правдоподобного заработка на /sync, не для точной симуляции игры.
 ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]           # монет за улов по уровню удочки (0-5)
 AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда, монет В МИНУТУ (не в секунду — см. index.html: autoPerMin, деление elapsed/1000/60)
+OFFLINE_INCOME_MAX_SEC = 72 * 3600                  # автодоход за отсутствие копится максимум 3 суток (с 15.10.2026)
 ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
 PREMIUM_AUTO_MULT = 1.25
 
@@ -927,7 +928,16 @@ async def verify_status(user_id, wallet=None):
                 return '❌ не проверен', False
             when = datetime.fromtimestamp((v.get('ts') or 0) / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m')
             why = []
-            if wallet and wallet_key(wallet) not in (v.get('wallets') or {}):
+            known = {k: x for k, x in (v.get('wallets') or {}).items() if k != 'none'}
+            if wallet and not known:
+                # Отметили «проверен» ещё до первого вывода — первый кошелёк запоминаем, а не считаем новым (15.10).
+                try:
+                    async with session.patch(f"{base}/verified_players/{int(user_id)}/wallets.json{FB_AUTH}",
+                                             json={wallet_key(wallet): True, 'none': None}):
+                        pass
+                except Exception as e:
+                    print(f"[verify_status] first wallet {user_id}: {e}")
+            elif wallet and wallet_key(wallet) not in known:
                 why.append('новый кошелёк')
             async with session.get(f"{base}/suspicious_actions/tg_{int(user_id)}.json{FB_AUTH}") as r:
                 sus = await r.json()
@@ -7697,7 +7707,10 @@ async def process_actions(request):
                 fresh_last_seen = fresh_sv.get('lastSeen') or now_ms
                 fresh_auto_elapsed_sec = max(0, (now_ms - fresh_last_seen) / 1000)
                 fresh_auto_earned = 0.0
-                if fresh_auto_elapsed_sec > 0 and fresh_auto_elapsed_sec < 3600 * 24 * 30:  # запас на 30 дней
+                # С 15.10.2026 офлайн-доход копится максимум OFFLINE_INCOME_MAX_SEC (3 суток, решение Саши) —
+                # раньше до 30 дней (и 0, если дольше): аккаунты-«копилки» без игры набирали по 60+ тыс. за раз.
+                fresh_auto_elapsed_sec = min(fresh_auto_elapsed_sec, OFFLINE_INCOME_MAX_SEC)
+                if fresh_auto_elapsed_sec > 0:
                     fresh_auto_earned = round(auto_per_sec * fresh_auto_elapsed_sec / 60 * 100) / 100
                 if fresh_auto_earned > 0:
                     coins = round((coins + fresh_auto_earned) * 100) / 100
@@ -11708,7 +11721,8 @@ async def tempban_command(message: types.Message):
                     auto_elapsed_sec = max(0, (now_ms - last_seen) / 1000)
                     coins = float(sv.get('coins', 0) or 0)
                     total_earned = float(sv.get('totalEarned', 0) or 0)
-                    if auto_elapsed_sec > 0 and auto_elapsed_sec < 3600 * 24 * 30:
+                    auto_elapsed_sec = min(auto_elapsed_sec, OFFLINE_INCOME_MAX_SEC)
+                    if auto_elapsed_sec > 0:
                         is_prem = await is_premium(int(target_uid))
                         upg_levels = sv.get('upgLevels') or {}
                         cur_lv = upg_levels.get(cur_loc, {}) if isinstance(upg_levels.get(cur_loc), dict) else {}

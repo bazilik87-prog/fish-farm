@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-15.1">
+<meta name="ff-build" content="2026-10-15.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1344,7 +1344,7 @@ function processOffline() {
     state.delivery2=null;
   }
   if (state.autoPerMin > 0) {
-    var autoEarned = Math.round(state.autoPerMin * elapsed / 1000 / 60 * 100) / 100;
+    var autoEarned = Math.round(state.autoPerMin * Math.min(elapsed, 72*3600000) / 1000 / 60 * 100) / 100; /* копится максимум 3 суток (как на сервере) */
     if (autoEarned > 0) {
       state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + autoEarned) * 100) / 100;
@@ -6462,7 +6462,7 @@ function showInstructions() {
     +'📡 '+t('Сонар — +0.5 к автодобычи в минуту за уровень (макс 5 ур.)','Sonar — +0.5 auto-income per minute per level (max lvl 5)')+'<br>'
     +t('Доход с этих апгрейдов растёт вместе с локацией (как и цена): в Космосе тот же уровень Сети/Лодки/Сонара приносит в 50 раз больше монет, чем в Пруду','Income from these upgrades scales with location (as does the price): in Space, the same Net/Boat/Sonar level earns 50x more coins than in the Pond')+'<br>'
     +'⚠️ '+t('Прокачка отдельная для каждой локации! Перешёл в Реку — там всё с нуля, а уровни в Пруду сохранятся. Цена апгрейдов растёт вместе с локацией: Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50','Upgrades are separate per location! Move to the River — everything starts from zero there, while your Pond levels stay saved. Upgrade prices scale with location: Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50')+'<br><br>'
-    +'<b style="color:#fff">'+t('💤 Оффлайн-доход','💤 Offline income')+'</b><br>'+t('Пока тебя нет в игре, автодобыча (Сеть/Лодка/Сонар) продолжает капать монеты — но <b>только по прокачке той локации, где ты был в момент выхода</b>. Вернулся на Пруд — доход посчитается по Пруду, даже если у тебя разлочена и прокачана Река. Доход с разных локаций не складывается — считается только текущая.','While you\'re away, auto-income (Net/Boat/Sonar) keeps generating coins — but <b>only based on the upgrades of the location you were in when you left</b>. Back in the Pond — income is calculated for the Pond, even if you\'ve unlocked and upgraded the River. Income from different locations doesn\'t stack — only the current one counts.')+'<br><br>'
+    +'<b style="color:#fff">'+t('💤 Оффлайн-доход','💤 Offline income')+'</b><br>'+t('Пока тебя нет в игре, автодобыча (Сеть/Лодка/Сонар) продолжает капать монеты — но <b>только по прокачке той локации, где ты был в момент выхода</b>. Вернулся на Пруд — доход посчитается по Пруду, даже если у тебя разлочена и прокачана Река. Доход с разных локаций не складывается — считается только текущая. ⏳ Копится <b>максимум 3 суток</b> — заходи хотя бы раз в 3 дня, чтобы ничего не потерять!','While you\'re away, auto-income (Net/Boat/Sonar) keeps generating coins — but <b>only based on the upgrades of the location you were in when you left</b>. Back in the Pond — income is calculated for the Pond, even if you\'ve unlocked and upgraded the River. Income from different locations doesn\'t stack — only the current one counts. ⏳ It accumulates for <b>3 days max</b> — log in at least once every 3 days so you don\'t lose any!')+'<br><br>'
     +'<b style="color:#fff">'+t('🗺 Локации','🗺 Locations')+'</b><br>'+t('Открывай новые локации за монеты: Пруд×1 → Река×2 → Тропики×5 → Глубины×15 → Космос×50','Unlock new locations with coins: Pond×1 → River×2 → Tropics×5 → Deep×15 → Space×50')+'<br><br>'
     +'<b style="color:#fff">'+t('🎁 Ежедневный бонус','🎁 Daily bonus')+'</b><br>'+t('Заходи каждый день: 10→25→50→100→200→400→1000 монет, умноженные на множитель твоей лучшей разлоченной локации (Пруд×1 · Река×2 · Тропики×5 · Глубины×15 · Космос×50). Не забрал до 00:00 МСК следующего дня (72ч/3 дня для Premium) — серия сбрасывается!','Log in every day: 10→25→50→100→200→400→1000 coins, multiplied by your best unlocked location (Pond×1 · River×2 · Tropics×5 · Deep×15 · Space×50). Miss claiming by 00:00 MSK the next day (72h/3 days for Premium) — streak resets!')+'<br><br>'
     +'<b style="color:#fff">'+t('📋 Ежедневные квесты','📋 Daily quests')+'</b><br>'+t('Каждый день 5 новых квестов. Выполни все 5 — получи 🪙500 монет. Обновляются в полночь.','5 new quests every day. Complete all 5 — get 🪙500 coins. Refresh at midnight.')+'<br><br>'
