@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-15.2">
+<meta name="ff-build" content="2026-10-19.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1083,7 +1083,7 @@ function save(immediate) {
     // coins/caught/totalEarned/energy ИСКЛЮЧАЕМ из этой записи — их пишет только bot.py через /sync
     // (правила Firebase запрещают клиенту трогать эти поля напрямую; если оставить их в объекте,
     // весь .set() целиком будет отклонён, и перестанет сохраняться вообще всё остальное).
-    if (firebaseDB) {
+    if (firebaseDB && !window._waitCloudLoad) {
       var fbSaveData = {};
       // lastSeen НЕ пишем отсюда — этим полем управляет только сервер (/actions), который
       // читает его ОДИН раз в начале запроса для расчёта офлайн-дохода и комбэк-бонуса за
@@ -1192,7 +1192,11 @@ function load() {
     var raw = localStorage.getItem(SAVE_KEY);
     var s = JSON.parse(raw || 'null') || {version:0};
     s = migrate(s);
-    if (!s.coins && !s.caught && !s.ulocs) return; // нет данных
+    // Нет локального сохранения (новое устройство / очищенный кэш) — 19.10.2026: раньше save() при
+    // запуске ставил локальный lastSeen = «сейчас», облачный сейв считался старее и НЕ загружался,
+    // а пустое состояние через 2 с уходило в Firebase поверх рыбы/кухни/квестов. Теперь облако
+    // применяется всегда, а запись в Firebase ждёт, пока оно загрузится (loadFromFirebase).
+    if (!s.coins && !s.caught && !s.ulocs) { window._noLocalSaveAtBoot = true; window._waitCloudLoad = true; return; }
     state.coins  = s.coins  || 0;
     state.caught = s.caught || 0;
     state.currentLoc        = s.loc   || 'pond';
@@ -7528,7 +7532,8 @@ setTimeout(listenWeather, 2000);
 checkRareFish(); // чистая формула от времени — не нужно ждать Firebase, считаем сразу
 
 // Загружаем из Firebase и сравниваем с localStorage по lastSeen
-function loadFromFirebase(callback) {
+function loadFromFirebase(callback0) {
+  var callback = function() { window._waitCloudLoad = false; callback0(); };
   if (!firebaseDB) { callback(); return; }
   var pid = getPlayerId();
   if (!pid || pid.startsWith('p_')) { callback(); return; } // только для Telegram пользователей
@@ -7547,8 +7552,10 @@ function loadFromFirebase(callback) {
     var localData = localRaw ? JSON.parse(localRaw) : null;
     var fbTime = fbData.lastSeen || 0;
     var localTime = localData ? (localData.lastSeen || 0) : 0;
-    if (fbTime > localTime) {
-      // Firebase новее — применяем его данные
+    if (fbTime > localTime || window._noLocalSaveAtBoot) {
+      window._noLocalSaveAtBoot = false;
+      window._waitCloudLoad = false;
+      // Firebase новее (или на этом устройстве своего сохранения не было) — применяем его данные
       applyState(fbData);
       localStorage.setItem(SAVE_KEY, JSON.stringify(fbData));
       calcStats();
