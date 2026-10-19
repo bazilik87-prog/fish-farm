@@ -10403,7 +10403,8 @@ async def renewsocial_command(message: types.Message):
 async def comm_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    await message.answer(
+    # Список вырос больше лимита Telegram (4096 символов) — шлём частями по строкам (19.10.2026).
+    text = (
         "🛠 <b>Команды администратора:</b>\n\n"
         "/players — список всех игроков (файл .txt)\n"
         "/audit — найти аккаунты с накрученным балансом (сверка с реальным временем)\n"
@@ -10462,9 +10463,16 @@ async def comm_command(message: types.Message):
         "/comm — список команд\n\n"
         "🎮 <b>Команды для всех:</b>\n\n"
         "/start — запустить игру\n\n"
-        "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy",
-        parse_mode="HTML"
+        "💬 Чат игроков: https://t.me/+cLBHDCmOkaA3NWQy"
     )
+    chunk = ''
+    for line in text.split('\n'):
+        if len(chunk) + len(line) + 1 > 3800:
+            await message.answer(chunk, parse_mode="HTML")
+            chunk = ''
+        chunk += line + '\n'
+    if chunk.strip():
+        await message.answer(chunk, parse_mode="HTML")
 
 
 def is_ban_active(value, now_ms):
