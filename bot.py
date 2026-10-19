@@ -2473,7 +2473,8 @@ BIG_FISHING_DURATION_MS = 24 * 3600 * 1000
 # Числа те же, что в тексте рассылки при запуске турнира (см. starttournament_command) —
 # вынесены в константу, чтобы автоподведение итогов (_settle_weekly_tournament) не
 # дублировало их отдельным литералом.
-WEEKLY_TOURNAMENT_PRIZES = [250, 150, 100]
+WEEKLY_TOURNAMENT_PRIZES = [150, 100, 50]
+# 19.10.2026 (решение Саши): было 250/150/100⭐.
 
 # Курс для перевода ⭐ Stars в USD в финансовом учёте (/finance) — ориентир на то, что
 # Telegram платит разработчику за звезду при выводе. Реальный курс НЕ гарантированно
@@ -8878,19 +8879,21 @@ async def starttournament_command(message: types.Message):
             return
 
         text = (
-            "🏆 *ТУРНИР НЕДЕЛИ НАЧАЛСЯ!*\n\n"
+            "🏆 <b>ТУРНИР НЕДЕЛИ НАЧАЛСЯ!</b>\n\n"
             "Заработай как можно больше монет за 48 часов! 🪙⚡\n\n"
-            "Призовой фонд — 500 Stars ⭐ на троих:\n"
-            "🥇 1 место — 250⭐\n"
-            "🥈 2 место — 150⭐\n"
-            "🥉 3 место — 100⭐\n\n"
+            f"Призовой фонд — {sum(WEEKLY_TOURNAMENT_PRIZES)} Stars ⭐ на троих:\n"
+            f"🥇 1 место — {WEEKLY_TOURNAMENT_PRIZES[0]}⭐\n"
+            f"🥈 2 место — {WEEKLY_TOURNAMENT_PRIZES[1]}⭐\n"
+            f"🥉 3 место — {WEEKLY_TOURNAMENT_PRIZES[2]}⭐\n"
+            "\n"
             "Заходи в игру и проверь свою позицию в разделе 🏆 Лидеры!\n\n"
-            "🇬🇧 *WEEKLY TOURNAMENT HAS STARTED!*\n\n"
+            "🇬🇧 <b>WEEKLY TOURNAMENT HAS STARTED!</b>\n\n"
             "Earn as many coins as you can in 48 hours! 🪙⚡\n\n"
-            "Prize pool — 500 Stars ⭐ for the top 3:\n"
-            "🥇 1st place — 250⭐\n"
-            "🥈 2nd place — 150⭐\n"
-            "🥉 3rd place — 100⭐\n\n"
+            f"Prize pool — {sum(WEEKLY_TOURNAMENT_PRIZES)} Stars ⭐ for the top 3:\n"
+            f"🥇 1st place — {WEEKLY_TOURNAMENT_PRIZES[0]}⭐\n"
+            f"🥈 2nd place — {WEEKLY_TOURNAMENT_PRIZES[1]}⭐\n"
+            f"🥉 3rd place — {WEEKLY_TOURNAMENT_PRIZES[2]}⭐\n"
+            "\n"
             "Open the game and check your spot in the 🏆 Leaders section!"
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
