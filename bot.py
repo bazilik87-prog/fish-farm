@@ -5517,33 +5517,42 @@ LOCATION_UNLOCK_COST = {'pond': 0, 'river': 100000, 'tropics': 3000000, 'deep': 
 LOCATION_ORDER_LIST = ['pond', 'river', 'tropics', 'deep', 'space']
 QUEST_BONUS_BASE = 500
 RARE_FISH_PRICE = 25
-RARE_FISH_INTERVAL_MS = 2 * 60 * 60 * 1000  # раз в 2 часа
+RARE_FISH_INTERVAL_MS = 3 * 60 * 60 * 1000  # одно окно на каждые 3 часа (20.10.2026; было 2 ч)
 RARE_FISH_DURATION_MS = 10 * 60 * 1000      # живёт 10 минут
-# Сдвиг от круглых значений (см. RARE_FISH_OFFSET в index.html — то же самое число,
-# держать в синхроне обязательно, иначе клиент покажет рыбу, а сервер отклонит улов).
-# 12 минут даёт окна вида НЕЧЁТНЫЙ_ЧАС:12 по Sasha-таймзону (UTC+3) — напр. 13:12, 15:12, 17:12.
-RARE_FISH_OFFSET_MS = 12 * 60 * 1000
+# 20.10.2026 (решение Саши): время окна внутри 3-часового блока СЛУЧАЙНОЕ — раньше было ровно
+# НЕЧЁТНЫЙ_ЧАС:12 МСК каждые 2 ч, лидеры (@Ho3eiN_Moro) ловили окна по будильнику. Сдвиг считается
+# из BOT_TOKEN (hmac) — угадать нельзя; игра узнаёт об окне только у сервера (GET /rare_fish и поле
+# rare в ответе /actions), сама расписание больше не считает. Последняя минута блока свободна, чтобы
+# 5 с запаса на опоздавший улов не перескакивали в следующий блок.
+RARE_FISH_SLACK_MS = 60 * 1000
 
 
 def rare_fish_status(now_ms=None):
-    """
-    Расписание редкой рыбы (Осетрина) — чистая детерминированная формула от текущего
-    времени, без какого-либо состояния в Firebase. Раньше расписание жило в общем узле
-    rare_fish, который ЛЮБОЙ клиент мог переписать (в том числе через консоль браузера) —
-    этим объяснялся баг "осетрина активна ~6 часов": сбитые часы одного устройства (или
-    просто гонка нескольких клиентов, независимо решающих "пора её заспавнить") сдвигали
-    общее окно на часы сразу для ВСЕХ игроков, а заодно это был готовый вектор, чтобы
-    держать 15%-шанс на монеты активным вечно. Теперь и сервер, и все клиенты вычисляют
-    ОДНО и то же окно независимо (см. rareFishSchedule() в index.html) — переписывать
-    и подделывать нечего.
-    """
+    """Окно Осетрины текущего 3-часового блока: {'active', 'startAt', 'endsAt'}. Время следующего окна
+    наружу не отдаём — его смысл как раз в том, что его никто не знает заранее."""
     if now_ms is None:
         now_ms = int(time_module.time() * 1000)
-    shifted = now_ms - RARE_FISH_OFFSET_MS
-    cycle_start = (shifted // RARE_FISH_INTERVAL_MS) * RARE_FISH_INTERVAL_MS + RARE_FISH_OFFSET_MS
-    ends_at = cycle_start + RARE_FISH_DURATION_MS
-    next_at = cycle_start + RARE_FISH_INTERVAL_MS
-    return {'active': now_ms < ends_at, 'endsAt': ends_at, 'nextAt': next_at}
+    block = now_ms // RARE_FISH_INTERVAL_MS
+    span = RARE_FISH_INTERVAL_MS - RARE_FISH_DURATION_MS - RARE_FISH_SLACK_MS
+    h = hmac.new(BOT_TOKEN.encode(), f"rare_fish|{block}".encode(), hashlib.sha256).hexdigest()
+    start = block * RARE_FISH_INTERVAL_MS + int(h[:12], 16) % span
+    ends_at = start + RARE_FISH_DURATION_MS
+    return {'active': start <= now_ms < ends_at, 'startAt': start, 'endsAt': ends_at}
+
+
+def rare_fish_public(now_ms=None):
+    """То, что видит игра: идёт ли окно и когда кончится (без времени начала следующего)."""
+    rf = rare_fish_status(now_ms)
+    if now_ms is None:
+        now_ms = int(time_module.time() * 1000)
+    # leftMs, а не endsAt: часы телефона могут спешить/отставать, игре нужно «сколько осталось».
+    return {'active': True, 'leftMs': rf['endsAt'] - now_ms} if rf['active'] else {'active': False}
+
+
+async def rare_fish_handler(request):
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    return web.json_response({'ok': True, **rare_fish_public()}, headers=CORS)
 DRIED_SELL_MULT = 3
 FILET_SELL_MULT_EXACT = 5
 PRICE_INTERVAL_MS = 30000
@@ -7012,7 +7021,7 @@ async def process_actions(request):
     rejected_energy = 0  # сколько из rejected — просто "кончилась энергия" (не баг, не рассинхрон)
     rare_over = 0  # Осетрины сверх возможной доли за окно (см. RARE_FISH_MAX_SHARE)
     _rf_now = rare_fish_status(now_ms)
-    _rf_window = (_rf_now['endsAt'] - RARE_FISH_DURATION_MS) if now_ms < _rf_now['endsAt'] + 5000 else None
+    _rf_window = _rf_now['startAt'] if _rf_now['startAt'] <= now_ms < _rf_now['endsAt'] + 5000 else None
     _rw = _RARE_WINDOW.get(pid)
     if _rf_window is not None and (not _rw or _rw.get('w') != _rf_window):
         _rw = {'w': _rf_window, 'c': 0, 'r': 0}
@@ -7384,7 +7393,7 @@ async def process_actions(request):
             # активна ~6 часов", но и готовый вектор держать 15%-шанс на монеты активным
             # вечно. Теперь подделывать нечего — формула, не состояние.
             rf = rare_fish_status(now_ms)
-            rf_active = now_ms < rf['endsAt'] + 5000
+            rf_active = rf['startAt'] <= now_ms < rf['endsAt'] + 5000
             # +5000мс запаса: клиент шлёт catch мгновенно (без debounce), но сетевая
             # задержка сама по себе может протолкнуть запрос за пределы endsAt, если
             # игрок поймал рыбу буквально в последние секунды 10-минутного окна — без
@@ -8032,6 +8041,7 @@ async def process_actions(request):
         'rejected': rejected,
         'rejectedEnergy': rejected_energy,
         'claimed': claim_result,
+        'rare': rare_fish_public(now_ms),
         **response_truck
     }, headers=CORS)
 
@@ -14890,6 +14900,8 @@ async def main():
     app.router.add_post('/lottery_spin', lottery_spin)
     app.router.add_options('/lottery_spin', lottery_spin)
     app.router.add_post('/weather_check', weather_check)
+    app.router.add_get('/rare_fish', rare_fish_handler)
+    app.router.add_options('/rare_fish', rare_fish_handler)
     app.router.add_options('/weather_check', weather_check)
     app.router.add_post('/refill_energy_ad', refill_energy_ad)
     app.router.add_options('/refill_energy_ad', refill_energy_ad)
