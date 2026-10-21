@@ -8525,6 +8525,95 @@ async def giftall_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('takecoins'))
+async def takecoins_command(message: types.Message):
+    """
+    /takecoins ID СУММА [КОШЕЛЁК] [да] — списать монеты вручную (21.10.2026). С кошельком — это ручной
+    вывод: запись в withdrawals_log (видно в /playerinfo и «Истории выплат»), кошелёк за игроком, лимит
+    Пруда, расход в /finance, 10% рефереру — как у обычного вывода, только без комиссии ⭐. USDT Саша
+    отправляет сам. Без «да» — только предпросмотр. Повод: вывод @Sepehr1olia не прошёл из-за сбоя записи.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()[1:]
+    confirm = bool(args) and args[-1].lower() in ('да', 'yes')
+    if confirm:
+        args = args[:-1]
+    if len(args) < 2 or not args[0].isdigit():
+        await message.answer("Использование:\n<code>/takecoins ID СУММА</code> — просто списать монеты\n"
+                             "<code>/takecoins ID СУММА КОШЕЛЁК</code> — ручной вывод (списать + записать вывод)\n"
+                             "Сначала покажу, что будет; выполнить — то же самое и в конце <code>да</code>.", parse_mode="HTML")
+        return
+    user_id = args[0]
+    try:
+        amount = int(args[1])
+    except ValueError:
+        await message.answer("❌ Сумма должна быть целым числом")
+        return
+    if amount <= 0:
+        await message.answer("❌ Сумма должна быть больше нуля")
+        return
+    wallet = args[2] if len(args) > 2 else ''
+    balance = await get_coin_balance(user_id)
+    usdt_amount = 0
+    owner_note = ''
+    if wallet:
+        mult = await get_location_mult(user_id)
+        usdt_amount = round(amount / await get_exchange_rate(user_id, mult) * USDT_PER_UNIT, 5)
+        other = await wallet_owner_other(user_id, wallet)
+        if other:
+            owner_note = f"\n⚠️ Этот кошелёк уже записан за другим игроком: ID {other}"
+    what = (f"ручной вывод: {amount:,} монет → ${usdt_amount} USDT\n👛 {wallet}" if wallet
+            else f"списание {amount:,} монет (без вывода)")
+    if not confirm:
+        await message.answer(f"🔎 ID {user_id}: на балансе {balance:,.2f} монет\nБудет: {what}{owner_note}\n\n"
+                             f"Выполнить: <code>/takecoins {user_id} {amount}{(' ' + wallet) if wallet else ''} да</code>",
+                             parse_mode="HTML")
+        return
+    st = await deduct_coin_balance_status(user_id, amount)
+    if st != 'ok':
+        await message.answer("❌ Не списано: " + ("на балансе меньше этой суммы." if st == 'insufficient'
+                                                  else "сбой записи в базу — попробуй ещё раз через минуту."))
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    problems = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{base}/action_logs/tg_{user_id}.json{FB_AUTH}", json={
+                "ts": now_ms, "coins_before": balance, "coins_after": round((balance or 0) - amount, 2),
+                "n_actions": 1, "src": "admin_take",
+                "details": [f"Админ списал {amount} монет" + (f" — ручной вывод USDT → {wallet}" if wallet else "")]})
+            if wallet:
+                async with session.post(f"{base}/withdrawals_log.json{FB_AUTH}", json={
+                        "amount": amount, "usdt": usdt_amount, "currency": "usdt", "wallet": wallet,
+                        "ts": now_ms, "user_id": str(user_id), "manual": True}) as r:
+                    if r.status != 200:
+                        problems.append(f"запись вывода в withdrawals_log ({r.status})")
+                await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")
+                async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as r:
+                    referrer_id = await r.json()
+                if referrer_id:
+                    await session.put(f"{base}/ref_bonuses/tg_{referrer_id}/ref_bonus_{user_id}_{now_ms}.json{FB_AUTH}",
+                                      json={"amount": round(amount * 0.1 * 100) / 100, "from": f"ID:{user_id}"})
+    except Exception as e:
+        problems.append(f"запись истории: {e}")
+    if wallet:
+        await wallet_claim(user_id, wallet)
+        if await get_location_mult(user_id) == 1 and await change_pond_withdrawn(user_id, amount) != 'ok':
+            problems.append(f"счётчик лимита Пруда (+{amount}) — pond_withdrawn/tg_{user_id}")
+        if usdt_amount > 0:
+            await log_finance('expense', 'withdrawal_usdt', usdt_amount, note=f"ручной вывод USDT → {wallet}")
+    text = f"✅ Списано {amount:,} монет у ID {user_id} (было {balance:,.2f})."
+    if wallet:
+        text += (f"\n💸 Вывод записан. Отправь ${usdt_amount} USDT на\n<code>{wallet}</code>\n"
+                 f"потом можно уведомить игрока: <code>/pay {user_id} {usdt_amount}</code>")
+    if problems:
+        text += "\n⚠️ Не записалось: " + "; ".join(problems)
+    await message.answer(text, parse_mode="HTML")
+
+
 @dp.message(Command('addcoins'))
 async def addcoins_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
