@@ -8525,6 +8525,41 @@ async def giftall_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('givepurchase'))
+async def givepurchase_command(message: types.Message):
+    """/givepurchase ID ПАКЕТ — выдать оплаченный пакет монет вручную (21.10.2026), если запись покупки не
+    прошла. Как настоящая покупка: pending_purchases → в баланс, но НЕ в totalEarned (турнир недели) —
+    /addcoins для этого не годится, он идёт в «Заработано» и сдвинул бы турнир."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()[1:]
+    if len(args) < 2 or not args[0].isdigit() or args[1] not in COIN_PACKS:
+        await message.answer("Использование: <code>/givepurchase ID ПАКЕТ</code>\nПакеты: " +
+                             ", ".join(f"{k} ({v[0]}⭐ → {v[1]:,}×множитель)" for k, v in COIN_PACKS.items()), parse_mode="HTML")
+        return
+    user_id, pack_id = args[0], args[1]
+    stars, base_coins = COIN_PACKS[pack_id]
+    mult = await get_location_mult(user_id)
+    coins_amount = base_coins * mult
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    async with aiohttp.ClientSession() as session:
+        async with session.put(f"{base}/pending_purchases/tg_{user_id}/manual_{now_ms}.json{FB_AUTH}",
+                               json={'coins': coins_amount, 'stars': stars, 'pack': pack_id, 'ts': now_ms, 'manual': True}) as resp:
+            ok = resp.status in (200, 204)
+    if not ok:
+        await message.answer(f"❌ Не записалось (Firebase {resp.status}) — попробуй ещё раз через минуту.")
+        return
+    try:
+        await bot.send_message(int(user_id),
+            f"✅ Покупка зачислена: 💰 {coins_amount:,} монет — открой игру.\n✅ Your purchase is credited: 💰 {coins_amount:,} coins — open the game.".replace(',', ' '),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))]]))
+    except Exception as e:
+        print(f"[givepurchase] notify {user_id}: {e}")
+    await message.answer(f"✅ ID {user_id}: {coins_amount:,} монет ({stars}⭐, ×{mult}) — придут при входе в игру, игроку написал.")
+
+
 @dp.message(Command('takecoins'))
 async def takecoins_command(message: types.Message):
     """
@@ -13418,12 +13453,24 @@ async def successful_payment(message: types.Message):
             coins_amount = base_coins * await get_location_mult(user_id)
             charge_id = message.successful_payment.telegram_payment_charge_id or f"t{int(time_module.time() * 1000)}"
             charge_key = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in charge_id)
+            # 21.10.2026: Firebase изредка отвечает 500 — раньше покупка сразу падала в «начисли вручную»
+            # (@Kellogs030, 100⭐). Ключ — id платежа, повторная запись того же значения ничего не удвоит.
+            body = {'coins': coins_amount, 'stars': stars, 'pack': pack_id, 'ts': int(time_module.time() * 1000)}
+            last_status = None
             async with aiohttp.ClientSession() as session:
-                async with session.put(f"{base}/pending_purchases/tg_{user_id}/{charge_key}.json{FB_AUTH}",
-                                       json={'coins': coins_amount, 'stars': stars, 'pack': pack_id,
-                                             'ts': int(time_module.time() * 1000)}) as resp:
-                    if resp.status not in (200, 204):
-                        raise RuntimeError(f"pending_purchases PUT failed: {resp.status}")
+                for attempt in range(5):
+                    try:
+                        async with session.put(f"{base}/pending_purchases/tg_{user_id}/{charge_key}.json{FB_AUTH}",
+                                               json=body) as resp:
+                            last_status = resp.status
+                    except Exception as e:
+                        last_status = str(e)
+                    if last_status in (200, 204):
+                        break
+                    await asyncio.sleep(1 + attempt)
+                else:
+                    raise RuntimeError(f"pending_purchases PUT failed: {last_status} (5 попыток). "
+                                       f"Начисли: /givepurchase {user_id} {pack_id}")
             await message.answer(t(message.from_user,
                 f"✅ Оплата прошла! 💰 {coins_amount:,} монет уже зачисляются — открой игру.".replace(',', ' '),
                 f"✅ Payment received! 💰 {coins_amount:,} coins are on the way — open the game."))
