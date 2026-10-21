@@ -736,7 +736,16 @@ async def add_deposit_entry(user_id, deposit):
 
 
 async def deduct_coin_balance(user_id, amount):
+    """True — списано. Подробный результат — deduct_coin_balance_status()."""
+    return await deduct_coin_balance_status(user_id, amount) == 'ok'
+
+
+async def deduct_coin_balance_status(user_id, amount):
     """
+    'ok' | 'insufficient' (монет правда не хватает) | 'error' (сбой записи — после повторов).
+    21.10.2026: раньше любой сбой (не 200 / исключение) сразу давал «не списано» без повтора, а игрок
+    видел «недостаточно монет» — @Sepehr1olia: 19 664.02 на балансе, вывод 19 664, звёзды списаны.
+
     Атомарно списывает amount монет с баланса игрока — ETag-блокировка с retry, а не
     голое "прочитал-проверил-записал". Это путь банковского вывода в USDT/Stars —
     самое чувствительное место в игре: без блокировки параллельный /actions мог
@@ -748,26 +757,40 @@ async def deduct_coin_balance(user_id, amount):
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     url = f"{base}/saves/tg_{user_id}/coins.json{FB_AUTH}"
-    try:
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(6):
+    # Повторяем только то, что точно НЕ записалось: сбой чтения, ответ записи не 200 (Firebase
+    # отклонил — ничего не изменилось), 412 (баланс изменился). Если же оборвалась сама запись
+    # (исключение во время PUT) — неизвестно, прошла ли она: повтор мог бы списать второй раз,
+    # поэтому сразу 'error' (звёзды вернутся, игрок попробует снова, монеты целы или списаны один раз).
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(6):
+            try:
                 async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"GET {resp.status}")
                     etag = resp.headers.get("ETag")
                     current = await resp.json()
-                current = current or 0
-                if current < amount:
-                    return False
-                new_balance = round((current - amount) * 100) / 100
-                headers = {"If-Match": etag} if etag else {}
+                current = float(current or 0)
+            except Exception as e:
+                print(f"[deduct_coin_balance] {user_id}: чтение — {e}, попытка {attempt + 1}")
+                await asyncio.sleep(1 + attempt)
+                continue
+            if current < amount:
+                return 'insufficient'
+            new_balance = round((current - amount) * 100) / 100
+            headers = {"If-Match": etag} if etag else {}
+            try:
                 async with session.put(url, json=new_balance, headers=headers) as put_resp:
-                    if put_resp.status == 412:
-                        continue  # баланс изменился между чтением и записью — перечитываем и проверяем заново
-                    if put_resp.status not in (200, 204):
-                        return False
-                    return True
-        return False  # исчерпали попытки — безопаснее отказать, чем списать вслепую
-    except Exception:
-        return False
+                    status = put_resp.status
+            except Exception as e:
+                print(f"[deduct_coin_balance] {user_id}: запись оборвалась — {e}")
+                return 'error'
+            if status in (200, 204):
+                return 'ok'
+            if status == 412:
+                continue  # баланс изменился между чтением и записью — перечитываем и проверяем заново
+            print(f"[deduct_coin_balance] {user_id}: PUT {status}, попытка {attempt + 1}")
+            await asyncio.sleep(1 + attempt)
+    return 'error'  # исчерпали попытки — безопаснее отказать, чем списать вслепую
 
 
 # Пруд — "обучающая" локация по выводу: пока у игрока не открыта Река, суммарно за всё
@@ -803,21 +826,33 @@ async def change_pond_withdrawn(user_id, delta):
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     url = f"{base}/pond_withdrawn/tg_{user_id}.json{FB_AUTH}"
-    try:
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(6):
+    # 21.10.2026: сбой чтения / отказ записи повторяем (раньше — сразу 'error'); оборванную запись нет,
+    # чтобы не засчитать вывод дважды (см. deduct_coin_balance_status).
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(6):
+            try:
                 async with session.get(url, headers={"X-Firebase-ETag": "true"}) as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"GET {resp.status}")
                     etag = resp.headers.get("ETag")
                     current = float(await resp.json() or 0)
-                new_value = max(0.0, current + delta)
-                headers = {"If-Match": etag} if etag else {}
+            except Exception as e:
+                print(f"[change_pond_withdrawn] {user_id}: чтение — {e}, попытка {attempt + 1}")
+                await asyncio.sleep(1 + attempt)
+                continue
+            new_value = max(0.0, current + delta)
+            headers = {"If-Match": etag} if etag else {}
+            try:
                 async with session.put(url, json=new_value, headers=headers) as put_resp:
-                    if put_resp.status == 412:
-                        continue
-                    return 'ok' if put_resp.status in (200, 204) else 'error'
-        return 'error'
-    except Exception:
-        return 'error'
+                    status = put_resp.status
+            except Exception as e:
+                print(f"[change_pond_withdrawn] {user_id}: запись оборвалась — {e}")
+                return 'error'
+            if status in (200, 204):
+                return 'ok'
+            if status != 412:
+                await asyncio.sleep(1 + attempt)
+    return 'error'
 
 
 def wallet_key(wallet):
@@ -13931,11 +13966,15 @@ async def successful_payment(message: types.Message):
 
         # Та же защита, что и у вывода в GRAM: списываем атомарно, с проверкой РЕАЛЬНОГО
         # баланса на момент оплаты — баланс мог измениться с момента создания счёта.
-        deducted = await deduct_coin_balance(user_id, amount)
-        if not deducted:
-            await message.answer(t(message.from_user,
-                "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за открытие не возвращаются автоматически — напиши администратору.",
-                "❌ Insufficient coin balance at payment time. The Stars fee isn't auto-refunded — please contact the admin."))
+        deduct_status = await deduct_coin_balance_status(user_id, amount)
+        if deduct_status != 'ok':
+            fee = int(getattr(message.successful_payment, 'total_amount', 0) or 0)
+            if deduct_status == 'insufficient':
+                await refund_stars(message, user_id, fee, "На балансе не хватило монет на этот вклад — вклад не открыт.",
+                                   "Not enough coins on your balance for this deposit — it was not opened.")
+            else:
+                await refund_stars(message, user_id, fee, "Техническая ошибка — монеты не списаны, вклад не открыт. Попробуй ещё раз через пару минут.",
+                                   "Technical error — no coins were deducted and the deposit was not opened. Please try again in a couple of minutes.")
             return
 
         now_ms = int(time_module.time() * 1000)
@@ -13998,14 +14037,22 @@ async def successful_payment(message: types.Message):
         # balance_before нужен ТОЛЬКО для диагностического action_logs ниже (см. src:"exchange") —
         # списание идёт своим отдельным атомарным путём в deduct_coin_balance, не отсюда.
         balance_before = await get_coin_balance(user_id)
-        deducted = await deduct_coin_balance(user_id, int(coins))
-        if not deducted:
+        deduct_status = await deduct_coin_balance_status(user_id, int(coins))
+        if deduct_status != 'ok':
             if pond_reserved:
                 # Монеты не списались — вывода не будет, освобождаем зарезервированный лимит Пруда.
                 await change_pond_withdrawn(user_id, -int(coins))
-            await message.answer(t(message.from_user,
-                "❌ Недостаточно монет на балансе на момент оплаты. Звёзды за комиссию не возвращаются автоматически — напиши администратору.",
-                "❌ Insufficient coin balance at payment time. Stars fee isn't auto-refunded — please contact the admin."))
+            # 21.10.2026: комиссию возвращаем сами (раньше — «напиши администратору»), а текст честный:
+            # «не хватило монет» только когда правда не хватило, иначе — техническая ошибка.
+            fee = int(getattr(message.successful_payment, 'total_amount', 0) or 0)
+            if deduct_status == 'insufficient':
+                await refund_stars(message, user_id, fee,
+                                   "На балансе не хватило монет на этот вывод (возможно, уже оплачен другой вывод) — заявка не создана.",
+                                   "Not enough coins on your balance for this withdrawal (maybe another one was already paid) — no request was created.")
+            else:
+                await refund_stars(message, user_id, fee,
+                                   "Техническая ошибка — монеты не списаны, заявка не создана. Попробуй вывести ещё раз через пару минут.",
+                                   "Technical error — no coins were deducted and no request was created. Please try again in a couple of minutes.")
             # Раньше здесь был голый return — звёзды с игрока уже списаны Telegram'ом, но
             # если deduct_coin_balance вернул False НЕ из-за реальной нехватки монет (сбой
             # записи в Firebase, исчерпаны retry на ETag-конфликте), админ вообще никак не
@@ -14014,12 +14061,14 @@ async def successful_payment(message: types.Message):
             # группу поддержки так и не пришёл). Используем тот же алерт, что уже есть для
             # остальных веток successful_payment — на всякий случай, даже если тут и правда
             # была просто нехватка монет: лишний алерт безопаснее пропущенного сбоя.
-            await _alert_payment_fulfillment_failed(
-                user_id, "Обмен на USDT",
-                detail=f"deduct_coin_balance вернул False — монет {coins}, кошелёк {wallet}. "
-                       f"Либо реально не хватило баланса, либо сбой записи — проверь /playerinfo. "
-                       f"Черновик заявки (на случай если тут не всё): pending_exchanges/tg_{user_id}"
-            )
+            if ADMIN_ID:
+                try:
+                    await bot.send_message(ADMIN_ID,
+                        f"ℹ️ Вывод не прошёл — ID {user_id} ({'не хватило монет' if deduct_status == 'insufficient' else 'сбой записи в Firebase'}).\n"
+                        f"Монет {coins}, кошелёк {wallet}. Комиссия {fee}⭐ возвращена игроку автоматически — делать ничего не нужно.\n"
+                        f"(Если возврат не прошёл, придёт отдельное 🚨 сообщение.)")
+                except Exception as e:
+                    print(f"[exchange] admin notice failed: {e}")
             return
 
         # Раньше это списание было "невидимым" в /actionlog: следующая запись начиналась
