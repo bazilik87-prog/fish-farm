@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-20.1">
+<meta name="ff-build" content="2026-10-21.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6943,6 +6943,7 @@ function sendDelivery() {
   var tr=getTr(), dur=getDur(tr.id);
   if (state.delivery2 && state.delivery2.transportId === tr.id) { showNotif(t('🚫 Этот транспорт занят водителем!','🚫 This transport is used by the driver!')); return; }
   if (dur<=0) { showNotif(t('🔧 Сломан! Почини транспорт.','🔧 Broken! Repair the transport.')); return; }
+  clampSelectionToCapacity(tr); // на случай, если транспорт сменился иначе (истекла аренда и т.п.)
   if (!state.selectedItems || !state.selectedItems.length) { showNotif(t('Выбери что отправить!','Choose what to send!')); return; }
 
   var earn=0, sentCount=0;
@@ -7277,11 +7278,27 @@ function useTruckTicket() {
   updateUI(); save(); renderMarket();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
+// 21.10.2026 (игрок нашёл): выбрал 15 рыб на мопеде, переключился на велосипед (5 мест) — и уехало 15,
+// быстрее и с износом велосипеда. Выбранное и заказ соли/ножей урезаем под вместимость транспорта.
+function clampSelectionToCapacity(tr) {
+  var room = tr.capacity, kept = [];
+  for (var i=0; i<(state.selectedItems||[]).length; i++) {
+    var it = state.selectedItems[i];
+    var q = Math.min(it.qty, room);
+    if (q > 0) { it.qty = q; room -= q; kept.push(it); }
+  }
+  state.selectedItems = kept;
+  if (!kept.length) { state.selectedFish = null; state.selectedDried = false; state.selectedFilet = false; }
+  state.saltOrder = Math.min(state.saltOrder||0, tr.capacity);
+  state.knifeOrder = Math.min(state.knifeOrder||0, Math.max(0, tr.capacity - state.saltOrder));
+}
 function selectTransport(id) {
   if (id==='rentalTruck') {
     if (state.boosts.truckRental <= Date.now()) return; // аренда истекла
   } else if (state.unlockedTransports.indexOf(id)<0) return;
-  state.transport=id; save(); renderMarket();
+  state.transport=id;
+  clampSelectionToCapacity(getTr());
+  save(); renderMarket();
 }
 function buyTransport(id) {
   var tr=getTr(id);
