@@ -6259,6 +6259,11 @@ def ad_not_confirmed_response():
     return web.json_response({'error': 'ad_not_confirmed', 'code': 'ad_not_confirmed'}, status=403, headers=CORS)
 
 
+# 21.10.2026 (решение Саши): 30 минут вместо 10. Реклама даёт ~$0.0003 за показ, а +25 энергии = 75 рыб ≈ $0.004–0.006
+# при выводе; лидеры (@deni2026) брали ~80 просмотров в сутки. Держать в синхроне с AD_ENERGY_COOLDOWN в index.html.
+AD_ENERGY_COOLDOWN_MS = 30 * 60 * 1000
+
+
 async def refill_energy_ad(request):
     """
     +25 энергии за просмотр рекламы (+50 для Premium), не чаще раза в 10 минут. Раньше
@@ -6313,8 +6318,8 @@ async def refill_energy_ad(request):
                     cd_etag = r.headers.get("ETag")
                     cd_last = await r.json()
                 cd_last = cd_last if isinstance(cd_last, (int, float)) else 0
-                if now_ms - cd_last < 600000:
-                    return web.json_response({'error': 'cooldown', 'retry_after_ms': 600000 - (now_ms - cd_last)}, status=429, headers=CORS)
+                if now_ms - cd_last < AD_ENERGY_COOLDOWN_MS:
+                    return web.json_response({'error': 'cooldown', 'retry_after_ms': AD_ENERGY_COOLDOWN_MS - (now_ms - cd_last)}, status=429, headers=CORS)
                 async with session.put(cd_url, json=now_ms, headers={"If-Match": cd_etag} if cd_etag else {}) as w:
                     if w.status == 412:
                         continue
