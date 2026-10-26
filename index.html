@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-26.1">
+<meta name="ff-build" content="2026-10-26.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -348,12 +348,12 @@ function fishName(ruName) {
   return FISH_NAME_EN[ruName] || ruName;
 }
 
-var BASE_PRICES = {
-  'Карась':0.5,'Красноперка':1.2,'Лещ':2.5,'Щука':6,
-  'Окунь':0.8,'Выдра':2,'Крокодил':5,'Гиппо':13,
-  'Тропик':1.5,'Попугай':4,'Змея':10,'Бабочка':28,
-  'Кальмар':3,'Осьминог':8,'Акула':20,'Кит':60,
-  'Пришелец':10,'НЛО':30,'Галактика':80,'Звезда':250
+var BASE_PRICES = { // 26.10.2026: −20 процентов (как BASE_PRICES в bot.py)
+  'Карась':0.4,'Красноперка':0.96,'Лещ':2,'Щука':4.8,
+  'Окунь':0.64,'Выдра':1.6,'Крокодил':4,'Гиппо':10.4,
+  'Тропик':1.2,'Попугай':3.2,'Змея':8,'Бабочка':22.4,
+  'Кальмар':2.4,'Осьминог':6.4,'Акула':16,'Кит':48,
+  'Пришелец':8,'НЛО':24,'Галактика':64,'Звезда':200
 };
 
 // Время сушки в секундах (10 рыб → 1 пакет)
@@ -6403,7 +6403,7 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">53–80%</td>'
       +'</tr>'
     +'</table>'
-    +t('Процент рядом с ценой на рынке — сколько это от базовой цены: 100% — базовая, 300% — втрое дороже. У каждой погоды 5 вариантов цены: каждые 30 сек цена каждой рыбы случайно меняется на один из них. Чем хуже погода — тем дороже рыба. Пример: пачка филе щуки (база 30🪙): отличный клёв 16–24🪙, ясно 22–38🪙, облачно 24–40🪙, дождь 38–65🪙, шторм 70–90🪙.','The percentage next to the price at the market shows how it compares to base: 100% is base, 300% is three times more. Each weather has 5 price options: every 30 sec each fish\'s price randomly switches to one of them. The worse the weather, the pricier the fish. Example: a pack of pike filet (base 30🪙): great bite 16–24🪙, clear 22–38🪙, cloudy 24–40🪙, rain 38–65🪙, storm 70–90🪙.')+'<br>'
+    +t('Процент рядом с ценой на рынке — сколько это от базовой цены: 100% — базовая, 300% — втрое дороже. У каждой погоды 5 вариантов цены: каждые 30 сек цена каждой рыбы случайно меняется на один из них. Чем хуже погода — тем дороже рыба. Пример: пачка филе щуки (база 24🪙): отличный клёв 13–19🪙, ясно 18–30🪙, облачно 19–32🪙, дождь 30–52🪙, шторм 56–72🪙.','The percentage next to the price at the market shows how it compares to base: 100% is base, 300% is three times more. Each weather has 5 price options: every 30 sec each fish\'s price randomly switches to one of them. The worse the weather, the pricier the fish. Example: a pack of pike filet (base 24🪙): great bite 13–19🪙, clear 18–30🪙, cloudy 19–32🪙, rain 30–52🪙, storm 56–72🪙.')+'<br>'
     +t('Следи за погодой внизу экрана — при шторме выгоднее продавать, при отличном клёве — ловить!','Watch the weather at the bottom of the screen — sell during storms, fish during great bite!')+'<br><br>'
     +'<b style="color:#fff">'+t('🍳 Кухня — засолка, сушка и филе','🍳 Kitchen — salting, drying and filet')+'</b><br>'
     +'<u>'+t('Засолка и сушка:','Salting and drying:')+'</u><br>'
