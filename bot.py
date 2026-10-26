@@ -9837,6 +9837,28 @@ async def traffic_command(message: types.Message):
 LEGACY_PRIZE_CLIENT_GONE_MS = 1787259600000  # 21.08.2026 00:00 МСК
 
 
+SUSPICIOUS_LABELS = {  # suspicious_actions/{pid}: счётчик → понятное название (26.10.2026, просьба Саши)
+    'legacyPrize': 'старые команды призов лотереи (накрутка!)',
+    'rareCap': 'Осетрина сверх доли',
+    'speciesCap': 'продажа вида рыбы сверх доли улова',
+    'syncClaims': 'игра заявляла больше монет/рыбы, чем на сервере',
+}
+
+
+def describe_suspicious(a):
+    """«Осетрина сверх доли ×3, … · последний раз 25.10» — по записи suspicious_actions/{pid}."""
+    if not isinstance(a, dict):
+        return ''
+    parts = [f"{SUSPICIOUS_LABELS.get(k, k)} ×{int(v)}" for k, v in a.items()
+             if k not in ('firstTs', 'lastTs') and isinstance(v, (int, float)) and v]
+    if not parts:
+        return ''
+    from datetime import datetime, timezone, timedelta
+    last = a.get('lastTs') or 0
+    when = datetime.fromtimestamp(last / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m %H:%M') if last else '?'
+    return ', '.join(parts) + f" · последний раз {when}"
+
+
 @dp.message(Command('scanexploits'))
 async def scanexploits_command(message: types.Message):
     """
@@ -9926,10 +9948,12 @@ async def _scanexploits_run(chat_id):
             lines.append(f"\n• {names.get(pid) or ''} ID {pid[3:]} — {types_s}\n"
                          f"  записей: {f['entries']}, максимум за раз: {f['maxPerEntry']}, {fmt_d(f['first'])} – {fmt_d(f['last'])}")
     if isinstance(attempts, dict) and attempts:
-        lines.append(f"\n🛡 Попытки после закрытия дыры (отклонены): {len(attempts)}")
-        for pid, a in sorted(attempts.items(), key=lambda kv: -int((kv[1] or {}).get('legacyPrize') or 0)):
-            if isinstance(a, dict):
-                lines.append(f"• {names.get(pid) or ''} ID {pid[3:]} — {a.get('legacyPrize', 0)} команд, последняя {fmt_d(a.get('lastTs') or 0)}")
+        lines.append(f"\n🛡 Автоотметки сервера — лишнее уже отклонено ({len(attempts)}). Накрутка — только «старые команды призов»:")
+        for pid, a in sorted(attempts.items(), key=lambda kv: (-int((kv[1] or {}).get('legacyPrize') or 0),
+                                                               -int((kv[1] or {}).get('lastTs') or 0))):
+            desc = describe_suspicious(a)
+            if desc:
+                lines.append(f"• {names.get(pid) or ''} ID {pid[3:]} — {desc}")
     lines.append("\nℹ️ В журнале хранится не вся история, а последние записи каждого игрока — очень старые действия могли не сохраниться.")
 
     chunk = ''
@@ -11049,6 +11073,8 @@ async def playerinfo_command(message: types.Message):
 
             async with session.get(f"{base}/referrals/by/{uid}.json{FB_AUTH}") as resp:
                 referred_by_him = await resp.json()
+            async with session.get(f"{base}/suspicious_actions/{pid}.json{FB_AUTH}") as resp:
+                suspicious = await resp.json()
 
             # Суммарно выведено за всё время — считаем по withdrawals_log, где теперь
             # (с добавлением user_id в запись при каждом выводе) можно фильтровать по игроку.
@@ -11180,6 +11206,9 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"🚫 Бан: временный, до {ban_until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
         else:
             lines.append("✅ Бан: нет")
+        sus_desc = describe_suspicious(suspicious)
+        if sus_desc:
+            lines.append(f"⚠️ Автоотметки (лишнее отклонено): {sus_desc}")
 
         if referrer_id:
             lines.append(f"👥 Пришёл по рефералке от ID: {referrer_id}")
