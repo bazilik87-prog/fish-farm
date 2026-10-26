@@ -9343,20 +9343,8 @@ async def _settle_weekly_tournament(session, base, t):
         await log_finance('expense', 'weekly_tournament', total_stars * STAR_TO_USD,
                            note=f"турнир недели, топ-3: {top_names}", stars=total_stars, session=session)
 
-    # 23.10.2026 (просьба Саши): итоги — всем игрокам, как и анонс старта (раньше знали только админ и группа).
-    import html as _html
-    rows_ru, rows_en = [], []
-    for i, (name, delta, _uid) in enumerate(top):
-        prize = WEEKLY_TOURNAMENT_PRIZES[i] if i < len(WEEKLY_TOURNAMENT_PRIZES) else 0
-        rows_ru.append(f"{medals[i]} {_html.escape(name)} — {delta:,} монет — {prize}⭐".replace(',', ' '))
-        rows_en.append(f"{medals[i]} {_html.escape(name)} — {delta:,} coins — {prize}⭐")
-    results_html = ("🏆 <b>Турнир недели завершён!</b>\n\n" + "\n".join(rows_ru) +
-                    "\n\n🎉 Поздравляем победителей! Призы отправит администратор.\n"
-                    "🔔 Следующий турнир — следи за новостями!\n\n———\n\n"
-                    "🏆 <b>Weekly tournament is over!</b>\n\n" + "\n".join(rows_en) +
-                    "\n\n🎉 Congrats to the winners! The admin will send the prizes.\n"
-                    "🔔 Next tournament — stay tuned!")
-    await start_auto_broadcast(results_html, players, "итоги турнира недели")
+    # 26.10.2026: автоматической рассылки итогов игрокам НЕТ (Саша передумал после 23.10) — он сам пересылает
+    # сводку сюда, Claude составляет текст, рассылка вручную через /broadcast.
 
 
 @dp.message(Command('stoptournament'))
@@ -13052,44 +13040,6 @@ async def get_news_target():
             print(f"[get_news_target] {e}")
             return None
     return _NEWS_TARGET['v']
-
-
-async def start_auto_broadcast(html, players, what):
-    """Рассылка от самого бота (итоги турнира недели и т.п.) — тем же заданием broadcast_job, что и /broadcast:
-    переживает перезапуск, видна в /broadcaststop, копия уходит в тему News. Если уже идёт другая рассылка —
-    не начинаем, а присылаем админу текст, чтобы он отправил его сам позже через /broadcast."""
-    import aiohttp
-    try:
-        if _BROADCAST_RUNNING['v'] or await _broadcast_job_get():
-            if ADMIN_ID:
-                await bot.send_message(ADMIN_ID, f"⚠️ Рассылка «{what}» не начата — сейчас идёт другая рассылка. "
-                                                 f"Отправь потом сам: /broadcast и текст ниже 👇")
-                await bot.send_message(ADMIN_ID, html, parse_mode="HTML")
-            return False
-        ids = [int(v.get('userId')) for v in (players or {}).values()
-               if isinstance(v, dict) and str(v.get('userId') or '').isdigit()]
-        if not ids:
-            return False
-        job = {'html': html, 'ids': ids, 'pos': 0, 'success': 0, 'failed': 0, 'chatId': ADMIN_ID,
-               'startedAt': int(time_module.time() * 1000), 'what': what}
-        async with aiohttp.ClientSession() as session:
-            async with session.put(BROADCAST_JOB_URL, json=job) as r:
-                if r.status != 200:
-                    raise RuntimeError(f"broadcast_job PUT {r.status}")
-        if ADMIN_ID:
-            await bot.send_message(ADMIN_ID, f"📨 Рассылаю «{what}» всем игрокам ({len(ids):,})…")
-        await repost_to_news_topic(html, None, None, None, None)
-        _spawn_bg(_broadcast_runner(job))
-        return True
-    except Exception as e:
-        print(f"[start_auto_broadcast] {what}: {e}")
-        if ADMIN_ID:
-            try:
-                await bot.send_message(ADMIN_ID, f"⚠️ Рассылка «{what}» не началась: {e}. Текст для /broadcast 👇")
-                await bot.send_message(ADMIN_ID, html, parse_mode="HTML")
-            except Exception:
-                pass
-        return False
 
 
 async def repost_to_news_topic(html, document_id, caption, caption_mode, admin_message):
