@@ -8082,6 +8082,7 @@ async def process_actions(request):
         'rejectedEnergy': rejected_energy,
         'claimed': claim_result,
         'rare': rare_fish_public(now_ms),
+        'ulocs': list(ulocs),  # 26.10: игра сверяет открытые локации (см. applyActionsResult)
         **response_truck
     }, headers=CORS)
 
@@ -10940,6 +10941,7 @@ async def paid_confirm(cb: types.CallbackQuery):
             pass
         return
     await cb.answer(f"✅ Игрок уведомлён о выплате {_paid_amount_text(usdt, kind)}")
+    _spawn_bg(post_public_payout(uid, usdt, kind))
     try:
         await cb.message.delete()
     except Exception:
@@ -13117,6 +13119,122 @@ async def repost_to_news_topic(html, document_id, caption, caption_mode, admin_m
                 await bot.send_message(ADMIN_ID, warn)
             except Exception:
                 pass
+
+
+# ── Публичная лента выплат в теме «Скрины выплат» чата игроков (26.10.2026, идея «доверие против скама») ──
+# Пишет /setpayouts в нужной теме → config/payouts_target. После «💸/⭐ Выплачено» бот публикует туда
+# сумму, ИМЯ В ИГРЕ (playerName; нет — «Рыбак #номер», ник Telegram не показываем) и кошелёк со ссылкой на tonviewer.
+_PAYOUTS_TARGET = {'loaded': False, 'v': None}
+
+
+async def get_payouts_target():
+    if not _PAYOUTS_TARGET['loaded']:
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/config/payouts_target.json{FB_AUTH}") as r:
+                    v = await r.json()
+            _PAYOUTS_TARGET['v'] = v if isinstance(v, dict) and v.get('chatId') else None
+            _PAYOUTS_TARGET['loaded'] = True
+        except Exception as e:
+            print(f"[get_payouts_target] {e}")
+            return None
+    return _PAYOUTS_TARGET['v']
+
+
+async def _last_withdraw_wallet(uid, amount):
+    """Кошелёк последней заявки игрока на эту сумму (а если такой нет — просто последней) из withdrawals_log."""
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
+        mine = sorted((e for e in wl.values() if isinstance(e, dict) and str(e.get('user_id')) == str(uid) and e.get('wallet')),
+                      key=lambda e: e.get('ts', 0), reverse=True)
+        for e in mine:
+            if abs(float(e.get('usdt') or 0) - float(amount or 0)) < 1e-6:
+                return e['wallet']
+        return mine[0]['wallet'] if mine else None
+    except Exception as e:
+        print(f"[_last_withdraw_wallet] {uid}: {e}")
+        return None
+
+
+def mask_player_name(name):
+    name = str(name or '').lstrip('@')
+    if not name:
+        return 'игрок'
+    return name[:3] + '***' if len(name) > 3 else name[:1] + '***'
+
+
+async def post_public_payout(uid, amount, kind):
+    target = await get_payouts_target()
+    if not target:
+        return
+    import aiohttp
+    name = ''
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/leaderboard/tg_{int(uid)}.json{FB_AUTH}") as r:
+                v = await r.json() or {}
+        # Имя в игре (playerName), а не ник Telegram — ник по просьбе Саши не показываем.
+        name = str(v.get('playerName') or '').strip()[:24]
+        num = v.get('num')
+    except Exception as e:
+        num = None
+        print(f"[post_public_payout] name {uid}: {e}")
+    import html as _html
+    who = _html.escape(name) if name else (f"Рыбак #{num}" if num else "игрок")
+    if kind == 's':
+        text = f"⭐ <b>Выплачено {amount} Stars</b> — {who}\n⭐ <b>Paid {amount} Stars</b> — {who}"
+    else:
+        text = f"💸 <b>Выплачено ${amount} USDT</b> — {who}\n💸 <b>Paid ${amount} USDT</b> — {who}"
+        # Кошелёк — по просьбе Саши, чтобы любой мог проверить перевод в TON-обозревателе.
+        wallet = await _last_withdraw_wallet(uid, amount)
+        if wallet:
+            w = _html.escape(wallet)
+            text += f'\n👛 <a href="https://tonviewer.com/{w}">{w[:6]}…{w[-6:]}</a>'
+
+    try:
+        kw = {'message_thread_id': target.get('threadId')} if target.get('threadId') else {}
+        await bot.send_message(target['chatId'], text, parse_mode="HTML", disable_web_page_preview=True, **kw)
+    except Exception as e:
+        print(f"[post_public_payout] {e}")
+        if ADMIN_ID:
+            try:
+                await bot.send_message(ADMIN_ID, f"⚠️ В тему выплат не отправилось: {e}\nПроверь, что бот — админ чата, и при необходимости заново напиши /setpayouts в теме.")
+            except Exception:
+                pass
+
+
+@dp.message(Command('setpayouts'))
+async def setpayouts_command(message: types.Message):
+    """Написать В ТЕМЕ «Скрины выплат» чата игроков — туда бот будет публиковать каждую выплату. «/setpayouts off» — выключить.
+    Как /setnews: от ADMIN_ID или анонимного админа этого же чата."""
+    is_admin = bool(message.from_user and message.from_user.id == ADMIN_ID)
+    anon_group_admin = bool(getattr(message, 'sender_chat', None) and message.chat.type != 'private'
+                            and message.sender_chat.id == message.chat.id)
+    if not (is_admin or anon_group_admin):
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    off = (message.text or '').strip().lower().endswith('off')
+    try:
+        async with aiohttp.ClientSession() as session:
+            if off:
+                await session.delete(f"{base}/config/payouts_target.json{FB_AUTH}")
+            else:
+                if message.chat.type == 'private':
+                    await message.answer("Напиши /setpayouts прямо в теме «Скрины выплат» чата игроков (бот должен быть админом чата).")
+                    return
+                await session.put(f"{base}/config/payouts_target.json{FB_AUTH}", json={
+                    'chatId': message.chat.id, 'threadId': message.message_thread_id,
+                    'title': message.chat.title or '', 'ts': int(time_module.time() * 1000)})
+        _PAYOUTS_TARGET.update(loaded=True, v=None if off else {'chatId': message.chat.id, 'threadId': message.message_thread_id})
+        await message.answer("💸 Публикация выплат выключена." if off else
+                             "✅ Сюда будут публиковаться выплаты (сумма и скрытый ник) после «Выплачено».")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('setnews'))
