@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-26.2">
+<meta name="ff-build" content="2026-10-27.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -5043,7 +5043,8 @@ function renderClan() {
   if (myClanJoinRequest) {
     html += '<div class="card" style="text-align:center">'
       +'<div style="font-size:13px;color:#90caf9">⏳ '+t('Заявка отправлена в клан','Join request sent to clan')+' «'+myClanJoinRequest.clanName+'»</div>'
-      +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Ждём решения капитана','Waiting for the captain\'s decision')+'</div>'
+      +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Ждём решения капитана — если ответа нет, заявка сама устареет через сутки','Waiting for the captain\'s decision — with no answer, the request expires in 24 hours')+'</div>'
+      +'<button class="btn" style="margin-top:8px;background:#5a1a1a" onclick="cancelClanJoinRequest()">✖ '+t('Отменить заявку','Cancel request')+'</button>'
       +'</div>';
   } else {
     html += '<button class="btn btn-full" style="background:#0f3460;margin-bottom:10px" onclick="openClanBrowse()">🚪 '+t('Вступить в клан','Join a clan')+'</button>';
@@ -5498,6 +5499,21 @@ function knockClan(clanId) {
       myClanJoinRequest = {clanId: clanId, clanName: c ? c.name : '', sentAt: Date.now()};
       showNotif(t('✅ Заявка отправлена!','✅ Request sent!'));
       clanView = 'main';
+      renderClan();
+    }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
+}
+
+function cancelClanJoinRequest() {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') return;
+  fetch(BOT_API_URL + '/clan_join_cancel', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+    .then(function(res){
+      if (!res.ok) { showNotif('❌ '+(res.data && res.data.error || t('не удалось отменить','failed to cancel'))); return; }
+      myClanJoinRequest = null;
+      showNotif(t('✅ Заявка отменена — можно подать в другой клан','✅ Request cancelled — you can apply to another clan'));
       renderClan();
     }).catch(function(){ showNotif(t('❌ Нет связи с сервером','❌ No connection to server')); });
 }

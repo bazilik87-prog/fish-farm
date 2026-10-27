@@ -3918,7 +3918,10 @@ async def clan_status(request):
                 async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as jrresp:
                     jr_data = await jrresp.json()
                 if isinstance(jr_data, dict) and jr_data.get('clanId'):
-                    my_join_request = {'clanId': jr_data.get('clanId'), 'clanName': jr_data.get('clanName', ''), 'sentAt': jr_data.get('sentAt', 0)}
+                    if int(time_module.time() * 1000) - int(jr_data.get('sentAt') or 0) >= CLAN_JOIN_REQUEST_TTL_MS:
+                        await _drop_clan_join_request(session, base, pid, jr_data)  # устарела — игрок снова может стучаться
+                    else:
+                        my_join_request = {'clanId': jr_data.get('clanId'), 'clanName': jr_data.get('clanName', ''), 'sentAt': jr_data.get('sentAt', 0)}
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
 
@@ -4724,6 +4727,52 @@ async def clan_top(request):
     return web.json_response({'ok': True, 'clans': result[:5]}, headers=CORS)
 
 
+# 27.10.2026: заявка в клан одна, а капитан мог забросить игру — раньше игрок застревал навсегда
+# («дождись ответа или она устареет», но ничего не устаревало). Теперь: кнопка «Отменить» (/clan_join_cancel)
+# и устаревание через сутки.
+CLAN_JOIN_REQUEST_TTL_MS = 24 * 3600 * 1000
+
+
+async def _drop_clan_join_request(session, base, pid, req):
+    """Убирает заявку игрока в обоих местах: у капитана (clan_join_requests) и у себя (saves/{pid}/clanJoinRequest)."""
+    try:
+        if isinstance(req, dict) and req.get('clanId'):
+            await session.delete(f"{base}/clan_join_requests/{req['clanId']}/{pid}.json{FB_AUTH}")
+        await session.delete(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}")
+    except Exception as e:
+        print(f"[_drop_clan_join_request] {pid}: {e}")
+
+
+async def clan_join_cancel(request):
+    """Игрок отменяет свою заявку в клан (кнопка «Отменить заявку»)."""
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        uid = json.loads(verified.get('user', '{}')).get('id')
+    except Exception:
+        uid = None
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{uid}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as r:
+                req = await r.json()
+            await _drop_clan_join_request(session, base, pid, req)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def clan_join_request(request):
     """
     Игрок без клана "стучится" в конкретный клан — зеркалит clan_invite, только в обратную
@@ -4768,7 +4817,12 @@ async def clan_join_request(request):
             async with session.get(f"{base}/saves/{pid}/clanJoinRequest.json{FB_AUTH}") as resp2:
                 existing_req = await resp2.json()
             if isinstance(existing_req, dict) and existing_req.get('clanId'):
-                return web.json_response({'error': 'у тебя уже есть отправленная заявка — дождись ответа или она устареет'}, status=400, headers=CORS)
+                age = now_ms - int(existing_req.get('sentAt') or 0)
+                if age < CLAN_JOIN_REQUEST_TTL_MS:
+                    hours_left = max(1, int((CLAN_JOIN_REQUEST_TTL_MS - age) / 3600000 + 0.999))
+                    return web.json_response({'error': f'у тебя уже есть заявка в клан «{existing_req.get("clanName", "")}» — '
+                                                       f'отмени её или подожди: она устареет через {hours_left} ч'}, status=400, headers=CORS)
+                await _drop_clan_join_request(session, base, pid, existing_req)  # устарела — убираем и шлём новую
 
             async with session.get(f"{base}/clans/{clan_id}.json{FB_AUTH}") as cresp:
                 clan_data = await cresp.json()
@@ -15281,6 +15335,8 @@ async def main():
     app.router.add_post('/clan_top', clan_top)
     app.router.add_options('/clan_top', clan_top)
     app.router.add_post('/clan_join_request', clan_join_request)
+    app.router.add_post('/clan_join_cancel', clan_join_cancel)
+    app.router.add_options('/clan_join_cancel', clan_join_cancel)
     app.router.add_options('/clan_join_request', clan_join_request)
     app.router.add_post('/clan_join_request_respond', clan_join_request_respond)
     app.router.add_options('/clan_join_request_respond', clan_join_request_respond)
