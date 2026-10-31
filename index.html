@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-10-27.1">
+<meta name="ff-build" content="2026-10-31.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2307,10 +2307,12 @@ function renderKitchen() {
     }
 
     // Список рыб — два блока: засолка и разделка
-    var grouped2={};
-    for (var i2=0;i2<state.liveFish.length;i2++){var n2=state.liveFish[i2].name;grouped2[n2]=(grouped2[n2]||0)+1;}
+    // Только рыба текущей локации: соль и ножи у каждой локации свои (31.10 — речную рыбу разделывали дешёвыми ножами Пруда)
+    var grouped2={}, otherLocFish=0;
+    for (var i2=0;i2<state.liveFish.length;i2++){var n2=state.liveFish[i2].name; if (!fishBelongsToLoc(n2)) { otherLocFish++; continue; } grouped2[n2]=(grouped2[n2]||0)+1;}
     if (Object.keys(grouped2).length===0) {
-      html+='<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 '+t('Нет рыбы на складе','No fish in storage')+'</div>';
+      html+='<div class="card" style="text-align:center;color:#666;font-size:13px;padding:20px">🐟 '+t('Нет рыбы на складе','No fish in storage')
+        +(otherLocFish>0?'<div style="font-size:11px;color:#90caf9;margin-top:6px">'+t('Рыба других локаций: ','Fish from other locations: ')+otherLocFish+t(' — переключи локацию сверху',' — switch location above')+'</div>':'')+'</div>';
     } else {
       // Блок 1 — Засолка и сушка
       html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:10px">🧂 '+t('Засолка и сушка','Salting and drying')+'</div>';
@@ -2387,6 +2389,7 @@ function startCutting(name) {
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var packs=filetPacks[name]||1, needed=packs*10;
+  if (!fishBelongsToLoc(name)) return;
   if ((grouped[name]||0)<needed) { showNotif(t('Нужно ','Need ')+needed+t(' рыб!',' fish!')); return; }
   if ((state.knife||0)<packs) { showNotif(t('🔪 Не хватает ножей! Нужно ','🔪 Not enough knives! Need ')+packs+t(', есть ',', have ')+(state.knife||0)); return; }
   var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
@@ -2435,6 +2438,7 @@ function startSalting(name) {
   var grouped={};
   for (var i=0;i<state.liveFish.length;i++) { var n=state.liveFish[i].name; grouped[n]=(grouped[n]||0)+1; }
   var packs=dryPacks[name]||1, needed=packs*10;
+  if (!fishBelongsToLoc(name)) return;
   if ((grouped[name]||0)<needed) { showNotif(t('Нужно ','Need ')+needed+t(' рыб!',' fish!')); return; }
   if (state.salt<packs) { showNotif(t('🧂 Не хватает соли! Нужно ','🧂 Not enough salt! Need ')+packs+t(', есть ',', have ')+state.salt); return; }
   var def=null; for (var k=0;k<ALL_FISH.length;k++) if(ALL_FISH[k].name===name) def=ALL_FISH[k];
@@ -3715,8 +3719,11 @@ function activateBoost(id, growJackpot) {
 // $ за один юнит вывода (та же таблица монет-за-юнит по локациям, что и раньше для
 // GRAM) — фиксированная цена вместо рыночного курса, с 26.09.2026 по итогам
 // голосования игроков. Держим числом в одном месте, а не хардкодим 1.5 по всем
-// местам расчёта — см. тот же USDT_PER_UNIT в bot.py.
-var USDT_PER_UNIT = 1.50;
+// местам расчёта — см. тот же usdt_per_unit в bot.py.
+// С 01.11.2026 00:00 МСК — $1.00 вместо $1.50 (переключение по времени, как в bot.py).
+var USDT_RATE_CHANGE_AT = 1793480400000;
+function usdtPerUnit(){ return Date.now() < USDT_RATE_CHANGE_AT ? 1.50 : 1.00; }
+function usdtRateStr(){ return usdtPerUnit().toFixed(2); }
 // Покупка монет за ⭐ — пакеты и цены те же, что COIN_PACKS в bot.py (количество монет
 // там же умножается на множитель лучшей открытой локации и считается сервером при оплате).
 var COIN_PACKS_CLIENT = [
@@ -3792,8 +3799,8 @@ function renderBank() {
       +'<input id="ex-wallet" type="text" placeholder="UQ... или EQ..." style="width:100%;background:#1a1a2e;border:1px solid #1565c0;border-radius:8px;padding:10px;font-size:13px;color:#fff;outline:none;margin-bottom:12px">'
       +'<div id="bank-preview" style="background:#0a1a2e;border-radius:8px;padding:10px;margin-bottom:12px;text-align:center">'
         +'<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+((Math.min(1000,coins)/(100000*maxUnlockedMult()))*USDT_PER_UNIT).toFixed(5)+' USDT</div>'
-        +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>'
+        +'<div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+((Math.min(1000,coins)/(100000*maxUnlockedMult()))*usdtPerUnit()).toFixed(5)+' USDT</div>'
+        +'<div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+(100000*maxUnlockedMult()).toLocaleString('ru-RU')+t(' монет = $','coins = $')+usdtRateStr()+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>'
       +'</div>'
       +'<div id="bank-fee-line" style="background:#1a1a0a;border-radius:8px;padding:8px;margin-bottom:12px;font-size:11px;color:#90caf9;text-align:center">⭐ '+t('Комиссия:','Fee:')+' '+bankFeeAmount()+' '+starsWord(bankFeeAmount())+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange')+'</div>'
       +'<button class="btn btn-full" onclick="exchangeCoins()" style="background:linear-gradient(135deg,#1565c0,#0a3d6b);font-size:14px" '+(coins<1?'disabled':'')+'>⭐ '+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+bankFeeAmount()+' '+starsWord(bankFeeAmount())+'</span></button>'
@@ -3855,10 +3862,10 @@ function updateBankPreview() {
   var input=document.getElementById('ex-amount');
   var val=Math.max(1,Math.min(Math.floor(state.coins),parseInt(input?input.value:0)||0));
   var rate=100000*maxUnlockedMult();
-  var usdt=(val/rate)*USDT_PER_UNIT;
+  var usdt=(val/rate)*usdtPerUnit();
   var fee=bankFeeAmount(); // фиксированная по локации, не зависит от val
   var p=document.getElementById('bank-preview');
-  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+usdt.toFixed(5)+' USDT</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = $','coins = $')+USDT_PER_UNIT.toFixed(2)+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>';
+  if(p) p.innerHTML='<div style="font-size:12px;color:#90caf9">'+t('Ты получишь','You will receive')+'</div><div style="font-size:20px;font-weight:700;color:#4caf50">💵 $'+usdt.toFixed(5)+' USDT</div><div style="font-size:12px;color:#FFD700;margin-top:4px">'+t('Комиссия: ','Fee: ')+'⭐'+fee+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+t('Курс','Rate')+' '+rate.toLocaleString('ru-RU')+t(' монет = $','coins = $')+usdtRateStr()+t(' · Отправка вручную в течение 24ч (USDT, TON)',' · Sent manually within 24h (USDT, TON)')+'</div>';
   var feeLine=document.getElementById('bank-fee-line');
   if(feeLine) feeLine.innerHTML='⭐ '+t('Комиссия:','Fee:')+' '+fee+' '+starsWord(fee)+(isPremiumActive()?' (Premium)':'')+' '+t('за каждый обмен','per exchange');
   var feeBtn=document.getElementById('bank-fee-btn-text');
@@ -6491,13 +6498,13 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">⭐</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:$1.50</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:$1.50</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:$1.50</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$1.50</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
-      +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:$1.50</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
     +'</table>'
-    +t('(комиссия указана обычная/Premium; курс — монет за $1.50 USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $1.50 USDT). USDT (TON) is sent manually within 24h.')+'<br>'
+    +t('(комиссия указана обычная/Premium; курс — монет за $'+usdtRateStr()+' USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $'+usdtRateStr()+' USDT). USDT (TON) is sent manually within 24h.')+'<br>'
     +'🌿 '+t('Пруд — обучающая локация: с него можно вывести всего до ','The Pond is a training location: you can withdraw up to ')+POND_WITHDRAW_LIFETIME_CAP.toLocaleString('ru-RU')+t(' монет за всё время. Чтобы выводить дальше, открой 🏞 Реку.',' coins from it in total. To keep withdrawing, unlock the 🏞 River.')+'<br><br>'
     +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Открытие — ⭐1 (бесплатно для Premium). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Opening costs ⭐1 (free for Premium). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
@@ -6535,11 +6542,11 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Комиссия','Fee')+'</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:$1.50</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:$1.50</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:$1.50</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:$1.50</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
-      +'<tr><td style="padding:3px 4px">🚀 '+t('Космос','Space')+'</td><td style="padding:3px 4px;text-align:right">5,000,000:$1.50</td><td style="padding:3px 4px;text-align:right">125,000,000</td><td style="padding:3px 4px;text-align:right">250⭐/150⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
+      +'<tr><td style="padding:3px 4px">🚀 '+t('Космос','Space')+'</td><td style="padding:3px 4px;text-align:right">5,000,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">125,000,000</td><td style="padding:3px 4px;text-align:right">250⭐/150⭐</td></tr>'
     +'</table>'
     +'<div style="font-size:10px;color:#666;margin-bottom:8px">'+t('Комиссия указана как обычная/Premium. Курс и потолок — монет','Fee shown as regular/Premium. Rate and cap are in coins')+'</div>'
     +t('Укажи сумму (от 1,000 монет) и TON кошелёк — USDT (TON) отправляется вручную администратором в течение 24ч.','Enter an amount (1,000 coins minimum) and your TON wallet — USDT (TON) is sent manually by the admin within 24h.')+'<br><br>'

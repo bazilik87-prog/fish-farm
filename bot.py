@@ -690,7 +690,19 @@ async def get_exchange_rate(user_id, mult=None):
 # цены GRAM, по итогам голосования игроков от 26.09.2026. Ключевое отличие от GRAM:
 # раньше юнит стоил столько, сколько давал рынок в моменте отправки; теперь — всегда
 # ровно эта сумма, независимо от каких-либо курсов.
-USDT_PER_UNIT = 1.50
+# С 01.11.2026 00:00 МСК курс $1.00 вместо $1.50 (решение Саши 30.10: выводы ≈ весь доход
+# от ⭐). Переключение по времени, чтобы файл можно было выложить заранее. Сумма в $ считается
+# в момент оплаты комиссии (successful_payment) и пишется в заявку — оплаченные до полуночи
+# заявки остаются по старому курсу. Тот же переход — в index.html (usdtPerUnit).
+USDT_PER_UNIT_OLD = 1.50
+USDT_PER_UNIT_NEW = 1.00
+USDT_RATE_CHANGE_AT_MS = 1793480400000  # 01.11.2026 00:00 МСК
+
+
+def usdt_per_unit(now_ms=None):
+    if now_ms is None:
+        now_ms = int(time_module.time() * 1000)
+    return USDT_PER_UNIT_OLD if now_ms < USDT_RATE_CHANGE_AT_MS else USDT_PER_UNIT_NEW
 
 
 async def get_coin_balance(user_id):
@@ -1730,7 +1742,7 @@ async def clear_pending_knives(request):
 # повторного полного чтения leaderboard, если много игроков открывают вкладку "Лидеры"
 # почти одновременно (а пока турнир активен, это постоянная ситуация).
 _TOURNAMENT_TOP_CACHE = {"ts": 0, "data": None}
-TOURNAMENT_TOP_CACHE_TTL_MS = 300000  # 5 минут — каждое обновление читает весь leaderboard (~1.2 МБ)
+TOURNAMENT_TOP_CACHE_TTL_MS = 1800000  # 30 минут (с 31.10, было 5) — каждое обновление читает весь leaderboard (~1 МБ), это 36% трафика бота
 
 
 async def tournament_top(request):
@@ -1750,7 +1762,12 @@ async def tournament_top(request):
 
     now_ms = int(time_module.time() * 1000)
     cached = _TOURNAMENT_TOP_CACHE.get("data")
-    if cached is not None and (now_ms - _TOURNAMENT_TOP_CACHE.get("ts", 0)) < TOURNAMENT_TOP_CACHE_TTL_MS:
+    # Кэш на 30 мин только пока турнир идёт и не кончился; «турнира нет» — по-старому 5 мин,
+    # чтобы новый турнир появился во вкладке быстро.
+    ttl = TOURNAMENT_TOP_CACHE_TTL_MS if (cached or {}).get('active') else 300000
+    if cached is not None and cached.get('active') and now_ms >= cached.get('endsAt', 0):
+        cached = None
+    if cached is not None and (now_ms - _TOURNAMENT_TOP_CACHE.get("ts", 0)) < ttl:
         return web.json_response(cached, headers=CORS)
 
     import aiohttp
@@ -8552,7 +8569,7 @@ async def giftall_command(message: types.Message):
             pids = [pid for pid, v in (lb or {}).items()
                     if isinstance(v, dict) and pid.startswith('tg_') and now_ms - int(v.get('ts') or 0) <= days * 86400000
                     and not is_ban_active(banned.get(pid[3:]), now_ms)]
-            usd = len(pids) * amount / 100000 * 1.5
+            usd = len(pids) * amount / 100000 * usdt_per_unit()
             if not confirm:
                 await message.answer(f"🎁 Подарок: {amount:,} монет + бустеры ({', '.join(GIFT_BOOSTS)})\n"
                                      f"Получат: {len(pids):,} игроков (заходили за {days} дн., без забаненных)\n"
@@ -8656,7 +8673,7 @@ async def takecoins_command(message: types.Message):
     owner_note = ''
     if wallet:
         mult = await get_location_mult(user_id)
-        usdt_amount = round(amount / await get_exchange_rate(user_id, mult) * USDT_PER_UNIT, 5)
+        usdt_amount = round(amount / await get_exchange_rate(user_id, mult) * usdt_per_unit(), 5)
         other = await wallet_owner_other(user_id, wallet)
         if other:
             owner_note = f"\n⚠️ Этот кошелёк уже записан за другим игроком: ID {other}"
@@ -14454,7 +14471,7 @@ async def successful_payment(message: types.Message):
         try:
             rate = await get_exchange_rate(user_id)
             units = int(coins) / rate
-            usdt_amount = round(units * USDT_PER_UNIT, 5)
+            usdt_amount = round(units * usdt_per_unit(), 5)
         except (ValueError, ZeroDivisionError):
             usdt_amount = 0
 
