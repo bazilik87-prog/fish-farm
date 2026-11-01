@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-01.r1">
+<meta name="ff-build" content="2026-11-01.r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -479,6 +479,12 @@ body{background:#0a0f1e !important}
 .st-reset{background:#1c0d10;border:1px solid #4a1d24;border-radius:20px;padding:14px;margin-bottom:10px}
 .st-reset b{display:block;font-size:13px;color:#ff8a80}
 .st-reset span{display:block;font-size:11px;color:#b07070;margin:3px 0 10px}
+/* Окна поверх игры: отступ сверху под кнопки Telegram «Закрыть / …» (как #sky на главном), прокрутка внутри окна,
+   а игра под окном замирает (html.modal-open) — иначе на iPhone листалась игра, а не окно (Саша, 01.11) */
+body > div[style*="z-index: 9999"],body > div[style*="z-index:9999"]{padding-top:calc(env(safe-area-inset-top,0px) + 64px) !important;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 16px) !important;overscroll-behavior:contain}
+body > div[style*="z-index: 9999"] > div,body > div[style*="z-index:9999"] > div{max-height:100% !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
+html.modal-open,html.modal-open body{overflow:hidden !important}
+.bf-box{max-height:100%}
 /* ── Всплывающие окна (редизайн) ── */
 div[style*="background:#0d1b2e"],div[style*="background:#0f3460;border-radius:16px;padding:24px"],div[style*="background:#0f1f35;border:1px solid #f44336"]{background:linear-gradient(180deg,#141f36,#0b1324) !important;border-radius:24px !important;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 div[style*="background:#0f3460;border-radius:16px;padding:24px"]{border:1px solid #2a3a5c}
@@ -2223,6 +2229,16 @@ function scrollToContent() {
   // закреплённого меню на старом месте — кнопки «не нажимаются», пока игрок сам не прокрутит страницу (Саша, 01.11)
   window.scrollTo(0, Math.max(0, y));
 }
+// Пока открыто окно поверх игры (fixed, z-index ≥ 9999) — страница под ним не прокручивается
+(function(){
+  function syncModalLock() {
+    var open = false, kids = document.body ? document.body.children : [];
+    for (var i=0;i<kids.length;i++) { var z = parseInt(kids[i].style && kids[i].style.zIndex, 10); if (kids[i].style.position==='fixed' && z>=9999) { open = true; break; } }
+    document.documentElement.classList.toggle('modal-open', open);
+  }
+  function start(){ try { new MutationObserver(syncModalLock).observe(document.body, {childList:true}); } catch(e) {} }
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
 function navGo(key) {
   if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
   if (key==='pond') { window.scrollTo(0, 0); return; }
