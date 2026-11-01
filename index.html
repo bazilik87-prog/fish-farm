@@ -2,15 +2,15 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-01.1">
+<meta name="ff-build" content="2026-11-02.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
-// Новый дизайн (new.html) пока только для тестового аккаунта Саши @mapitom — остальные игроки остаются здесь.
+// Новый дизайн (new.html) пока только для тестеров: @mapitom (Саша) и @chris4542 (с 02.11) — остальные игроки остаются здесь.
 // Хэш (#tgWebAppData=…) переносим, иначе Telegram-данные игрока потеряются.
 (function(){ try { var u = window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user;
-  if (u && u.id === 8824257585) location.replace('new.html' + location.search + location.hash); } catch(e) {} })();
+  if (u && (u.id === 8824257585 || u.id === 8954036308)) location.replace('new.html' + location.search + location.hash); } catch(e) {} })();
 </script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
