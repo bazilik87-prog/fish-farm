@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-02.r3">
+<meta name="ff-build" content="2026-11-02.r4">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2370,8 +2370,10 @@ function renderUpgrades() {
   }
   document.getElementById('content').innerHTML=html;
 }
-// Картинки рыб от дизайнера (img/fish рядом с index.html); у остальных видов пока эмодзи
-var FISH_IMG = {'Карась':'fish_01_crucian','Красноперка':'fish_02_roach','Окунь':'fish_03_perch','Лещ':'fish_04_bream','Щука':'fish_06_pike'};
+// Картинки рыб и обитателей от дизайнера (img/fish рядом с index.html; обитатели 11–26 — 02.11)
+var FISH_IMG = {'Карась':'fish_01_crucian','Красноперка':'fish_02_roach','Окунь':'fish_03_perch','Лещ':'fish_04_bream','Щука':'fish_06_pike',
+  'Выдра':'fish_11_otter','Крокодил':'fish_12_crocodile','Гиппо':'fish_13_hippo','Тропик':'fish_14_tropical_fish','Попугай':'fish_15_parrot','Змея':'fish_16_snake','Бабочка':'fish_17_butterfly',
+  'Кальмар':'fish_18_squid','Осьминог':'fish_19_octopus','Акула':'fish_20_shark','Кит':'fish_21_whale','Пришелец':'fish_22_alien','НЛО':'fish_23_ufo','Галактика':'fish_24_galaxy','Звезда':'fish_25_star','Осетрина':'fish_26_sturgeon'};
 function fishPic(f, locked) {
   var img = FISH_IMG[f.name];
   if (img) return '<img class="fs-img'+(locked?' fs-sil':'')+'" src="img/fish/'+img+'.png" alt="">';
