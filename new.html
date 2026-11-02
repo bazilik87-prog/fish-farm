@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-02.r4">
+<meta name="ff-build" content="2026-11-02.r5">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -11,7 +11,7 @@
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top, 0px);touch-action:manipulation}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#272c47;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top, 0px);touch-action:manipulation}
 *{box-sizing:border-box}
 html{overflow-x:hidden;width:100%}
 #ocean{width:100%;height:180px;position:relative;overflow:hidden;cursor:pointer;border-bottom:3px solid #1565c0;-webkit-tap-highlight-color:transparent;transition:background 0.6s;touch-action:manipulation}
@@ -22,16 +22,16 @@ html{overflow-x:hidden;width:100%}
 @keyframes popfish{0%{transform:scale(.5);opacity:1}50%{transform:scale(1.4);opacity:1}100%{transform:scale(1) translateY(-50px);opacity:0}}
 @keyframes floatup{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-55px);opacity:0}}
 #hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;color:rgba(255,255,255,.7);text-align:center;pointer-events:none;transition:opacity .5s}
-#loc-bar{display:flex;overflow-x:auto;gap:6px;padding:8px 10px;background:#16213e;scrollbar-width:none}
+#loc-bar{display:flex;overflow-x:auto;gap:6px;padding:8px 10px;background:#243153;scrollbar-width:none}
 #loc-bar::-webkit-scrollbar{display:none}
 .loc-btn{flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid #0f3460;background:#0f3460;color:#90caf9;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 .loc-btn.active{background:#1565c0;border-color:#1565c0;color:#fff}
 .loc-btn.locked{opacity:.4;cursor:not-allowed}
-#stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 10px;background:#16213e}
+#stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 10px;background:#243153}
 .st{background:#0f3460;border-radius:10px;padding:5px 4px;text-align:center}
 .st b{display:block;font-size:15px;font-weight:700;color:#fff}
 .st span{font-size:10px;color:#90caf9}
-#tabs{display:grid;grid-template-columns:repeat(5,1fr);background:#16213e;border-bottom:1px solid #0f3460}
+#tabs{display:grid;grid-template-columns:repeat(5,1fr);background:#243153;border-bottom:1px solid #0f3460}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 2px 6px;text-align:center;font-size:22px;cursor:pointer;color:#90caf9;border-bottom:2px solid transparent;touch-action:manipulation}
 .tab .tab-label{font-size:9px;font-weight:600;line-height:1;letter-spacing:0.1px;white-space:nowrap}
 .tab.active{color:#FFD700;border-bottom-color:#FFD700}
@@ -40,7 +40,7 @@ html{overflow-x:hidden;width:100%}
 #tabs{display:none}
 body{padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
 .notif{bottom:calc(96px + env(safe-area-inset-bottom, 0px))}
-#bottom-nav{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));z-index:900;display:grid;grid-template-columns:repeat(5,1fr);background:rgba(13,20,36,.94);border:1px solid #1f2b45;border-radius:22px;padding:6px 4px;box-shadow:0 8px 28px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#bottom-nav{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));z-index:900;display:grid;grid-template-columns:repeat(5,1fr);background:rgba(13,20,36,.94);border:1px solid #2b3858;border-radius:22px;padding:6px 4px;box-shadow:0 8px 28px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0 4px;color:#8ea3bd;font-size:11px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;border-radius:16px}
 .bn-item svg{width:22px;height:22px}
 .bn-item.active{color:#4da3ff}
@@ -48,7 +48,7 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
 .more-head{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 12px}
 .more-head b{font-size:22px;font-weight:800;color:#fff}
 .more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.more-tile{position:relative;background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:14px 6px 12px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.more-tile{position:relative;background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:14px 6px 12px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .more-tile:active{transform:scale(.97)}
 .more-ico{width:46px;height:46px;border-radius:14px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 -3px 0 rgba(0,0,0,.18),0 4px 12px rgba(0,0,0,.35)}
 .more-ico svg{width:24px;height:24px}
@@ -64,39 +64,39 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
 @keyframes bkspark{0%,100%{opacity:.35;transform:scale(.7)}50%{opacity:1;transform:scale(1.1)}}
 .bk-kicker{font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#e0b45a}
 .bk-title{font-size:22px;font-weight:800;color:#fff;margin-top:4px}
-.bk-box{background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:14px 16px}
+.bk-box{background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:14px 16px}
 .bk-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bk-row+.bk-row{margin-top:8px}
 .bk-lbl{font-size:12px;font-weight:700;color:#8ea3bd}
 .bk-bal{font-size:12px;color:#8ea3bd}
 .bk-input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:#fff;font-size:30px;font-weight:800;padding:0;-moz-appearance:textfield}
 .bk-input::-webkit-outer-spin-button,.bk-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.bk-max{background:#13284a;color:#4da3ff;border:none;border-radius:12px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}
-.bk-chip{display:inline-flex;align-items:center;gap:6px;background:#1a2540;border-radius:20px;padding:6px 12px 6px 6px;font-size:13px;font-weight:700;color:#fff;white-space:nowrap}
+.bk-max{background:#22365b;color:#4da3ff;border:none;border-radius:12px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}
+.bk-chip{display:inline-flex;align-items:center;gap:6px;background:#273454;border-radius:20px;padding:6px 12px 6px 6px;font-size:13px;font-weight:700;color:#fff;white-space:nowrap}
 .bk-arrow{width:40px;height:40px;margin:-10px auto;position:relative;z-index:2;background:linear-gradient(180deg,#ffd46b,#f0a91f);border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 0 #a86f05,0 6px 16px rgba(0,0,0,.4)}
 .bk-arrow svg{width:20px;height:20px}
 .bk-box-get{padding-top:18px}
 .bk-get{font-size:30px;font-weight:800;color:#7cc0ff}
 .bk-get:before{content:'$';opacity:.7;margin-right:2px}
 .bk-info{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.bk-info div{background:#111a2e;border:1px solid #1f2b45;border-radius:14px;padding:10px 12px}
+.bk-info div{background:#202c47;border:1px solid #2b3858;border-radius:14px;padding:10px 12px}
 .bk-info span{display:block;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#8ea3bd}
 .bk-info b{display:block;font-size:13px;color:#ffc94d;margin-top:3px;white-space:nowrap}
 .bk-info b i{font-style:normal;font-size:10px;color:#c9a2ff}
 .bk-info .bk-ton{color:#9cc9ff}
 .bk-note{font-size:11px;color:#6f819b;margin:8px 4px 0;line-height:1.4}
 .bk-warn{font-size:11px;color:#ffc94d;background:#221a08;border:1px solid #4a3812;border-radius:12px;padding:8px 10px;margin-top:8px}
-.bk-wallet{width:100%;background:#111a2e;border:1px solid #1f2b45;border-radius:14px;padding:13px 14px;font-size:14px;color:#fff;outline:none}
+.bk-wallet{width:100%;background:#202c47;border:1px solid #2b3858;border-radius:14px;padding:13px 14px;font-size:14px;color:#fff;outline:none}
 .bk-wallet:focus,.bk-box:focus-within{border-color:#4da3ff}
 .bk-go{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(180deg,#ffd46b,#f5b324);color:#3a2400;border:none;border-radius:18px;padding:16px;font-size:15px;font-weight:800;text-transform:uppercase;cursor:pointer;box-shadow:0 4px 0 #a86f05,0 10px 24px rgba(245,179,36,.25)}
 .bk-go svg{width:20px;height:20px}
 .bk-go:active{transform:translateY(2px);box-shadow:0 2px 0 #a86f05}
 .bk-go[disabled]{opacity:.45}
-.bk-sec{width:100%;margin:14px 0 8px;display:flex;align-items:center;justify-content:space-between;background:#111a2e;border:1px solid #1f2b45;border-radius:16px;padding:14px 16px;color:#fff;font-size:14px;font-weight:700;cursor:pointer}
+.bk-sec{width:100%;margin:14px 0 8px;display:flex;align-items:center;justify-content:space-between;background:#202c47;border:1px solid #2b3858;border-radius:16px;padding:14px 16px;color:#fff;font-size:14px;font-weight:700;cursor:pointer}
 .bk-sec span{font-size:11px;font-weight:600;color:#8ea3bd}
-.bk-scope .card{background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:14px}
+.bk-scope .card{background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:14px}
 /* ── Ночной пруд (редизайн) ── */
-#sky{background:#070B22 !important}
+#sky{background:#19213e !important}
 #ocean{height:300px;border-bottom:none !important;border-radius:0 0 26px 26px;background:#070B22 !important;
   --s1:#070B22;--s2:#141E4A;--s3:#2A3A72;--h1:#0B1740;--h2:#071030;--w1:#1868A8;--w2:#0B3A66;--w3:#03101C}
 #ocean[data-loc="river"]{--s1:#06102a;--s2:#122a5c;--s3:#24508f;--h1:#0a2140;--h2:#061630;--w1:#1f78b8;--w2:#0d3f72;--w3:#03122a}
@@ -135,45 +135,45 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
 #hint{top:auto !important;bottom:22px;transform:translateX(-50%) !important;background:rgba(6,20,30,.55);border:1.5px solid rgba(77,163,255,.55);border-radius:22px;padding:10px 20px;color:#fff !important;font-size:14px !important;font-weight:700;white-space:nowrap}
 .plus-anim{color:#FFD36E !important;font-size:16px !important;text-shadow:0 1px 2px #3a2400}
 /* ── Верх под прудом (редизайн) ── */
-body{background:#0a0f1e !important}
+body{background:#1b243b !important}
 #bank-banner{display:none !important}
 #tournament-banner,#clantournament-banner,#bigfishing-banner,#vote-banner{margin:10px 10px 0 !important;border-radius:18px;padding:12px 14px !important;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-#tournament-banner{background:linear-gradient(120deg,#2a1240,#4a1d6e) !important;border:1px solid #6d3a9e}
+#tournament-banner{background:linear-gradient(120deg,#332654,#4a1d6e) !important;border:1px solid #6d3a9e}
 #clantournament-banner{background:linear-gradient(120deg,#3a0f14,#6e1d24) !important;border:1px solid #9e3a44}
 #bigfishing-banner{background:linear-gradient(120deg,#2e2106,#5a3e10) !important;border:1px solid #b8892c}
-#vote-banner{background:linear-gradient(120deg,#141a3d,#25306e) !important;border:1px solid #3a4a9e}
+#vote-banner{background:linear-gradient(120deg,#232c52,#25306e) !important;border:1px solid #3a4a9e}
 #bigfishing-banner-btn,#tournament-banner-btn,#clantournament-banner-btn{border-radius:14px !important;font-weight:800 !important}
 #bigfishing-banner-btn{background:linear-gradient(180deg,#ffd46b,#f0a91f) !important;color:#3a2400 !important}
 #bigfishing-banner-title{color:#ffe7a8 !important}
 #loc-bar{background:transparent;padding:12px 10px 6px}
-.loc-btn{background:#111a2e;border-color:#1f2b45;color:#8ea3bd;border-radius:14px;padding:7px 13px}
-.loc-btn.active{background:#13284a;border-color:#4da3ff;color:#4da3ff}
+.loc-btn{background:#202c47;border-color:#2b3858;color:#8ea3bd;border-radius:14px;padding:7px 13px}
+.loc-btn.active{background:#22365b;border-color:#4da3ff;color:#4da3ff}
 #next-loc-progress{background:transparent !important;padding:2px 0 0 !important}
-.nl-card{margin:0 10px 8px;padding:9px 12px;background:#111a2e;border:1px solid #1f2b45;border-radius:14px;font-size:11px;color:#8ea3bd}
+.nl-card{margin:0 10px 8px;padding:9px 12px;background:#202c47;border:1px solid #2b3858;border-radius:14px;font-size:11px;color:#8ea3bd}
 .nl-row{display:flex;justify-content:space-between;margin-bottom:6px}
 .nl-row b{color:#fff;font-weight:700}
-.nl-bar{background:#0a1222;border-radius:6px;height:6px;overflow:hidden}
+.nl-bar{background:#1b263e;border-radius:6px;height:6px;overflow:hidden}
 .nl-bar div{height:6px;border-radius:6px;background:linear-gradient(90deg,#2f7fe8,#4da3ff)}
 #energy-bar{background:transparent !important;padding:4px 10px 8px !important}
 .en-row{display:flex;align-items:center;gap:10px}
-.en-ico{width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#13284a;display:flex;align-items:center;justify-content:center}
+.en-ico{width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#22365b;display:flex;align-items:center;justify-content:center}
 .en-ico svg{width:16px;height:16px}
-.en-bar{flex:1;background:#111a2e;border:1px solid #1f2b45;border-radius:8px;height:12px;overflow:hidden}
+.en-bar{flex:1;background:#202c47;border:1px solid #2b3858;border-radius:8px;height:12px;overflow:hidden}
 .en-bar div{height:100%;border-radius:8px;transition:width .3s}
 .en-txt{font-size:13px;font-weight:800;color:#fff;min-width:58px;text-align:right}
 .en-txt span{color:#8ea3bd;font-weight:600}
 .en-empty{font-size:11px;color:#ff8a80;margin:4px 0 0 42px}
-#stats{background:#111a2e !important;border:1px solid #1f2b45;border-radius:18px;margin:0 10px 8px;padding:10px 4px !important;gap:0 !important}
+#stats{background:#202c47 !important;border:1px solid #2b3858;border-radius:18px;margin:0 10px 8px;padding:10px 4px !important;gap:0 !important}
 .st{background:transparent !important;border-radius:0 !important;padding:2px 2px !important}
-.st+.st{border-left:1px solid #1f2b45}
+.st+.st{border-left:1px solid #2b3858}
 .st b{font-size:17px !important;font-weight:800 !important}
 #s-coins{color:#ffc94d !important}
 .st span{font-size:10.5px !important;color:#8ea3bd !important}
 /* ── Апгрейды (редизайн) ── */
-.ug-seg{display:grid;grid-template-columns:repeat(3,1fr);background:#111a2e;border:1px solid #1f2b45;border-radius:16px;padding:4px;margin-bottom:10px}
+.ug-seg{display:grid;grid-template-columns:repeat(3,1fr);background:#202c47;border:1px solid #2b3858;border-radius:16px;padding:4px;margin-bottom:10px}
 .ug-seg div{text-align:center;padding:9px 0;border-radius:12px;font-size:13px;font-weight:700;color:#8ea3bd;cursor:pointer}
-.ug-seg div.on{background:#eef3ff;color:#0a0f1e}
-.ug-card{display:flex;align-items:center;gap:12px;background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:12px;margin-bottom:10px}
+.ug-seg div.on{background:#eef3ff;color:#1b243b}
+.ug-card{display:flex;align-items:center;gap:12px;background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:12px;margin-bottom:10px}
 .ug-card.can{border-color:#2f6fc8;box-shadow:inset 0 0 0 1px rgba(77,163,255,.12)}
 .ug-ico{width:54px;height:54px;flex-shrink:0;border-radius:16px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2),0 6px 14px rgba(0,0,0,.35)}
 .ug-ico svg{width:28px;height:28px}
@@ -181,27 +181,27 @@ body{background:#0a0f1e !important}
 .ug-name{font-size:15px;font-weight:800;color:#fff}
 .ug-name span{font-size:11px;font-weight:700;color:#8ea3bd;margin-left:4px}
 .ug-pips{display:flex;gap:4px;margin:6px 0}
-.ug-pips i{width:16px;height:4px;border-radius:2px;background:#24304a}
+.ug-pips i{width:16px;height:4px;border-radius:2px;background:#2e3c5b}
 .ug-pips i.on{background:#4da3ff}
 .ug-line{font-size:11.5px;color:#8ea3bd;line-height:1.35}
 .ug-line b{color:#7cc0ff}
-.ug-buy{flex-shrink:0;min-width:74px;background:#1a2540;border:none;border-radius:14px;padding:9px 8px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer}
+.ug-buy{flex-shrink:0;min-width:74px;background:#273454;border:none;border-radius:14px;padding:9px 8px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer}
 .ug-buy b{font-size:15px;font-weight:800;color:#ffc94d}
 .ug-buy span{font-size:10px;color:#8ea3bd}
 .ug-card.can .ug-buy{background:linear-gradient(180deg,#ffd46b,#f0a91f);box-shadow:0 3px 0 #a86f05}
 .ug-card.can .ug-buy b,.ug-card.can .ug-buy span{color:#3a2400}
 .ug-buy[disabled]{cursor:default}
 /* ── Рыбы (редизайн) ── */
-.fs-bulk{background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:14px;margin-bottom:14px}
+.fs-bulk{background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:14px;margin-bottom:14px}
 .fs-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
 .fs-head b{font-size:15px;color:#fff;font-weight:800}
 .fs-head span{font-size:11px;color:#8ea3bd}
 .fs-segs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.fs-seg{background:#0b1324;border:1px solid #1f2b45;border-radius:14px;padding:10px 6px;text-align:center}
+.fs-seg{background:#1c2740;border:1px solid #2b3858;border-radius:14px;padding:10px 6px;text-align:center}
 .fs-seg span{display:block;font-size:11px;color:#8ea3bd;font-weight:700}
 .fs-seg b{display:block;font-size:14px;color:#56657d;margin-top:3px}
 .fs-seg i{display:block;font-style:normal;font-size:10px;color:#4da3ff;margin-top:2px;font-weight:700}
-.fs-seg.on{border-color:#4da3ff;cursor:pointer;background:#0e1f3c}
+.fs-seg.on{border-color:#4da3ff;cursor:pointer;background:#1e2f51}
 .fs-seg.on b{color:#ffc94d}
 .fs-sellall{width:100%;margin-top:10px;background:linear-gradient(180deg,#6cb4ff,#3a86f0);color:#04142e;border:none;border-radius:16px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;box-shadow:0 4px 0 #1a56b0;cursor:pointer}
 .fs-sellall:active{transform:translateY(2px);box-shadow:0 2px 0 #1a56b0}
@@ -209,8 +209,8 @@ body{background:#0a0f1e !important}
 .fs-title{display:flex;justify-content:space-between;align-items:baseline;margin:4px 4px 10px}
 .fs-title b{font-size:15px;color:#fff;font-weight:800}
 .fs-title span{font-size:11px;color:#4da3ff;font-weight:700}
-.fs-card{display:flex;align-items:center;gap:12px;background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:10px 12px;margin-bottom:10px}
-.fs-pic{width:84px;height:56px;flex-shrink:0;border-radius:14px;background:radial-gradient(ellipse at center,#16304a,#0b1324);display:flex;align-items:center;justify-content:center}
+.fs-card{display:flex;align-items:center;gap:12px;background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:10px 12px;margin-bottom:10px}
+.fs-pic{width:84px;height:56px;flex-shrink:0;border-radius:14px;background:radial-gradient(ellipse at center,#243c5b,#1c2740);display:flex;align-items:center;justify-content:center}
 .fs-img{max-width:78px;max-height:46px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
 .fs-emo{font-size:34px}
 .fs-sil{filter:brightness(0) opacity(.45) !important}
@@ -218,36 +218,36 @@ body{background:#0a0f1e !important}
 .fs-name{font-size:15px;font-weight:800;color:#fff}
 .fs-tags{display:flex;gap:6px;margin:5px 0 6px;flex-wrap:wrap}
 .fs-tags span{font-size:10.5px;font-weight:700;border-radius:8px;padding:2px 8px}
-.fs-chance{background:#13284a;color:#4da3ff}
+.fs-chance{background:#22365b;color:#4da3ff}
 .fs-alive{background:#2e2106;color:#ffc94d}
-.fs-none{background:#1a2540;color:#6f819b}
+.fs-none{background:#273454;color:#6f819b}
 .fs-sub{font-size:11px;color:#8ea3bd;margin:4px 0 6px}
-.fs-bar{height:4px;background:#0b1324;border-radius:3px;overflow:hidden}
+.fs-bar{height:4px;background:#1c2740;border-radius:3px;overflow:hidden}
 .fs-bar div{height:4px;background:linear-gradient(90deg,#2f7fe8,#4da3ff);border-radius:3px}
 .fs-locked .fs-name{color:#6f819b}
 .fs-locked .fs-bar div{background:linear-gradient(90deg,#b8892c,#ffc94d)}
 .fs-lock{font-size:16px;opacity:.6}
 /* ── Кухня (редизайн) ── */
 .kt-top{display:flex;gap:8px;align-items:stretch;margin-bottom:10px}
-.kt-chip{flex:1;display:flex;align-items:center;gap:6px;background:#111a2e;border:1px solid #1f2b45;border-radius:14px;padding:8px 10px;color:#4da3ff}
+.kt-chip{flex:1;display:flex;align-items:center;gap:6px;background:#202c47;border:1px solid #2b3858;border-radius:14px;padding:8px 10px;color:#4da3ff}
 .kt-chip svg{width:18px;height:18px;flex-shrink:0}
 .kt-chip span{font-size:11px;color:#8ea3bd;font-weight:700}
 .kt-chip b{margin-left:auto;font-size:16px;color:#fff}
 .kt-chip.zero{color:#ff8a80}
 .kt-chip.zero b{color:#ff8a80}
 .kt-buy{flex-shrink:0;background:linear-gradient(180deg,#ffd46b,#f0a91f);color:#3a2400;border:none;border-radius:14px;padding:0 12px;font-size:11.5px;font-weight:800;box-shadow:0 3px 0 #a86f05;cursor:pointer;max-width:110px;line-height:1.2}
-.kt-flow{background:#111a2e;border:1px solid #1f2b45;border-left:3px solid #ffc94d;border-radius:14px;padding:9px 12px;margin-bottom:8px}
+.kt-flow{background:#202c47;border:1px solid #2b3858;border-left:3px solid #ffc94d;border-radius:14px;padding:9px 12px;margin-bottom:8px}
 .kt-flow b{font-size:12.5px;color:#fff}
 .kt-flow div{font-size:11px;color:#8ea3bd;margin-top:2px}
 .kt-flow2{border-left-color:#4da3ff}
-.kt-scope .card{background:#111a2e !important;border:1px solid #1f2b45;border-radius:18px;padding:14px}
-.kt-scope div[style*="background:#1a1a3a"]{background:#0b1324 !important;border:1px solid #1f2b45;border-radius:14px !important}
-.kt-scope div[style*="background:#1a1a2e"]{background:#16213a !important}
+.kt-scope .card{background:#202c47 !important;border:1px solid #2b3858;border-radius:18px;padding:14px}
+.kt-scope div[style*="background:#272c50"]{background:#1c2740 !important;border:1px solid #2b3858;border-radius:14px !important}
+.kt-scope div[style*="background:#272c47"]{background:#243150 !important}
 .kt-scope .btn-green{background:linear-gradient(180deg,#6cb4ff,#3a86f0) !important;color:#04142e !important;font-weight:800 !important;border-radius:12px !important}
-.kt-sec{background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:12px;margin:12px 0}
+.kt-sec{background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:12px;margin:12px 0}
 .kt-sec-h{font-size:14px;font-weight:800;color:#ffc94d;margin:2px 2px 6px}
 .kt-sec-h.kt-g{color:#4da3ff}
-.kt-row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #1a2540}
+.kt-row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #273454}
 .kt-sec-h+.kt-row{border-top:none}
 .kt-pic{width:64px;height:44px}
 .kt-pic .fs-img{max-width:58px;max-height:36px}
@@ -258,35 +258,35 @@ body{background:#0a0f1e !important}
 .kt-time{font-size:10.5px;color:#8ea3bd;margin-top:2px}
 .kt-need{font-size:10.5px;color:#6f819b;margin-top:4px}
 .kt-ctl{display:flex;align-items:center;gap:5px;margin-top:8px;flex-wrap:wrap}
-.kt-ctl button{background:#1a2540;border:none;color:#fff;border-radius:10px;min-width:30px;height:30px;font-size:16px;font-weight:700;cursor:pointer}
+.kt-ctl button{background:#273454;border:none;color:#fff;border-radius:10px;min-width:30px;height:30px;font-size:16px;font-weight:700;cursor:pointer}
 .kt-ctl b{min-width:44px;text-align:center;font-size:15px;color:#ffc94d}
 .kt-ctl b small{font-size:9px;color:#8ea3bd;font-weight:600}
 .kt-ctl .kt-mx{font-size:10.5px;padding:0 8px;color:#4da3ff}
 .kt-ctl .kt-go{margin-left:auto;padding:0 12px;font-size:12px;font-weight:800;background:linear-gradient(180deg,#6cb4ff,#3a86f0);color:#04142e;box-shadow:0 3px 0 #1a56b0}
-.kt-ctl .kt-go.off{background:#1a2540;color:#ff8a80;box-shadow:none}
-.kt-empty{background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:20px;text-align:center;color:#8ea3bd;font-size:13px;margin-top:12px}
+.kt-ctl .kt-go.off{background:#273454;color:#ff8a80;box-shadow:none}
+.kt-empty{background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:20px;text-align:center;color:#8ea3bd;font-size:13px;margin-top:12px}
 .kt-empty div{font-size:11px;color:#4da3ff;margin-top:6px}
 .kt-scope .badge{background:#2e2106;color:#ffc94d;border-radius:8px}
 /* ── Рынок (редизайн) ── */
-.mk-head{display:flex;align-items:center;gap:10px;background:#111a2e;border:1px solid #1f2b45;border-radius:16px;padding:10px 12px;margin-bottom:10px}
+.mk-head{display:flex;align-items:center;gap:10px;background:#202c47;border:1px solid #2b3858;border-radius:16px;padding:10px 12px;margin-bottom:10px}
 .mk-ring{width:34px;height:34px;border-radius:50%;border:2px solid #ffc94d;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .mk-head b{display:block;font-size:12.5px;color:#fff}
 .mk-head b span{color:#ffc94d}
 .mk-head div>span{display:block;font-size:10.5px;color:#8ea3bd;margin-top:2px}
 .mk-trs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
 .mk-scope .mk-trs .btn{padding:10px 6px;border-radius:14px;font-size:12px}
-.mk-scope .mk-trs .btn[disabled]{opacity:1;background:#0b1324;border:1px dashed #2a3a5c;color:#8ea3bd}
-.mk-scope div[onclick^="selectFish"]{background:#0b1324 !important;border:1.5px solid #1f2b45 !important;border-radius:16px !important;padding:8px 10px !important}
+.mk-scope .mk-trs .btn[disabled]{opacity:1;background:#1c2740;border:1px dashed #2a3a5c;color:#8ea3bd}
+.mk-scope div[onclick^="selectFish"]{background:#1c2740 !important;border:1.5px solid #2b3858 !important;border-radius:16px !important;padding:8px 10px !important}
 .mk-scope div[onclick^="selectFish"][style*="#FFD700"]{border-color:#ffc94d !important;background:#221a08 !important}
-.mk-scope div[onclick^="selectFish"][style*="#6ddc6d"]{border-color:#4da3ff !important;background:#0e1f3c !important}
+.mk-scope div[onclick^="selectFish"][style*="#6ddc6d"]{border-color:#4da3ff !important;background:#1e2f51 !important}
 .mk-pic{width:64px;height:44px;position:relative}
 .mk-pic .fs-img{max-width:58px;max-height:36px}
 .mk-pic .fs-emo{font-size:26px}
 .mk-tag{position:absolute;bottom:-4px;right:-4px;font-style:normal;font-size:9px;font-weight:800;background:#2e2106;color:#ffc94d;border-radius:6px;padding:1px 5px}
-.mk-tag2{background:#13284a;color:#4da3ff}
-.mk-scope div[style*="background:#0a2a0a"]{background:#111a2e !important;border:1px solid #1f2b45}
-.mk-scope div[style*="background:#0a1a2a"]{background:#0b1324 !important;border:1px solid #1f2b45;border-radius:14px !important}
-.mk-scope div[style*="background:#1a1a2e"]{background:#16213a !important}
+.mk-tag2{background:#22365b;color:#4da3ff}
+.mk-scope div[style*="background:#0a2a0a"]{background:#202c47 !important;border:1px solid #2b3858}
+.mk-scope div[style*="background:#1b2c44"]{background:#1c2740 !important;border:1px solid #2b3858;border-radius:14px !important}
+.mk-scope div[style*="background:#272c47"]{background:#243150 !important}
 .mk-scope div[style*="background:#1565c0"]{background:linear-gradient(90deg,#2f7fe8,#4da3ff) !important}
 /* ── Бонус дня (редизайн) ── */
 .dl-hero{text-align:center;padding:4px 0 12px}
@@ -299,22 +299,22 @@ body{background:#0a0f1e !important}
 .dl-title{font-size:20px;font-weight:800;color:#fff;margin-top:4px}
 .dl-sub{font-size:12px;color:#e0b45a;margin-top:3px}
 .dl-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
-.dl-day{background:#111a2e;border:1px solid #1f2b45;border-radius:14px;padding:10px 4px;text-align:center}
+.dl-day{background:#202c47;border:1px solid #2b3858;border-radius:14px;padding:10px 4px;text-align:center}
 .dl-day span{display:block;font-size:10px;font-weight:700;color:#8ea3bd;text-transform:uppercase;letter-spacing:.3px}
 .dl-day b{display:block;font-size:15px;color:#fff;margin-top:4px}
-.dl-day.done{background:#0e1f3c;border-color:#24508c}
+.dl-day.done{background:#1e2f51;border-color:#24508c}
 .dl-day.done b{color:#4da3ff}
 .dl-day.cur{background:#2e2106;border:1.5px solid #ffc94d;box-shadow:0 0 16px rgba(255,201,77,.18)}
 .dl-day.cur span,.dl-day.cur b{color:#ffc94d}
-.dl-day.last{grid-column:span 2;display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(120deg,#24124a,#3d1d72);border-color:#6d43e0}
+.dl-day.last{grid-column:span 2;display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(120deg,#2e265b,#3d1d72);border-color:#6d43e0}
 .dl-day.last span{color:#c9a2ff}
 .dl-day.last b{color:#ffc94d;font-size:17px}
-.dl-day.last.done{background:#0e1f3c}
+.dl-day.last.done{background:#1e2f51}
 .dl-chest{flex-shrink:0;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
 .dl-warn{background:#2a1208;border:1px solid #6e3a1d;border-radius:14px;padding:10px;text-align:center;font-size:12px;color:#ff9944;margin-bottom:10px}
 .dl-claim{width:100%;background:linear-gradient(180deg,#ffd46b,#f5b324);color:#3a2400;border:none;border-radius:18px;padding:16px;font-size:16px;font-weight:800;text-transform:uppercase;box-shadow:0 4px 0 #a86f05,0 10px 24px rgba(245,179,36,.25);cursor:pointer}
 .dl-claim:active{transform:translateY(2px);box-shadow:0 2px 0 #a86f05}
-.dl-next{background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:14px;text-align:center}
+.dl-next{background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:14px;text-align:center}
 .dl-next span{display:block;font-size:12px;color:#8ea3bd}
 .dl-next b{display:block;font-size:24px;color:#ffc94d;margin-top:4px}
 .dl-note{font-size:11px;color:#6f819b;text-align:center;margin-top:10px}
@@ -322,20 +322,20 @@ body{background:#0a0f1e !important}
 .qs-head{display:flex;justify-content:space-between;align-items:baseline;margin:2px 4px 10px}
 .qs-head b{font-size:16px;color:#fff;font-weight:800}
 .qs-head span{font-size:11px;color:#8ea3bd}
-.qs-row{display:flex;align-items:center;gap:12px;background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:12px;margin-bottom:8px}
-.qs-ico{width:40px;height:40px;flex-shrink:0;border-radius:12px;background:#1a2540;color:#8ea3bd;display:flex;align-items:center;justify-content:center}
+.qs-row{display:flex;align-items:center;gap:12px;background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:12px;margin-bottom:8px}
+.qs-ico{width:40px;height:40px;flex-shrink:0;border-radius:12px;background:#273454;color:#8ea3bd;display:flex;align-items:center;justify-content:center}
 .qs-ico svg{width:20px;height:20px}
 .qs-inf{flex:1;min-width:0}
 .qs-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .qs-top b{font-size:13px;color:#fff;font-weight:700}
 .qs-top span{font-size:12px;font-weight:800;color:#4da3ff;white-space:nowrap}
-.qs-bar{height:5px;background:#0b1324;border-radius:3px;margin-top:8px;overflow:hidden}
+.qs-bar{height:5px;background:#1c2740;border-radius:3px;margin-top:8px;overflow:hidden}
 .qs-bar div{height:5px;border-radius:3px;background:linear-gradient(90deg,#2f7fe8,#4da3ff)}
-.qs-row.done{background:#0e1f3c;border-color:#24508c}
-.qs-row.done .qs-ico{background:#13284a;color:#4da3ff}
+.qs-row.done{background:#1e2f51;border-color:#24508c}
+.qs-row.done .qs-ico{background:#22365b;color:#4da3ff}
 .qs-row.done .qs-top b{color:#d2e6ff}
 .qs-final{display:flex;align-items:center;gap:12px;margin-top:12px;background:linear-gradient(120deg,#2e2106,#4a340c);border:1px solid #b8892c;border-radius:20px;padding:14px}
-.qs-final.done{background:linear-gradient(120deg,#0e1f3c,#16305a);border-color:#4da3ff}
+.qs-final.done{background:linear-gradient(120deg,#1e2f51,#16305a);border-color:#4da3ff}
 .qs-chest{flex-shrink:0;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
 .qs-fin{flex:1}
 .qs-fin span{display:block;font-size:11px;color:#e0b45a;font-weight:700}
@@ -347,23 +347,23 @@ body{background:#0a0f1e !important}
 .qs-segs i.on{background:#ffc94d}
 .qs-final.done .qs-segs i.on{background:#4da3ff}
 .qs-steps{display:flex;align-items:center;gap:6px;margin:0 2px 10px;font-size:11px;font-weight:700;color:#8ea3bd}
-.qs-steps span{background:#111a2e;border:1px solid #1f2b45;border-radius:10px;padding:5px 9px}
+.qs-steps span{background:#202c47;border:1px solid #2b3858;border-radius:10px;padding:5px 9px}
 .qs-steps span:last-of-type{background:#2e2106;border-color:#b8892c;color:#ffc94d}
 .qs-steps i{font-style:normal;color:#56657d}
-.sc-row{display:flex;align-items:center;gap:10px;background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:10px 12px;margin-bottom:8px}
+.sc-row{display:flex;align-items:center;gap:10px;background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:10px 12px;margin-bottom:8px}
 .sc-av{width:40px;height:40px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px}
 .sc-inf{flex:1;min-width:0}
 .sc-inf b{display:block;font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sc-inf span{font-size:11px;color:#4da3ff;font-weight:700}
-.sc-go{background:#1a2540;color:#fff;border-radius:12px;padding:9px 12px;font-size:12px;font-weight:700;text-decoration:none;flex-shrink:0}
+.sc-go{background:#273454;color:#fff;border-radius:12px;padding:9px 12px;font-size:12px;font-weight:700;text-decoration:none;flex-shrink:0}
 .sc-chk{width:38px;height:36px;flex-shrink:0;border:none;border-radius:12px;background:linear-gradient(180deg,#ffd46b,#f0a91f);color:#3a2400;font-size:16px;font-weight:900;box-shadow:0 3px 0 #a86f05;cursor:pointer}
-.sc-ok{width:38px;height:36px;flex-shrink:0;border-radius:12px;background:#13284a;color:#4da3ff;display:flex;align-items:center;justify-content:center;font-weight:900}
+.sc-ok{width:38px;height:36px;flex-shrink:0;border-radius:12px;background:#22365b;color:#4da3ff;display:flex;align-items:center;justify-content:center;font-weight:900}
 .sc-row.done{opacity:.7}
 /* ── Бустеры (редизайн) ── */
 .bs-head{margin:2px 4px 10px}
 .bs-head b{display:block;font-size:20px;color:#fff;font-weight:800}
 .bs-head span{font-size:11.5px;color:#8ea3bd}
-.bs-card{background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:14px;margin-bottom:10px}
+.bs-card{background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:14px;margin-bottom:10px}
 .bs-row{display:flex;align-items:center;gap:12px}
 .bs-ico{width:48px;height:48px;flex-shrink:0;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2),0 4px 12px rgba(0,0,0,.35)}
 .bs-ico svg{width:24px;height:24px}
@@ -375,8 +375,8 @@ body{background:#0a0f1e !important}
 .bs-energy{border-color:#24508c}
 .bs-2btn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bs-2btn .btn{padding:12px 6px;font-size:12.5px;border-radius:14px}
-.bs-ad{background:#1a2540 !important;border:1px solid #2a3a5c}
-.bs-lottery{background:linear-gradient(140deg,#1e1038,#341a66);border-color:#6d43e0}
+.bs-ad{background:#273454 !important;border:1px solid #2a3a5c}
+.bs-lottery{background:linear-gradient(140deg,#2a254e,#341a66);border-color:#6d43e0}
 .bs-wheel{flex-shrink:0;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))}
 .bs-spinner{transform-origin:48px 48px;animation:dlspin 18s linear infinite}
 .bs-prizes{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0}
@@ -388,17 +388,17 @@ body{background:#0a0f1e !important}
 .bs-sec span{font-size:11px;color:#ffc94d;font-weight:700}
 .bs-note{font-size:11px;color:#8ea3bd;margin:4px 0 10px}
 .bs-weather{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.bs-weather .btn{background:#0b1324;border:1px solid #1f2b45;font-size:12px;padding:9px 4px;border-radius:12px}
-.bs-weather .btn.cur{background:#13284a;border-color:#4da3ff;color:#4da3ff;opacity:1}
-.bs-umb{width:100%;margin-top:10px;background:#0b1324 !important;border:1px dashed #b8892c;color:#ffc94d !important;padding:10px;border-radius:14px}
+.bs-weather .btn{background:#1c2740;border:1px solid #2b3858;font-size:12px;padding:9px 4px;border-radius:12px}
+.bs-weather .btn.cur{background:#22365b;border-color:#4da3ff;color:#4da3ff;opacity:1}
+.bs-umb{width:100%;margin-top:10px;background:#1c2740 !important;border:1px dashed #b8892c;color:#ffc94d !important;padding:10px;border-radius:14px}
 .bs-item{display:flex;align-items:center;gap:12px;padding:12px}
-.bs-item.on{border-color:#24508c;background:#0e1f3c}
+.bs-item.on{border-color:#24508c;background:#1e2f51}
 .bs-buy{flex-shrink:0;min-width:64px;padding:10px 8px;border-radius:14px;font-size:13px}
-.bs-buy[disabled]{opacity:1;background:#0b1324 !important;color:#6f819b !important;box-shadow:none;border:1px solid #1f2b45;font-size:11.5px}
+.bs-buy[disabled]{opacity:1;background:#1c2740 !important;color:#6f819b !important;box-shadow:none;border:1px solid #2b3858;font-size:11.5px}
 .bs-item.on .bs-buy[disabled]{color:#4da3ff !important;border-color:#24508c}
 .bs-foot{font-size:11px;color:#6f819b;text-align:center;line-height:1.7;margin-top:4px}
 /* ── Лидеры (редизайн) ── */
-.lb-tour{background:linear-gradient(140deg,#1e1038,#341a66);border:1px solid #6d43e0;border-radius:20px;padding:14px;margin-bottom:12px}
+.lb-tour{background:linear-gradient(140deg,#2a254e,#341a66);border:1px solid #6d43e0;border-radius:20px;padding:14px;margin-bottom:12px}
 .lb-trow{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12.5px}
 .lb-trow i{font-style:normal;min-width:26px;text-align:center}
 .lb-trow span{flex:1;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -408,11 +408,11 @@ body{background:#0a0f1e !important}
 .lb-p{text-align:center;position:relative;min-width:0}
 .lb-crown{font-size:20px;margin-bottom:-4px}
 .lb-av{width:36px;height:36px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px}
-.lb-av.big{width:52px;height:52px;font-size:20px;margin:0 auto;border:3px solid #0a0f1e;box-shadow:0 0 0 2px #8ea3bd}
+.lb-av.big{width:52px;height:52px;font-size:20px;margin:0 auto;border:3px solid #1b243b;box-shadow:0 0 0 2px #8ea3bd}
 .lb-p1 .lb-av.big{width:62px;height:62px;box-shadow:0 0 0 3px #ffc94d,0 0 20px rgba(255,201,77,.35)}
 .lb-pname{font-size:12px;font-weight:800;color:#fff;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lb-pval{font-size:11px;color:#4da3ff;font-weight:700;margin:2px 0 6px}
-.lb-step{border-radius:14px 14px 4px 4px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#24304a,#141d33);border:1px solid #2a3a5c}
+.lb-step{border-radius:14px 14px 4px 4px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#2e3c5b,#232e4a);border:1px solid #2a3a5c}
 .lb-step b{font-size:24px;font-weight:900;color:#8ea3bd}
 .lb-p1 .lb-step{height:84px;background:linear-gradient(180deg,#6b4a0e,#3a2806);border-color:#b8892c}
 .lb-p1 .lb-step b{color:#ffc94d;font-size:30px}
@@ -420,7 +420,7 @@ body{background:#0a0f1e !important}
 .lb-p3 .lb-step{height:48px;background:linear-gradient(180deg,#5a3014,#2e1a0a);border-color:#8a4e22}
 .lb-p3 .lb-step b{color:#ff9a4d}
 .lb-p.me .lb-pname{color:#ffc94d}
-.lb-row{display:flex;align-items:center;gap:10px;background:#111a2e;border:1px solid #1f2b45;border-radius:16px;padding:9px 12px;margin-bottom:6px}
+.lb-row{display:flex;align-items:center;gap:10px;background:#202c47;border:1px solid #2b3858;border-radius:16px;padding:9px 12px;margin-bottom:6px}
 .lb-row i{font-style:normal;font-size:12px;font-weight:800;color:#56657d;min-width:22px;text-align:center}
 .lb-inf{flex:1;min-width:0}
 .lb-inf b{display:block;font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -433,49 +433,49 @@ body{background:#0a0f1e !important}
 /* ── Клан (редизайн): шапка «без клана» + перекраска всех клановых экранов через .cl-scope ── */
 .cl-hero{text-align:center;padding:6px 0 14px}
 .cl-emblem{width:120px;height:136px;display:block;margin:0 auto;filter:drop-shadow(0 10px 24px rgba(255,90,60,.25))}
-.cl-create input{background:#0b1324 !important;border:1px solid #1f2b45 !important;border-radius:14px !important;padding:13px 14px !important;color:#fff !important;font-size:15px !important}
+.cl-create input{background:#1c2740 !important;border:1px solid #2b3858 !important;border-radius:14px !important;padding:13px 14px !important;color:#fff !important;font-size:15px !important}
 .cl-create input:focus{border-color:#4da3ff !important;outline:none}
 .cl-or{text-align:center;font-size:11px;color:#56657d;margin:10px 0;text-transform:uppercase;letter-spacing:1px}
-.cl-join{background:#1a2540 !important;border:1px solid #2a3a5c}
-.cl-scope div[style*="background:#0f3460"],.cl-scope button[style*="background:#0f3460"]{background:#0b1324 !important;border:1px solid #1f2b45}
-.cl-scope div[style*="background:#0f1f35"],.cl-scope div[style*="background:#1a3a5a"],.cl-scope div[style*="background:#2a2a4a"]{background:#0b1324 !important;border:1px solid #1f2b45}
+.cl-join{background:#273454 !important;border:1px solid #2a3a5c}
+.cl-scope div[style*="background:#0f3460"],.cl-scope button[style*="background:#0f3460"]{background:#1c2740 !important;border:1px solid #2b3858}
+.cl-scope div[style*="background:#1f2f4c"],.cl-scope div[style*="background:#1a3a5a"],.cl-scope div[style*="background:#33385b"]{background:#1c2740 !important;border:1px solid #2b3858}
 .cl-scope [style*="background:#5a1a1a"]{background:#2a1214 !important;border:1px solid #6e1d24 !important;color:#ff8a80 !important}
 .cl-scope [style*="background:#6a4520"]{background:#2e2106 !important;border:1px solid #b8892c !important;color:#ffc94d !important}
 .cl-scope [style*="background:#1565c0"]{background:linear-gradient(90deg,#2f7fe8,#4da3ff) !important}
-.cl-scope [style*="border:1px solid #2a4a6a"]{border-color:#1f2b45 !important}
-.cl-scope input{background:#0b1324 !important;border:1px solid #1f2b45 !important;border-radius:12px !important;color:#fff !important}
+.cl-scope [style*="border:1px solid #2a4a6a"]{border-color:#2b3858 !important}
+.cl-scope input{background:#1c2740 !important;border:1px solid #2b3858 !important;border-radius:12px !important;color:#fff !important}
 /* ── Настройки / профиль (редизайн) ── */
-.st-prof{background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:14px;margin-bottom:10px}
+.st-prof{background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:14px;margin-bottom:10px}
 .st-top{display:flex;align-items:center;gap:12px}
 .st-who{flex:1;min-width:0}
 .st-who b{display:block;font-size:17px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .st-who span{font-size:11px;color:#8ea3bd}
-.st-edit{width:38px;height:38px;border:none;border-radius:12px;background:#1a2540;font-size:15px;cursor:pointer}
+.st-edit{width:38px;height:38px;border:none;border-radius:12px;background:#273454;font-size:15px;cursor:pointer}
 .st-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
-.st-grid div{background:#0b1324;border:1px solid #1f2b45;border-radius:14px;padding:9px 6px;text-align:center}
+.st-grid div{background:#1c2740;border:1px solid #2b3858;border-radius:14px;padding:9px 6px;text-align:center}
 .st-grid b{display:block;font-size:15px;color:#fff;font-weight:800}
 .st-grid b.gold{color:#ffc94d}
 .st-grid span{font-size:10px;color:#8ea3bd}
-.st-prem{background:linear-gradient(140deg,#24124a,#3d1d72) !important;border:1px solid #6d43e0 !important}
+.st-prem{background:linear-gradient(140deg,#2e265b,#3d1d72) !important;border:1px solid #6d43e0 !important}
 .st-prem.on{background:linear-gradient(140deg,#2e2106,#4a340c) !important;border-color:#b8892c !important}
 .st-prem-h{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .st-prem-h b{display:block;font-size:15px;color:#fff}
 .st-prem-h span{font-size:11px;color:#c9a2ff}
 .st-crown{width:42px;height:42px;border-radius:12px;background:linear-gradient(180deg,#ffd46b,#f0a91f);display:flex;align-items:center;justify-content:center;font-size:22px}
 .st-prem-buy{background:linear-gradient(180deg,#c08bff,#8a5ae0) !important;color:#fff !important;box-shadow:0 3px 0 #5a32a8}
-.st-menu{background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:4px 12px;margin-bottom:10px}
-.st-row{display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;border-top:1px solid #1a2540}
+.st-menu{background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:4px 12px;margin-bottom:10px}
+.st-row{display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;border-top:1px solid #273454}
 .st-row:first-child{border-top:none}
 .st-mi{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px}
 .st-row b{flex:1;font-size:14px;color:#fff}
 .st-row i{font-style:normal;color:#56657d;font-size:20px}
-.st-cnt{font-size:11px;color:#8ea3bd;background:#1a2540;border-radius:8px;padding:2px 7px}
-.st-ref{background:#111a2e;border:1px solid #24508c;border-radius:20px;padding:14px;margin-bottom:10px}
-.st-friends{margin-top:8px;background:#0b1324 !important;border:1px solid #1f2b45}
-.st-lang{display:flex;align-items:center;gap:8px;background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:10px 12px;margin-bottom:10px}
+.st-cnt{font-size:11px;color:#8ea3bd;background:#273454;border-radius:8px;padding:2px 7px}
+.st-ref{background:#202c47;border:1px solid #24508c;border-radius:20px;padding:14px;margin-bottom:10px}
+.st-friends{margin-top:8px;background:#1c2740 !important;border:1px solid #2b3858}
+.st-lang{display:flex;align-items:center;gap:8px;background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:10px 12px;margin-bottom:10px}
 .st-lang span{flex:1;font-size:13px;color:#fff;font-weight:700}
-.st-lang button{background:#0b1324;border:1px solid #1f2b45;color:#8ea3bd;border-radius:12px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer}
-.st-lang button.on{background:#13284a;border-color:#4da3ff;color:#4da3ff}
+.st-lang button{background:#1c2740;border:1px solid #2b3858;color:#8ea3bd;border-radius:12px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer}
+.st-lang button.on{background:#22365b;border-color:#4da3ff;color:#4da3ff}
 .st-reset{background:#1c0d10;border:1px solid #4a1d24;border-radius:20px;padding:14px;margin-bottom:10px}
 .st-reset b{display:block;font-size:13px;color:#ff8a80}
 .st-reset span{display:block;font-size:11px;color:#b07070;margin:3px 0 10px}
@@ -486,25 +486,25 @@ body > div[style*="z-index: 9999"] > div,body > div[style*="z-index:9999"] > div
 html.modal-open,html.modal-open body{overflow:hidden !important}
 .bf-box{max-height:100%}
 /* ── Всплывающие окна (редизайн) ── */
-div[style*="background:#0d1b2e"],div[style*="background:#0f3460;border-radius:16px;padding:24px"],div[style*="background:#0f1f35;border:1px solid #f44336"]{background:linear-gradient(180deg,#141f36,#0b1324) !important;border-radius:24px !important;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+div[style*="background:#1d2d47"],div[style*="background:#0f3460;border-radius:16px;padding:24px"],div[style*="background:#1f2f4c;border:1px solid #f44336"]{background:linear-gradient(180deg,#232f4d,#1c2740) !important;border-radius:24px !important;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 div[style*="background:#0f3460;border-radius:16px;padding:24px"]{border:1px solid #2a3a5c}
-.bf-box{position:relative;background:linear-gradient(180deg,#2a1d06 0%,#141f36 38%,#0b1324 100%);border:1px solid #b8892c;border-radius:26px;padding:18px 16px 14px;max-width:360px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.bf-box{position:relative;background:linear-gradient(180deg,#2a1d06 0%,#232f4d 38%,#1c2740 100%);border:1px solid #b8892c;border-radius:26px;padding:18px 16px 14px;max-width:360px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 .bf-x{position:absolute;top:12px;left:12px;width:34px;height:34px;border:none;border-radius:12px;background:rgba(0,0,0,.35);color:#fff;font-size:14px;cursor:pointer;z-index:2}
 .bf-live{position:absolute;top:14px;right:14px;font-size:11px;font-weight:800;color:#ff8a80;background:rgba(229,72,77,.15);border:1px solid #e5484d;border-radius:12px;padding:4px 10px;text-transform:uppercase}
 .bf-hero{text-align:center;padding:8px 0 12px}
 .bf-cup{width:110px;height:110px;display:block;margin:6px auto 0;filter:drop-shadow(0 8px 24px rgba(255,201,77,.35))}
 .bf-bank{display:inline-block;margin-top:10px;border:1px solid #b8892c;border-radius:16px;padding:8px 16px;font-size:12px;color:#e0b45a;font-weight:700;text-transform:uppercase}
 .bf-bank b{font-size:24px;color:#fff;margin:0 4px;vertical-align:-2px}
-.bf-ring-row{display:flex;align-items:center;gap:14px;background:#111a2e;border:1px solid #1f2b45;border-radius:20px;padding:12px;margin-bottom:10px}
+.bf-ring-row{display:flex;align-items:center;gap:14px;background:#202c47;border:1px solid #2b3858;border-radius:20px;padding:12px;margin-bottom:10px}
 .bf-ring{width:64px;height:64px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
-.bf-ring>div{width:50px;height:50px;border-radius:50%;background:#111a2e;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.bf-ring>div{width:50px;height:50px;border-radius:50%;background:#202c47;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .bf-ring b{font-size:18px;color:#fff;line-height:1}
 .bf-ring span{font-size:9px;color:#8ea3bd}
 .bf-ring-t b{display:block;font-size:13.5px;color:#fff}
 .bf-ring-t span{font-size:11px;color:#8ea3bd}
-.bf-status{background:#111a2e;border:1px solid #1f2b45;border-radius:16px;padding:10px;text-align:center;margin-bottom:10px;color:#ffc94d;font-weight:700;font-size:12px}
-.bf-box div[style*="background:#1a1200"],.bf-box div[style*="background:linear-gradient(135deg,#3a2400"]{background:#111a2e !important;border:1px solid #1f2b45;border-radius:16px !important}
-.bk-scope .card .btn{background:#0b1324 !important;border:1px solid #2a3a5c !important;border-radius:14px}
+.bf-status{background:#202c47;border:1px solid #2b3858;border-radius:16px;padding:10px;text-align:center;margin-bottom:10px;color:#ffc94d;font-weight:700;font-size:12px}
+.bf-box div[style*="background:#1a1200"],.bf-box div[style*="background:linear-gradient(135deg,#3a2400"]{background:#202c47 !important;border:1px solid #2b3858;border-radius:16px !important}
+.bk-scope .card .btn{background:#1c2740 !important;border:1px solid #2a3a5c !important;border-radius:14px}
 
 .card{background:#0f3460;border-radius:12px;padding:12px;margin-bottom:8px}
 .upg{display:flex;align-items:center;gap:10px;background:#0f3460;border-radius:12px;padding:10px 12px;margin-bottom:8px}
@@ -515,7 +515,7 @@ div[style*="background:#0f3460;border-radius:16px;padding:24px"]{border:1px soli
 .fish-item{display:flex;align-items:center;gap:10px;background:#0f3460;border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .fish-item .ico{font-size:22px;width:30px;text-align:center}
 .fish-item .inf{flex:1}
-.bar-bg{height:5px;background:#1a1a2e;border-radius:3px;margin-top:5px}
+.bar-bg{height:5px;background:#272c47;border-radius:3px;margin-top:5px}
 .bar-fill{height:5px;border-radius:3px;transition:width .3s}
 .locked-item{opacity:.4;filter:grayscale(1)}
 .badge{font-size:10px;background:#1565c0;color:#90caf9;padding:2px 7px;border-radius:6px;white-space:nowrap;display:inline-block}
@@ -544,16 +544,16 @@ div[style*="background:#0f3460;border-radius:16px;padding:24px"]{border:1px soli
 .day-cell.done{background:#0a2a0a;border-color:#2d6a4f}
 .day-cell.current{border:2px solid #FFD700}
 /* ── Редизайн: общие карточки и кнопки (после старых правил, чтобы перекрыть их) ── */
-.card{background:#111a2e;border:1px solid #1f2b45;border-radius:18px;padding:14px}
-.btn{background:#1a2540;color:#fff;border-radius:12px;font-weight:700}
+.card{background:#202c47;border:1px solid #2b3858;border-radius:18px;padding:14px}
+.btn{background:#273454;color:#fff;border-radius:12px;font-weight:700}
 .btn:disabled,.btn[disabled]{opacity:.45}
 .btn-green{background:linear-gradient(180deg,#6cb4ff,#3a86f0);color:#04142e;box-shadow:0 3px 0 #1a56b0}
 .btn-gold{background:linear-gradient(180deg,#ffd46b,#f0a91f);color:#3a2400;box-shadow:0 3px 0 #a86f05}
 .btn-full{border-radius:16px;padding:14px;font-size:14px;font-weight:800}
 .btn-red{background:linear-gradient(180deg,#ff6b6b,#c93838);color:#fff;box-shadow:0 3px 0 #7a1d1d}
-button[style*="background:#1565c0"],button[style*="background:linear-gradient(135deg,#1565c0"],button[style*="background:#0a3d6b"]{background:#1a2540 !important;border:1px solid #2a3a5c !important;border-radius:14px !important}
-.badge{background:#1a2540;color:#8ea3bd;border-radius:8px}
-.upg,.fish-item{background:#111a2e;border:1px solid #1f2b45;border-radius:18px}
+button[style*="background:#1565c0"],button[style*="background:linear-gradient(135deg,#1565c0"],button[style*="background:#0a3d6b"]{background:#273454 !important;border:1px solid #2a3a5c !important;border-radius:14px !important}
+.badge{background:#273454;color:#8ea3bd;border-radius:8px}
+.upg,.fish-item{background:#202c47;border:1px solid #2b3858;border-radius:18px}
 .price-up{color:#5ef0b0}.price-down{color:#ff8a80}.price-flat{color:#8ea3bd}
 </style>
 </head>
@@ -569,7 +569,7 @@ button[style*="background:#1565c0"],button[style*="background:linear-gradient(13
     .then(function(v){
       if (v && v.on) {
         document.documentElement.innerHTML =
-          '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;color:#eee;font-family:-apple-system,sans-serif;text-align:center;padding:24px">'
+          '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#272c47;color:#eee;font-family:-apple-system,sans-serif;text-align:center;padding:24px">'
           +'<div>'
           +'<div style="font-size:48px;margin-bottom:16px">🔧</div>'
           +'<div style="font-size:18px;font-weight:700;margin-bottom:8px">'+(LANG_MT==='ru'?'Технические работы':'Under maintenance')+'</div>'
@@ -632,7 +632,7 @@ button[style*="background:#1565c0"],button[style*="background:linear-gradient(13
   </div>
   <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#fff" id="bigfishing-banner-btn" onclick="event.stopPropagation(); onBigFishingBannerClick()">Вступить →</div>
 </div>
-<div id="vote-banner" style="display:none;background:linear-gradient(135deg,#1a1a3d,#3949ab,#1a1a3d);margin:0;padding:12px 16px;-webkit-tap-highlight-color:transparent">
+<div id="vote-banner" style="display:none;background:linear-gradient(135deg,#272c52,#3949ab,#272c52);margin:0;padding:12px 16px;-webkit-tap-highlight-color:transparent">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
     <div style="font-size:20px">🗳️</div>
     <div style="font-size:13px;font-weight:700;color:#fff" id="vote-banner-title">Голосование</div>
@@ -641,14 +641,14 @@ button[style*="background:#1565c0"],button[style*="background:linear-gradient(13
   <div id="vote-banner-sub" style="font-size:11px;color:#c5cae9;margin-top:6px;text-align:center">—</div>
 </div>
 <div id="loc-bar"></div>
-<div id="next-loc-progress" style="background:#16213e;padding:4px 0 1px"></div>
+<div id="next-loc-progress" style="background:#243153;padding:4px 0 1px"></div>
 <div id="stats">
   <div class="st"><b id="s-coins">0</b><span id="lbl-coins">🪙 монет</span></div>
   <div class="st"><b id="s-live">0</b><span id="lbl-live">🐠 живых</span></div>
   <div class="st"><b id="s-tap">+0.1</b><span id="lbl-tap">за улов</span></div>
   <div class="st"><b id="s-auto">0</b><span id="lbl-auto">🪙 авто/мин</span></div>
 </div>
-<div id="energy-bar" style="padding:6px 10px;background:#16213e"></div>
+<div id="energy-bar" style="padding:6px 10px;background:#243153"></div>
 <div id="tabs">
   <div class="tab active" onclick="showTab('upgrades')"><span>⬆️</span><span class="tab-label" id="tab-lbl-upgrades"></span></div>
   <div class="tab" onclick="showTab('aquarium')"><span>🐠</span><span class="tab-label" id="tab-lbl-aquarium"></span></div>
@@ -770,7 +770,7 @@ if (tg) {
   var overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;font-family:inherit';
   overlay.innerHTML =
-    '<div style="background:#0f1f35;border:1px solid #f44336;border-radius:14px;padding:20px;max-width:420px;text-align:center">'
+    '<div style="background:#1f2f4c;border:1px solid #f44336;border-radius:14px;padding:20px;max-width:420px;text-align:center">'
     + '<div style="font-size:32px;margin-bottom:10px">⚠️</div>'
     + '<div style="font-size:15px;font-weight:700;color:#f44336;margin-bottom:10px">' + t('Открой через официальный Telegram', 'Open via official Telegram') + '</div>'
     + '<div style="font-size:13px;color:#90caf9;line-height:1.5;margin-bottom:16px">' + t('Это приложение (или версия Telegram) не передаёт нам твой настоящий аккаунт. Если продолжишь — прогресс не сохранится и слетит при следующем заходе. Зайди через официальное приложение Telegram на телефоне.', 'This app (or Telegram version) isn\'t sharing your real account with us. If you continue, your progress won\'t be saved and will reset next time. Please open the game from the official Telegram app on your phone.') + '</div>'
@@ -783,10 +783,10 @@ if (tg) {
 // ── Данные ────────────────────────────────────────────
 var LOCATIONS = [
   {id:'pond',    name:'Пруд',    emoji:'🌿',bg:'#1a3a2a',border:'#2d6a4f',bubble:'rgba(80,200,120,.15)',cost:0,       unlocked:true, tapMult:1 },
-  {id:'river',   name:'Река',    emoji:'🏞',bg:'#0d2b45',border:'#1a6b8a',bubble:'rgba(80,160,220,.15)',cost:100000,  unlocked:false,tapMult:2 },
+  {id:'river',   name:'Река',    emoji:'🏞',bg:'#1d3858',border:'#1a6b8a',bubble:'rgba(80,160,220,.15)',cost:100000,  unlocked:false,tapMult:2 },
   {id:'tropics', name:'Тропики', emoji:'🌴',bg:'#1a2a0a',border:'#4a8a1a',bubble:'rgba(150,220,80,.15)',cost:3000000,  unlocked:false,tapMult:5 },
-  {id:'deep',    name:'Глубины', emoji:'🌊',bg:'#050a2a',border:'#1a1a8a',bubble:'rgba(50,50,200,.15)', cost:9000000, unlocked:false,tapMult:15},
-  {id:'space',   name:'Космос',  emoji:'🚀',bg:'#05050f',border:'#4a1a8a',bubble:'rgba(150,50,220,.15)',cost:33000000,unlocked:false,tapMult:50}
+  {id:'deep',    name:'Глубины', emoji:'🌊',bg:'#182044',border:'#1a1a8a',bubble:'rgba(50,50,200,.15)', cost:9000000, unlocked:false,tapMult:15},
+  {id:'space',   name:'Космос',  emoji:'🚀',bg:'#181c30',border:'#4a1a8a',bubble:'rgba(150,50,220,.15)',cost:33000000,unlocked:false,tapMult:50}
 ];
 function locName(id) {
   if (id==='pond') return t('Пруд','Pond');
@@ -1114,7 +1114,7 @@ var SKY_COLORS = {
   sunny:   'linear-gradient(180deg, #87CEEB 0%, #b8e4f9 60%, #d4f1ff 100%)',
   cloudy:  'linear-gradient(180deg, #8899aa 0%, #aabbcc 60%, #c8d8e8 100%)',
   rain:    'linear-gradient(180deg, #445566 0%, #667788 60%, #8899aa 100%)',
-  storm:   'linear-gradient(180deg, #1a1a2e 0%, #2d2d44 60%, #3a3a5c 100%)',
+  storm:   'linear-gradient(180deg, #272c47 0%, #353a57 60%, #3a3a5c 100%)',
   perfect: 'linear-gradient(180deg, #ff9a3c 0%, #ffb347 40%, #ffe066 100%)',
 };
 
@@ -1751,7 +1751,7 @@ function load() {
 function showComebackBonus(coins, days) {
   var modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid #FFD700">'
+  modal.innerHTML = '<div style="background:#1d2d47;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid #FFD700">'
     +'<div style="font-size:60px;margin-bottom:12px">👋</div>'
     +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:6px">'+t('Мы скучали!','We missed you!')+'</div>'
     +'<div style="font-size:13px;color:#90caf9;margin-bottom:16px">'+t('Тебя не было ','You were away for ')+days+' '+t(dayWord(days),days===1?'day':'days')+'</div>'
@@ -2181,7 +2181,7 @@ function showNameInput() {
     +'<div style="font-size:18px;font-weight:700;color:#FFD700;margin-bottom:8px">'+t('Добро пожаловать!','Welcome!')+'</div>'
     +'<div style="font-size:13px;color:#90caf9;margin-bottom:20px">'+t('Придумай имя для таблицы лидеров','Choose a name for the leaderboard')+'</div>'
     +'<input id="name-input" type="text" maxlength="16" placeholder="'+t('Твоё имя...','Your name...')+'" '
-    +'style="width:100%;padding:12px;border-radius:8px;border:1px solid #1565c0;background:#1a1a3a;color:#fff;font-size:15px;text-align:center;box-sizing:border-box;margin-bottom:16px">'
+    +'style="width:100%;padding:12px;border-radius:8px;border:1px solid #1565c0;background:#272c50;color:#fff;font-size:15px;text-align:center;box-sizing:border-box;margin-bottom:16px">'
     +'<button onclick="saveName()" class="btn btn-green btn-full" style="font-size:15px;padding:14px">✅ '+t('Начать играть','Start playing')+'</button>'
     +'</div>';
   document.body.appendChild(overlay);
@@ -2514,7 +2514,7 @@ function renderMarket() {
     var pct=Math.min(100,Math.round((Date.now()-dlv.startedAt)/(dlv.endsAt-dlv.startedAt)*100));
     html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+trD.emoji+' '+t('Доставка в пути...','Delivery in transit...')+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv.count+t(' · Выручка: ',' · Revenue: ')+'🪙'+fmt(dlv.earnings)+'</div>'
-      +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#1565c0;height:8px;border-radius:6px;width:'+pct+'%"></div></div>'
+      +'<div style="background:#272c47;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#1565c0;height:8px;border-radius:6px;width:'+pct+'%"></div></div>'
       +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left+t('с','s')+'</div></div>';
   }
 
@@ -2525,7 +2525,7 @@ function renderMarket() {
     var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
     html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' '+t('Водитель в пути...','Driver in transit...')+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv2.count+t(' · Твоя выручка: ',' · Your revenue: ')+'🪙'+fmt(dlv2.earnings)+' <span style="color:#666">'+t('(−30% водителю)','(−30% to driver)')+'</span></div>'
-      +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
+      +'<div style="background:#272c47;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
       +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')+'</div></div>';
   }
 
@@ -2559,7 +2559,7 @@ function renderMarket() {
     +'<div style="font-size:11px;color:#90caf9;margin-bottom:8px">'+tr.emoji+' '+trName(tr.id)+' · '+tr.capacity+t(' рыб · ',' fish · ')+fmtTime(dt)+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<span style="font-size:11px;color:'+durColor(dur)+'">🔧 '+(broken?t('Сломан!','Broken!'):dur+'%')+'</span>'
-    +'<div style="flex:1;background:#1a1a2e;border-radius:4px;height:6px"><div style="background:'+durColor(dur)+';height:6px;border-radius:4px;width:'+dur+'%"></div></div>'
+    +'<div style="flex:1;background:#272c47;border-radius:4px;height:6px"><div style="background:'+durColor(dur)+';height:6px;border-radius:4px;width:'+dur+'%"></div></div>'
     +(dur<100?'<button class="btn '+(state.coins>=repairCostNow?'btn-gold':'')+'" onclick="repairTr(\''+tr.id+'\')" '+(state.coins>=repairCostNow?'':'disabled')+' style="font-size:10px;padding:4px 8px">🔧 🪙'+fmt(repairCostNow)+'</button>':'')
     +'</div>'+(broken?'<div style="font-size:11px;color:#f44336;margin-top:6px">⚠️ '+t('Сломан — нужен ремонт!','Broken — needs repair!')+'</div>':'')+'</div>';
 
@@ -2601,7 +2601,7 @@ function renderMarket() {
         var maxQty = Math.min(cnt, tr.capacity);
         var earn=Math.round(mp.cur*maxQty*100)/100;
         var isSelected = selQty > 0;
-        html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#0a2a4a':'#1a1a3a')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
+        html+='<div onclick="selectFish(\''+name+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSelected?'#1b385b':'#272c50')+';border:1.5px solid '+(isSelected?'#FFD700':'transparent')+'">'
           +'<div class="fs-pic mk-pic">'+fishPic(def||{name:name,emoji:'🐟'},false)+'</div>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(name)+' <span class="badge">x'+cnt+'</span></div>'
           +'<div style="font-size:11px;margin-top:2px"><span class="'+tc+'">'+ti2+' '+fmt(mp.cur)+t('/шт','/pc')+'</span> <span style="color:#555">'+diff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(earn)+'</span></div></div>'
@@ -2625,7 +2625,7 @@ function renderMarket() {
         for (var xsd=0;xsd<state.selectedItems.length;xsd++) if(state.selectedItems[xsd].key===dname+'|dry') dSelItem=state.selectedItems[xsd];
         var dSelQty = dSelItem ? dSelItem.qty : 0;
         var isDrySelected = dSelQty > 0;
-        html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#1a1a3a')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
+        html+='<div onclick="selectFish(\''+dname+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySelected?'#2a1a0a':'#272c50')+';border:1.5px solid '+(isDrySelected?'#FFD700':'transparent')+'">'
           +'<div class="fs-pic mk-pic">'+fishPic(ddef||{name:dname,emoji:'📦'},false)+'<i class="mk-tag">'+t('сух.','dry')+'</i></div>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+dname+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
           +'<div style="font-size:11px;margin-top:2px"><span class="'+dtc+'">'+dti+' '+fmt(dmp.cur*3)+t('/пакет','/pack')+'</span> <span style="color:#555">'+ddiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(dearn)+' '+t('итого','total')+'</span></div></div>'
@@ -2649,7 +2649,7 @@ function renderMarket() {
         for (var xsf=0;xsf<state.selectedItems.length;xsf++) if(state.selectedItems[xsf].key===fname+'|filet') fSelItem=state.selectedItems[xsf];
         var fSelQty = fSelItem ? fSelItem.qty : 0;
         var isFiletSelected = fSelQty > 0;
-        html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#1a1a3a')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
+        html+='<div onclick="selectFish(\''+fname+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSelected?'#0a2a1a':'#272c50')+';border:1.5px solid '+(isFiletSelected?'#6ddc6d':'transparent')+'">'
           +'<div class="fs-pic mk-pic">'+fishPic(fdef2||{name:fname,emoji:'🍱'},false)+'<i class="mk-tag mk-tag2">'+t('филе','filet')+'</i></div>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fname)+' '+t('филе','filet')+' <span class="badge">x'+fcnt2+'</span></div>'
           +'<div style="font-size:11px;margin-top:2px"><span class="'+ftc+'">'+fti+' '+fmt(fmp.cur*5)+t('/пак','/pack')+'</span> <span style="color:#555">'+fdiff+'%</span> <span style="color:#6ddc6d;margin-left:6px">🪙'+fmt(fearn)+' '+t('итого','total')+'</span></div></div>'
@@ -2692,7 +2692,7 @@ function renderMarket() {
       var knifePrice = knifeUnitPrice();
       var curKnifeOrder = Math.min(state.knifeOrder||0, tr.capacity);
       var knifeCost = curKnifeOrder * knifePrice;
-      html+='<div style="background:#0a1a2a;border-radius:8px;padding:10px;margin-bottom:10px">'
+      html+='<div style="background:#1b2c44;border-radius:8px;padding:10px;margin-bottom:10px">'
         +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 '+t('Соль на обратный путь:','Salt for the way back:')+'</div>'
         +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         +'<button class="btn" onclick="changeSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
@@ -2749,14 +2749,14 @@ function renderKitchen() {
         var sdur=ss.endsAt-ss.startedAt;
         var spct=sdur>0?Math.min(100,Math.round((now-ss.startedAt)/sdur*100)):100;
         var sdone=now>=ss.endsAt;
-        html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
+        html+='<div style="background:#272c50;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(ss.emoji||'🐟')+' '+fishName(ss.name||'')+' <span class="badge">'+(ss.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(sdone
             ? '<button class="btn btn-green" onclick="startDryingFromSalt(\''+ss.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Сушить 🌡','Dry 🌡')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(sleft)+'</span>')
           +'</div>'
-          +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
+          +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(sdone?'#FFD700':'#1565c0')+';height:6px;border-radius:4px;width:'+spct+'%"></div>'
           +'</div>'
           +(sdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к сушке!','Ready to dry!')+'</div>':'')
@@ -2775,14 +2775,14 @@ function renderKitchen() {
         var cdur=cs.endsAt-cs.startedAt;
         var cpct=cdur>0?Math.min(100,Math.round((now-cs.startedAt)/cdur*100)):100;
         var cdone=now>=cs.endsAt;
-        html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
+        html+='<div style="background:#272c50;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(cs.emoji||'🐟')+' '+fishName(cs.name||'')+' <span class="badge">'+(cs.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(cdone
             ? '<button class="btn btn-green" onclick="startPacking(\''+cs.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Упаковать 📦','Pack 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(cleft)+'</span>')
           +'</div>'
-          +'<div style="background:#1a1a2e;border-radius:4px;height:6px">'
+          +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(cdone?'#FFD700':'#e91e63')+';height:6px;border-radius:4px;width:'+cpct+'%"></div>'
           +'</div>'
           +(cdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к упаковке!','Ready to pack!')+'</div>':'')
@@ -2802,7 +2802,7 @@ function renderKitchen() {
           var pleft=Math.max(0,Math.ceil((fn2.packingEndsAt-now)/1000));
           var pdone=now>=fn2.packingEndsAt;
           html+='<div class="card"><div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">📦 Упаковывается:</div>'
-            +'<div style="background:#1a1a3a;border-radius:10px;padding:10px">'
+            +'<div style="background:#272c50;border-radius:10px;padding:10px">'
             +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
             +'<span style="font-size:14px;font-weight:600;color:#fff">'+(fn2.emoji||'🐟')+' '+fishName(fn2.name)+' '+t('филе','filet')+' <span class="badge">'+(fn2.packets||1)+t(' пак.',' pack.')+'</span></span>'
             +(pdone
@@ -2847,14 +2847,14 @@ function renderKitchen() {
         var ddone=now>=slot.endsAt;
         var expiresAt=slot.endsAt+driedLifeMs();
         var expireLeft=Math.max(0,Math.round((expiresAt-now)/3600000*10)/10);
-        html+='<div style="background:#1a1a3a;border-radius:10px;padding:10px;margin-bottom:8px">'
+        html+='<div style="background:#272c50;border-radius:10px;padding:10px;margin-bottom:8px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
           +'<span style="font-size:14px;font-weight:600;color:#fff">'+(slot.emoji||'🐟')+' '+fishName(slot.name||'')+' '+t('сушёная','dried')+' <span class="badge">'+(slot.packets||1)+t(' пак.',' pack.')+'</span></span>'
           +(ddone
             ? '<button class="btn btn-green" onclick="collectDried(\''+slot.bid+'\')" style="font-size:11px;padding:4px 10px">'+t('Собрать 📦','Collect 📦')+'</button>'
             : '<span style="font-size:11px;color:#90caf9">⏱ '+fmtTime(dleft)+'</span>')
           +'</div>'
-          +'<div style="background:#1a1a2e;border-radius:4px;height:6px;margin-bottom:4px">'
+          +'<div style="background:#272c47;border-radius:4px;height:6px;margin-bottom:4px">'
           +'<div style="background:'+(ddone?'#6ddc6d':'#FFD700')+';height:6px;border-radius:4px;width:'+dpct+'%"></div>'
           +'</div>'
           +(ddone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+expireLeft+t('ч — собери скорее!','h — collect it soon!')+'</div>':'')
@@ -3501,7 +3501,7 @@ function renderDriver() {
     var pct2=Math.min(100,Math.round((Date.now()-dlv2.startedAt)/(dlv2.endsAt-dlv2.startedAt)*100));
     html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' '+t('Водитель в пути...','Driver in transit...')+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv2.count+t(' · Твоя выручка: ',' · Your revenue: ')+'🪙'+fmt(dlv2.earnings)+' <span style="color:#666">'+t('(−30% водителю)','(−30% to driver)')+'</span></div>'
-      +'<div style="background:#1a1a2e;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
+      +'<div style="background:#272c47;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
       +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')+'</div></div>';
     document.getElementById('content').innerHTML = html;
     return;
@@ -3512,7 +3512,7 @@ function renderDriver() {
   var hireCandidates = state.unlockedTransports.filter(function(tid) { return tid !== busyTransportId; });
   if (state.boosts.truckRental > Date.now() && busyTransportId !== 'rentalTruck') hireCandidates.push('rentalTruck');
 
-  html+='<div class="card" style="background:#1a0f2e;border:1px solid #6a4fc2">'
+  html+='<div class="card" style="background:#272447;border:1px solid #6a4fc2">'
     +'<div style="font-size:14px;font-weight:600;color:#b794f6;margin-bottom:8px">🧑‍✈️ '+t('Нанять водителя','Hire a driver')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Отправь второй транспорт одновременно! Водитель забирает 30% выручки.','Send a second transport at the same time! The driver takes 30% of revenue.')+'</div>';
 
@@ -3550,7 +3550,7 @@ function renderDriver() {
   var hasDried=Object.keys(driedGrouped).length>0;
   var hasFilets=Object.keys(filetGrouped2).length>0;
 
-  html+='<div class="card" style="background:#0d1428">';
+  html+='<div class="card" style="background:#1d2742">';
   html+='<div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:10px">📦 '+t('Выбери что везёт водитель:','Choose what the driver carries:')+'</div>';
 
   if (!hasFresh && !hasDried && !hasFilets) {
@@ -3565,7 +3565,7 @@ function renderDriver() {
         var fsend=Math.min(fcnt,dtr.capacity);
         var fearn=Math.round(fmp.cur*fsend*0.7*100)/100;
         var isSel=isDriverItemSelected(fn,false,false);
-        html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
+        html+='<div onclick="selectDriverFish(\''+fn+'\',false)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isSel?'#272050':'#272c50')+';border:1.5px solid '+(isSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(fdef?fdef.emoji:'🐟')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(fn)+' <span class="badge">x'+fcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(fearn)+' '+t('твоя','yours')+' · '+fsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
@@ -3581,7 +3581,7 @@ function renderDriver() {
         var ddsend=Math.min(dcnt,dtr.capacity);
         var ddearn=Math.round(ddmp.cur*ddsend*3*0.7*100)/100;
         var isDrySel=isDriverItemSelected(dnn,true,false);
-        html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
+        html+='<div onclick="selectDriverFish(\''+dnn+'\',true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isDrySel?'#272050':'#272c50')+';border:1.5px solid '+(isDrySel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(dddef?dddef.emoji:'📦')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(dnn)+' '+t('сушёная','dried')+' <span class="badge">x'+dcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ddearn)+' '+t('твоя','yours')+' · '+ddsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
@@ -3597,7 +3597,7 @@ function renderDriver() {
         var ffsend=Math.min(ffcnt,dtr.capacity);
         var ffearn=Math.round(ffmp.cur*ffsend*5*0.7*100)/100;
         var isFiletSel=isDriverItemSelected(ffn,false,true);
-        html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#1a0a3a':'#1a1a3a')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
+        html+='<div onclick="selectDriverFish(\''+ffn+'\',false,true)" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;background:'+(isFiletSel?'#272050':'#272c50')+';border:1.5px solid '+(isFiletSel?'#b794f6':'transparent')+'">'
           +'<span style="font-size:22px">'+(ffdef?ffdef.emoji:'🍱')+'</span>'
           +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#fff">'+fishName(ffn)+' '+t('филе','filet')+' <span class="badge">x'+ffcnt+'</span></div>'
           +'<div style="font-size:11px;color:#b794f6">🪙'+fmt(ffearn)+' '+t('твоя','yours')+' · '+ffsend+' '+t('шт','pcs')+' · ⏱'+fmtTime(ddt)+'</div></div>'
@@ -3625,7 +3625,7 @@ function renderDriver() {
     var dKnifePrice=knifeUnitPrice();
     var dCurKnife=state.driverKnifeOrder||0;
     var dKnifeCost=dCurKnife*dKnifePrice;
-    html+='<div style="background:#0a0a1e;border-radius:8px;padding:10px;margin-top:8px;margin-bottom:10px">'
+    html+='<div style="background:#1b203b;border-radius:8px;padding:10px;margin-top:8px;margin-bottom:10px">'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">🧂 '+t('Соль на обратный путь:','Salt for the way back:')+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
       +'<button class="btn" onclick="changeDriverSaltOrder(-1)" style="padding:5px 12px;font-size:16px">−</button>'
@@ -3644,7 +3644,7 @@ function renderDriver() {
 
   // Кнопка отправки
   var driverBroken=getDur(state.driverTransport)<=0;
-  html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBroken||!dSel)?'disabled':'')+' style="background:'+(dSel&&!driverBroken?'#6a4fc2':'#2a1a4a')+';color:#fff">'
+  html+='<button class="btn btn-full" onclick="sendDriverDelivery()" '+((driverBroken||!dSel)?'disabled':'')+' style="background:'+(dSel&&!driverBroken?'#6a4fc2':'#332c5b')+';color:#fff">'
     +(driverBroken?t('🔴 Сломан — почини','🔴 Broken — repair it'):dSel?dtr.emoji+' '+t('Отправить водителя (','Send driver (')+dTotalSel+t(' шт)',' pcs)'):t('Выбери что везёт водитель','Choose what the driver carries'))
     +'</button>';
   html+='</div>';
@@ -3656,7 +3656,7 @@ function allTransportFull() {
   return true;
 }
 var LOTTERY_WHEEL_SVG = '<svg viewBox="0 0 96 96" width="64" height="64"><g class="bs-spinner">'
-  +'<circle cx="48" cy="48" r="44" fill="#1E1038" stroke="#FFC24B" stroke-width="4"/>'
+  +'<circle cx="48" cy="48" r="44" fill="#2a254e" stroke="#FFC24B" stroke-width="4"/>'
   +'<path d="M48 48 L48 6 A42 42 0 0 1 77.7 18.3Z" fill="#4da3ff"/><path d="M48 48 L77.7 18.3 A42 42 0 0 1 90 48Z" fill="#C08BFF"/>'
   +'<path d="M48 48 L90 48 A42 42 0 0 1 77.7 77.7Z" fill="#FFC24B"/><path d="M48 48 L77.7 77.7 A42 42 0 0 1 48 90Z" fill="#5B8BFF"/>'
   +'<path d="M48 48 L48 90 A42 42 0 0 1 18.3 77.7Z" fill="#4da3ff"/><path d="M48 48 L18.3 77.7 A42 42 0 0 1 6 48Z" fill="#FF8A3D"/>'
@@ -3838,7 +3838,7 @@ function renderBoosts() {
 function showLotteryResult(title, prize, color, isJackpot) {
   var modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid '+color+'">'
+  modal.innerHTML = '<div style="background:#1d2d47;border-radius:20px;padding:30px 24px;max-width:320px;width:100%;text-align:center;border:2px solid '+color+'">'
     +'<div style="font-size:60px;margin-bottom:12px">'+(isJackpot?'💎':'🎰')+'</div>'
     +'<div style="font-size:18px;font-weight:700;color:'+color+';margin-bottom:10px">'+title+'</div>'
     +'<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:20px">'+prize+'</div>'
@@ -4273,7 +4273,7 @@ function renderCoinPacks() {
     +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
   for (var i=0; i<COIN_PACKS_CLIENT.length; i++) {
     var pk = COIN_PACKS_CLIENT[i];
-    html += '<button class="btn" onclick="buyCoinPack(\''+pk.id+'\')" style="background:#0a1a2e;border:1px solid #1565c0;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:3px">'
+    html += '<button class="btn" onclick="buyCoinPack(\''+pk.id+'\')" style="background:#1b2c47;border:1px solid #1565c0;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:3px">'
       +'<span style="font-size:15px;font-weight:700;color:#FFD700">🪙 '+fmtXp(pk.coins*m)+'</span>'
       +(pk.bonus ? '<span style="font-size:10px;color:#6ddc6d">'+pk.bonus+'</span>' : '<span style="font-size:10px">&nbsp;</span>')
       +'<span style="font-size:12px;color:#fff">⭐ '+pk.stars+'</span>'
@@ -4403,7 +4403,7 @@ function loadWithdrawalsLog() {
         var yy = String(d.getFullYear()).slice(-2);
         dateStr = dd+'/'+mm+'/'+yy;
       }
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a2a4a;font-size:12px;gap:8px">'
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #27385b;font-size:12px;gap:8px">'
         + '<span style="color:#666;font-family:monospace;white-space:nowrap">'+dateStr+'</span>'
         + '<span style="color:#90caf9;font-family:monospace">'+shortWallet(it.wallet)+'</span>'
         + '<span style="color:#6ddc6d;font-weight:600;white-space:nowrap">'+amtLabel+'</span>'
@@ -4650,7 +4650,7 @@ function renderNewsHtml(data) {
     var items = Object.values(data).reverse();
     for (var i = 0; i < items.length; i++) {
       var n = items[i];
-      html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
+      html += '<div style="background:#1f3054;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #FFD700">'
         + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
         + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
         + '</div>';
@@ -4685,7 +4685,7 @@ function renderNewsArchiveHtml(data) {
     var items = Object.values(data).reverse();
     for (var i = 0; i < items.length; i++) {
       var n = items[i];
-      html += '<div style="background:#0f2040;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #6a4fc2">'
+      html += '<div style="background:#1f3054;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid #6a4fc2">'
         + '<div style="font-size:10px;color:#666;margin-bottom:6px">📅 ' + (n.date||'') + '</div>'
         + '<div style="font-size:13px;color:#fff;line-height:1.5">' + (n.text||'').replace(/\n/g,'<br>') + '</div>'
         + '</div>';
@@ -4928,7 +4928,7 @@ function renderBigFishingInfoModal() {
     + (d.status==='recruiting' ? '<div class="bf-bank">⭐ <b>'+(filled*fee)+'</b> '+t('в банке','in the pot')+'</div>' : '')
     + '</div>'
     + (d.status==='recruiting'
-        ? '<div class="bf-ring-row"><div class="bf-ring" style="background:conic-gradient(#ffc94d '+ringPct+'%, #24304a 0)"><div><b>'+filled+'</b><span>'+t('из ','of ')+slots+'</span></div></div>'
+        ? '<div class="bf-ring-row"><div class="bf-ring" style="background:conic-gradient(#ffc94d '+ringPct+'%, #2e3c5b 0)"><div><b>'+filled+'</b><span>'+t('из ','of ')+slots+'</span></div></div>'
           + '<div class="bf-ring-t"><b>'+(d.joined?t('Ты участвуешь ✓','You\'re in ✓'):t('Ещё ','')+(slots-filled)+t(' рыбаков — и старт',' more anglers to start'))+'</b><span>'+t('старт автоматом, когда соберутся все','starts automatically once everyone joins')+'</span></div></div>'
         : '<div class="bf-status">' + statusLine + '</div>')
     + '<div class="bk-info" style="margin:0 0 12px"><div><span>'+t('Вход','Entry')+'</span><b>'+fee+' ⭐</b></div><div><span>'+t('Длится','Lasts')+'</span><b>24 '+t('ч','h')+'</b></div><div><span>'+t('Призы','Prizes')+'</span><b>'+t('топ-3','top 3')+'</b></div></div>'
@@ -4997,7 +4997,7 @@ function checkDailyNews() {
     // Показываем модальное окно
     var modal = document.createElement('div');
     modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-    modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;max-width:360px;width:100%;max-height:80vh;display:flex;flex-direction:column;border:1.5px solid #FFD700;overflow:hidden">'
+    modal.innerHTML = '<div style="background:#1d2d47;border-radius:16px;max-width:360px;width:100%;max-height:80vh;display:flex;flex-direction:column;border:1.5px solid #FFD700;overflow:hidden">'
       + '<div style="padding:20px 20px 0;overflow-y:auto;flex:1">'
       + '<div style="font-size:15px;font-weight:700;color:#FFD700;margin-bottom:8px">📰 '+t('Последние новости','Latest news')+'</div>'
       + '<div style="font-size:11px;color:#666;margin-bottom:10px">📅 ' + (latest.date||'') + '</div>'
@@ -5031,7 +5031,7 @@ function renderDepositsModal() {
   // Скоро закроются — сверху.
   var deposits = (state.deposits||[]).slice().sort(function(a,b){ return a.endsAt - b.endsAt; });
   var now = Date.now();
-  var html = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">';
+  var html = '<div style="background:#1d2d47;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">';
   html += '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:4px">🏦 '+t('Вклады','Deposits')+'</div>';
   html += '<div style="font-size:11px;color:#90caf9;margin-bottom:12px">'+t('Мин. сумма 50,000 · без ограничения по количеству вкладов','Min. amount 50,000 · no limit on number of deposits')+'</div>';
 
@@ -5047,13 +5047,13 @@ function renderDepositsModal() {
       var rate = DEPOSIT_RATES_CLIENT[d.termDays] || 0;
       var interest = Math.round(d.amount * rate * (d.termDays / 365) * 100) / 100;
       var total = Math.round((d.amount + interest) * 100) / 100;
-      html += '<div style="background:#132a44;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+      html += '<div style="background:#223857;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
         + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
         + '<span style="font-size:14px;font-weight:600;color:#fff">🪙'+fmt(d.amount)+'</span>'
         + '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:#0a3a1a;color:#6ddc6d">'+Math.round(rate*100)+'% '+t('годовых','APR')+'</span>'
         + '</div>'
         + '<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('Срок ','Term ')+d.termDays+t(' дней · ',' days · ')+(matured?t('готов к закрытию','ready to close'):t('осталось ','')+daysLeft+t(' дн.',' d.'))+'</div>'
-        + '<div style="height:4px;background:#1a1a2e;border-radius:2px;margin-top:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+(matured?'#6ddc6d':'#1565c0')+'"></div></div>'
+        + '<div style="height:4px;background:#272c47;border-radius:2px;margin-top:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+(matured?'#6ddc6d':'#1565c0')+'"></div></div>'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px">'
         + '<span style="font-size:11px;color:#7fb88a">'+t('К возврату ','Payout ')+fmt(total)+'</span>'
         + '<button onclick="closeDeposit(\''+d.id+'\')" style="font-size:11px;padding:4px 10px;white-space:nowrap;background:'+(matured?'#1565c0':'transparent')+';color:'+(matured?'#fff':'#e57373')+';border:'+(matured?'none':'1px solid #e57373')+';border-radius:6px">'+(matured?t('Забрать','Claim'):t('Досрочно','Early'))+'</button>'
@@ -5070,15 +5070,15 @@ function openDepositPrompt() {
   var modal = document.getElementById('deposits-modal');
   if (!modal) return;
   var openFeeLabel = isPremiumActive() ? t('бесплатно (Premium)','free (Premium)') : t('за ⭐1','for ⭐1');
-  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f">'
+  modal.innerHTML = '<div style="background:#1d2d47;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f">'
     + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:2px">➕ '+t('Открыть вклад','Open deposit')+'</div>'
     + '<div style="font-size:11px;color:#90caf9;margin-bottom:12px">'+t('Открытие — ','Opening — ')+openFeeLabel+'</div>'
     + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Сумма (мин. 50,000)','Amount (min. 50,000)')+'</div>'
-    + '<input id="deposit-amount-input" type="number" min="50000" step="1000" value="50000" style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d6a4f;background:#132a44;color:#fff;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none">'
+    + '<input id="deposit-amount-input" type="number" min="50000" step="1000" value="50000" style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d6a4f;background:#223857;color:#fff;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none">'
     + '<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Срок','Term')+'</div>'
     + '<div style="display:flex;gap:8px;margin-bottom:16px">'
-    + '<button onclick="confirmOpenDeposit(15)" style="flex:1;padding:10px;background:#132a44;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">15 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">8% '+t('годовых','APR')+'</span></button>'
-    + '<button onclick="confirmOpenDeposit(30)" style="flex:1;padding:10px;background:#132a44;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">30 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">12% '+t('годовых','APR')+'</span></button>'
+    + '<button onclick="confirmOpenDeposit(15)" style="flex:1;padding:10px;background:#223857;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">15 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">8% '+t('годовых','APR')+'</span></button>'
+    + '<button onclick="confirmOpenDeposit(30)" style="flex:1;padding:10px;background:#223857;border:1px solid #2d6a4f;border-radius:8px;color:#fff;font-size:13px;text-align:center">30 '+t('дней','days')+'<br><span style="color:#6ddc6d;font-size:11px">12% '+t('годовых','APR')+'</span></button>'
     + '</div>'
     + '<button onclick="renderDepositsModal()" style="width:100%;padding:10px;background:transparent;border:1px solid #555;border-radius:8px;color:#aaa;font-size:13px">'+t('Назад','Back')+'</button>'
     + '</div>';
@@ -5154,7 +5154,7 @@ function showMyFriends() {
   var modal = document.createElement('div');
   modal.id = 'friends-modal';
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-  modal.innerHTML = '<div style="background:#0d1b2e;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">'
+  modal.innerHTML = '<div style="background:#1d2d47;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #2d6a4f;max-height:80vh;overflow-y:auto">'
     + '<div style="font-size:15px;font-weight:700;color:#6ddc6d;margin-bottom:12px">👥 '+t('Мои друзья','My friends')+'</div>'
     + '<div style="color:#90caf9;text-align:center;padding:20px">⏳ '+t('Загрузка...','Loading...')+'</div>'
     + '</div>';
@@ -5643,7 +5643,7 @@ function renderClan() {
   // Без клана: кнопка "Создать клан" сверху, ниже — очередь входящих приглашений (если есть)
   html += '<div class="card cl-create">'
     +'<div class="bk-lbl" style="margin-bottom:8px">'+t('Название клана','Clan name')+'</div>'
-    +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,\'\')" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:6px">'
+    +'<input id="clan-name-input" maxlength="20" placeholder="'+t('Название клана','Clan name')+'" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,\'\')" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#1f2f4c;color:#fff;font-size:14px;margin-bottom:6px">'
     +'<div style="font-size:11px;color:#666;margin-bottom:10px">'+t('Только латинские буквы и цифры, 2-20 символов','Latin letters and digits only, 2-20 characters')+'</div>'
     +'<button class="btn btn-gold btn-full" onclick="createClan()">➕ '+t('Создать клан','Create clan')+'</button>'
     +'</div>';
@@ -5735,7 +5735,7 @@ function renderClanProgress() {
       var btn = c.left > 0
         ? '<button class="btn btn-gold" style="padding:5px 12px;font-size:12px" onclick="claimClanBonus(\''+rows[i].kind+'\')">'+t('Забрать','Claim')+'</button>'
         : '<button class="btn" style="padding:5px 12px;font-size:12px;opacity:.5" disabled>'+t('Забрать','Claim')+'</button>';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #1a2a3a">'
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #273850">'
         +'<div><div style="font-size:13px;color:#fff">'+rows[i].label+'</div><div style="font-size:11px;color:#90caf9">'+c.limit+per+' · '+status+'</div></div>'
         +btn+'</div>';
       if (rows[i].kind === 'boost' && clanBoostPickerOpen && c.left > 0) {
@@ -5762,7 +5762,7 @@ function renderClanProgress() {
     html += '<div style="margin-top:8px">';
     for (var lv=0; lv<CLAN_LEVEL_TABLE.length; lv++) {
       var reached = pg.level >= lv+1;
-      html += '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #1a2a3a;font-size:11px;'+(reached?'':'opacity:.6')+'">'
+      html += '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #273850;font-size:11px;'+(reached?'':'opacity:.6')+'">'
         +'<div style="min-width:44px;color:'+(reached?'#FFD700':'#90caf9')+'">'+(reached?'✅ ':'')+(lv+1)+'</div>'
         +'<div style="min-width:52px;color:#90caf9">'+fmtXp(CLAN_LEVEL_XP[lv])+'</div>'
         +'<div style="flex:1;color:#fff">'+t(CLAN_LEVEL_TABLE[lv][0], CLAN_LEVEL_TABLE[lv][1])+(lv>=1?'<span style="color:#666"> · '+t('с Реки','from River')+'</span>':'')+'</div>'
@@ -5787,7 +5787,7 @@ function renderClanProgress() {
     var r = contrib[k];
     var mark = r.monthQualifies ? '✅' : '⏳';
     var hint = r.monthQualifies ? '' : (!r.monthTimeOk ? t('мало дней в клане','not enough days in clan') : t('нужно ','needs ')+(pg.month.minXp||200)+' XP');
-    html += '<div style="display:flex;align-items:center;font-size:11px;padding:5px 0;border-bottom:1px solid #1a2a3a">'
+    html += '<div style="display:flex;align-items:center;font-size:11px;padding:5px 0;border-bottom:1px solid #273850">'
       +'<div style="flex:1;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.name||('@'+(r.username||'')))+(hint?'<div style="font-size:9px;color:#666">'+hint+'</div>':'')+'</div>'
       +'<div style="width:52px;text-align:right;color:'+(r.today>=cap?'#6ddc6d':'#90caf9')+'">'+Math.floor(r.today)+'/'+cap+'</div>'
       +'<div style="width:52px;text-align:right;color:#fff">'+fmtXp(Math.floor(r.month))+'</div>'
@@ -5896,7 +5896,7 @@ function renderClanMain(html) {
           +(myClan.hasUnresolvedTournament ? '' : '<button class="btn" style="padding:4px 10px;font-size:11px;background:#6a4520" onclick="transferClanCaptain('+m.userId+')">👑 '+t('Передать','Make captain')+'</button>')
           +'</div>';
     }
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a2a3a">'
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #273850">'
       +'<div>'
       +'<div style="font-size:13px;color:'+(isCap?'#FFD700':'#fff')+'">'+(isCap?'👑 ':'🐟 ')+(m.name||('ID:'+m.userId))+'</div>'
       +handleLine
@@ -6223,7 +6223,7 @@ function renderClanReferrals(html) {
   html += '<div class="card">'
     +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Найти игрока по нику или юзернейму — можно пригласить любого, не только рефералов','Find a player by nickname or username — you can invite anyone, not just your referrals')+'</div>'
     +'<div style="display:flex;gap:8px">'
-    +'<input id="clan-search-input" placeholder="'+t('Ник или @username','Nickname or @username')+'" value="'+(clanSearchState.query||'').replace(/"/g,'&quot;')+'" onkeydown="if(event.key===\'Enter\')searchClanPlayers()" style="flex:1;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px">'
+    +'<input id="clan-search-input" placeholder="'+t('Ник или @username','Nickname or @username')+'" value="'+(clanSearchState.query||'').replace(/"/g,'&quot;')+'" onkeydown="if(event.key===\'Enter\')searchClanPlayers()" style="flex:1;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#1f2f4c;color:#fff;font-size:14px">'
     +'<button class="btn btn-gold" onclick="searchClanPlayers()">🔍</button>'
     +'</div></div>';
 
@@ -6467,7 +6467,7 @@ function renderClanTourCard(tr) {
     var bLead = !tied && (tr.status === 'settled' ? tr.winnerClanId === tr.acceptedByClanId : tr.scoreB > tr.scoreA);
     var aColor = aLead ? '#6ddc6d' : (bLead ? '#5a6b7a' : '#90caf9');
     var bColor = bLead ? '#6ddc6d' : (aLead ? '#5a6b7a' : '#ffb74d');
-    html += '<div style="display:flex;justify-content:space-around;align-items:center;margin-top:10px;background:#0f1f35;border-radius:8px;padding:10px">'
+    html += '<div style="display:flex;justify-content:space-around;align-items:center;margin-top:10px;background:#1f2f4c;border-radius:8px;padding:10px">'
       +'<div style="text-align:center;'+(bLead?'opacity:0.55':'')+'">'
         +'<div style="font-size:13px;height:16px">'+(aLead?'🏆':'')+'</div>'
         +'<div style="font-size:22px;font-weight:800;color:'+aColor+'">'+(tr.scoreA||0)+'</div>'
@@ -6520,7 +6520,7 @@ function renderClanTournaments(html) {
   if (clanTourState.isCaptain) {
     html += '<div class="card">'
       +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Создать турнир — минимальный взнос 50⭐ (это минимум, который можно вручную вернуть звёздами, если турнир не состоится)','Create a tournament — minimum stake 50⭐ (the smallest amount that can be manually refunded in Stars if the tournament falls through)')+'</div>'
-      +'<input id="clan-tour-amount" type="number" min="50" step="1" placeholder="'+t('Взнос, ⭐ (мин. 50)','Stake, ⭐ (min 50)')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#0f1f35;color:#fff;font-size:14px;margin-bottom:10px">'
+      +'<input id="clan-tour-amount" type="number" min="50" step="1" placeholder="'+t('Взнос, ⭐ (мин. 50)','Stake, ⭐ (min 50)')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#1f2f4c;color:#fff;font-size:14px;margin-bottom:10px">'
       +'<button class="btn btn-gold btn-full" onclick="createClanTournament()">🏆 '+t('Создать турнир','Create tournament')+'</button>'
       +'</div>';
   }
@@ -6528,7 +6528,7 @@ function renderClanTournaments(html) {
   if (clanTourState.loading) {
     html += '<div class="card" style="text-align:center;padding:20px;color:#666">⏳ '+t('Загрузка...','Loading...')+'</div>';
     html += '<button class="btn btn-full" style="background:#1a3a5a;margin-bottom:10px" onclick="openClanTournamentsBrowse()">🔍 '+t('Найти турнир соперника','Browse opponent tournaments')+'</button>';
-    html += '<button class="btn btn-full" style="background:#2a2a4a;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
+    html += '<button class="btn btn-full" style="background:#33385b;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
     html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
     document.getElementById('content').innerHTML = html;
     return;
@@ -6545,7 +6545,7 @@ function renderClanTournaments(html) {
   }
 
   html += '<button class="btn btn-full" style="background:#1a3a5a;margin-bottom:10px" onclick="openClanTournamentsBrowse()">🔍 '+t('Найти турнир соперника','Browse opponent tournaments')+'</button>';
-  html += '<button class="btn btn-full" style="background:#2a2a4a;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
+  html += '<button class="btn btn-full" style="background:#33385b;margin-bottom:10px" onclick="openClanTournamentsArchive()">📜 '+t('Архив турниров','Tournament archive')+'</button>';
   html += '<button class="btn btn-full" style="background:#0f3460" onclick="clanView=\'main\';renderClan()">← '+t('Назад к клану','Back to clan')+'</button>';
 
   document.getElementById('content').innerHTML = html;
@@ -6948,7 +6948,7 @@ function renderSettings() {
   var tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   var isAdmin = tgUser && tgUser.id === 145841941;
   var adminHtml = isAdmin
-    ? '<div class="card" style="background:#1a0a3a;margin-bottom:8px">'
+    ? '<div class="card" style="background:#272050;margin-bottom:8px">'
       +'<div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:8px">🔧 '+t('Админ-панель','Admin panel')+'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
       +'<button class="btn" onclick="queueAction({type:\'admin_grant\',amount:1000});flushActions();showNotif(\'✅ +1000 (на сервере)\')" style="background:#1565c0">+1к</button>'
@@ -7007,22 +7007,22 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Улов','Catch')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Цена','Price')+'</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e">'
+      +'<tr style="border-bottom:1px solid #243153">'
         +'<td style="padding:3px 4px;">☀️ '+t('Ясно','Clear')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">±0%</td>'
         +'<td style="padding:3px 4px;text-align:right">73–127%</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e">'
+      +'<tr style="border-bottom:1px solid #243153">'
         +'<td style="padding:3px 4px;">🌥 '+t('Облачно','Cloudy')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−10%</td>'
         +'<td style="padding:3px 4px;text-align:right">80–133%</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e">'
+      +'<tr style="border-bottom:1px solid #243153">'
         +'<td style="padding:3px 4px;">🌧 '+t('Дождь','Rain')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−25%</td>'
         +'<td style="padding:3px 4px;text-align:right">127–217%</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e">'
+      +'<tr style="border-bottom:1px solid #243153">'
         +'<td style="padding:3px 4px;">⛈ '+t('Шторм','Storm')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">−40%</td>'
         +'<td style="padding:3px 4px;text-align:right">233–300%</td>'
@@ -7053,8 +7053,8 @@ function showInstructions() {
     +'<b style="color:#fff">'+t('🏪 Рынок и доставка','🏪 Market and delivery')+'</b><br>'+t('Выбери вид рыбы (свежую, сушёную или филе) и отправь транспортом. Цены меняются каждые 30 сек 📈📉 — внутри диапазона, который задаёт текущая погода (от 53% до 300% базовой цены). Следи за ценами и продавай на пике!','Choose a fish type (fresh, dried, or filet) and send it by transport. Prices change every 30 sec 📈📉 — within a range set by the current weather (from 53% to 300% of base price). Watch prices and sell at the peak!')+'<br>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Вид рыбы','Fish type')+'</td><td style="padding:3px 4px;text-align:right">'+t('Цена за штуку','Price per fish')+'</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px;">🐟 '+t('Свежая','Fresh')+'</td><td style="padding:3px 4px;text-align:right">'+t('×1 (цена рынка)','×1 (market price)')+'</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px;">📦 '+t('Сушёная','Dried')+'</td><td style="padding:3px 4px;text-align:right">'+t('×3 к свежей','×3 of fresh')+'</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px;">🐟 '+t('Свежая','Fresh')+'</td><td style="padding:3px 4px;text-align:right">'+t('×1 (цена рынка)','×1 (market price)')+'</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px;">📦 '+t('Сушёная','Dried')+'</td><td style="padding:3px 4px;text-align:right">'+t('×3 к свежей','×3 of fresh')+'</td></tr>'
       +'<tr><td style="padding:3px 4px;">🍱 '+t('Филе','Filet')+'</td><td style="padding:3px 4px;text-align:right">'+t('×5 к свежей','×5 of fresh')+'</td></tr>'
     +'</table><br>'
     +'<b style="color:#fff">'+t('🧑‍✈️ Нанять водителя','🧑‍✈️ Hire a driver')+'</b><br>'+t('Во вкладке 🏪 Рынок → переключись на вкладку 🧑‍✈️ Водитель. Выбери транспорт для водителя (отличный от твоего), выбери рыбу и отправь. Водитель едет параллельно с твоей доставкой! Водитель забирает 30% выручки — остальное твоё. Соль и ножи можно заказать и для водителя.','In the 🏪 Market tab → switch to the 🧑‍✈️ Driver tab. Choose a transport for the driver (different from yours), pick fish and send. The driver travels in parallel with your delivery! The driver takes 30% of revenue — the rest is yours. Salt and knives can be ordered for the driver too.')+'<br><br>'
@@ -7074,9 +7074,9 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">🌊</td>'
         +'<td style="padding:3px 4px;text-align:right">🚀</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🚲</td><td style="padding:3px 4px;text-align:right">50</td><td style="padding:3px 4px;text-align:right">100</td><td style="padding:3px 4px;text-align:right">250</td><td style="padding:3px 4px;text-align:right">750</td><td style="padding:3px 4px;text-align:right">2,500</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🛵</td><td style="padding:3px 4px;text-align:right">500</td><td style="padding:3px 4px;text-align:right">1,000</td><td style="padding:3px 4px;text-align:right">2,500</td><td style="padding:3px 4px;text-align:right">7,500</td><td style="padding:3px 4px;text-align:right">25,000</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🚗</td><td style="padding:3px 4px;text-align:right">5,000</td><td style="padding:3px 4px;text-align:right">10,000</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">75,000</td><td style="padding:3px 4px;text-align:right">250,000</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🚲</td><td style="padding:3px 4px;text-align:right">50</td><td style="padding:3px 4px;text-align:right">100</td><td style="padding:3px 4px;text-align:right">250</td><td style="padding:3px 4px;text-align:right">750</td><td style="padding:3px 4px;text-align:right">2,500</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🛵</td><td style="padding:3px 4px;text-align:right">500</td><td style="padding:3px 4px;text-align:right">1,000</td><td style="padding:3px 4px;text-align:right">2,500</td><td style="padding:3px 4px;text-align:right">7,500</td><td style="padding:3px 4px;text-align:right">25,000</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🚗</td><td style="padding:3px 4px;text-align:right">5,000</td><td style="padding:3px 4px;text-align:right">10,000</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">75,000</td><td style="padding:3px 4px;text-align:right">250,000</td></tr>'
       +'<tr><td style="padding:3px 4px">🚛</td><td style="padding:3px 4px;text-align:right">30,000</td><td style="padding:3px 4px;text-align:right">60,000</td><td style="padding:3px 4px;text-align:right">150,000</td><td style="padding:3px 4px;text-align:right">450,000</td><td style="padding:3px 4px;text-align:right">1,500,000</td></tr>'
     +'</table>'
     +'🚛 '+t('Грузовик с прицепом (аренда на рынке рядом со списком транспорта, ⭐5→5→10→15→25 по локации) — 200 рыб · 15 мин · не изнашивается, действует 12 часов','Truck with trailer (rental at the market next to the transport list, ⭐5→5→10→15→25 by location) — 200 fish · 15 min · doesn\'t wear out, lasts 12 hours')+'<br><br>'
@@ -7105,10 +7105,10 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">⭐</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌿</td><td style="padding:3px 4px;text-align:right">100k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25k</td><td style="padding:3px 4px;text-align:right">5/3</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🏞</td><td style="padding:3px 4px;text-align:right">200k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50k</td><td style="padding:3px 4px;text-align:right">10/6</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌴</td><td style="padding:3px 4px;text-align:right">500k:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1.25M</td><td style="padding:3px 4px;text-align:right">25/15</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌊</td><td style="padding:3px 4px;text-align:right">1.5M:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11.25M</td><td style="padding:3px 4px;text-align:right">75/45</td></tr>'
       +'<tr><td style="padding:3px 4px">🚀</td><td style="padding:3px 4px;text-align:right">5M:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">125M</td><td style="padding:3px 4px;text-align:right">250/150</td></tr>'
     +'</table>'
     +t('(комиссия указана обычная/Premium; курс — монет за $'+usdtRateStr()+' USDT). USDT (TON) отправляется вручную в течение 24ч.','(fee shown as regular/Premium; rate — coins per $'+usdtRateStr()+' USDT). USDT (TON) is sent manually within 24h.')+'<br>'
@@ -7116,7 +7116,7 @@ function showInstructions() {
     +t('В том же разделе Банка — можно открыть вклад: тело замораживается на срок, проценты начисляются сами по истечении, забрать можно и досрочно (тело вернётся полностью, но без процентов). Открытие — ⭐1 (бесплатно для Premium). Минимум 50,000, без ограничения по сумме и по количеству одновременных вкладов:','Also in the Bank section — you can open a deposit: the principal is frozen for the term, interest is credited automatically when it matures, and you can also withdraw early (principal returned in full, no interest). Opening costs ⭐1 (free for Premium). Minimum 50,000, no limit on amount or number of simultaneous deposits:')
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 0 8px">'
       +'<tr style="color:#90caf9;border-bottom:1px solid #1565c0"><td style="padding:3px 4px;text-align:left">'+t('Срок','Term')+'</td><td style="padding:3px 4px;text-align:right">'+t('Ставка','Rate')+'</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">'+t('15 дней','15 days')+'</td><td style="padding:3px 4px;text-align:right">8% '+t('годовых','APR')+'</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">'+t('15 дней','15 days')+'</td><td style="padding:3px 4px;text-align:right">8% '+t('годовых','APR')+'</td></tr>'
       +'<tr><td style="padding:3px 4px">'+t('30 дней','30 days')+'</td><td style="padding:3px 4px;text-align:right">12% '+t('годовых','APR')+'</td></tr>'
     +'</table>'
     +'<br>'
@@ -7149,10 +7149,10 @@ function showInstructions() {
         +'<td style="padding:3px 4px;text-align:right">'+t('Потолок','Cap')+'</td>'
         +'<td style="padding:3px 4px;text-align:right">'+t('Комиссия','Fee')+'</td>'
       +'</tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
-      +'<tr style="border-bottom:1px solid #16213e"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌿 '+t('Пруд','Pond')+'</td><td style="padding:3px 4px;text-align:right">100,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">25,000</td><td style="padding:3px 4px;text-align:right">5⭐/3⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🏞 '+t('Река','River')+'</td><td style="padding:3px 4px;text-align:right">200,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">50,000</td><td style="padding:3px 4px;text-align:right">10⭐/6⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌴 '+t('Тропики','Tropics')+'</td><td style="padding:3px 4px;text-align:right">500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">1,250,000</td><td style="padding:3px 4px;text-align:right">25⭐/15⭐</td></tr>'
+      +'<tr style="border-bottom:1px solid #243153"><td style="padding:3px 4px">🌊 '+t('Глубины','Deep')+'</td><td style="padding:3px 4px;text-align:right">1,500,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">11,250,000</td><td style="padding:3px 4px;text-align:right">75⭐/45⭐</td></tr>'
       +'<tr><td style="padding:3px 4px">🚀 '+t('Космос','Space')+'</td><td style="padding:3px 4px;text-align:right">5,000,000:$'+usdtRateStr()+'</td><td style="padding:3px 4px;text-align:right">125,000,000</td><td style="padding:3px 4px;text-align:right">250⭐/150⭐</td></tr>'
     +'</table>'
     +'<div style="font-size:10px;color:#666;margin-bottom:8px">'+t('Комиссия указана как обычная/Premium. Курс и потолок — монет','Fee shown as regular/Premium. Rate and cap are in coins')+'</div>'
@@ -7372,7 +7372,7 @@ function showBannedOverlay(bannedUntil) {
     untilText = t('Обратитесь в поддержку, если считаете это ошибкой.','Contact support if you believe this is a mistake.');
   }
   var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0a0a14;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff;font-family:inherit';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#1b2034;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff;font-family:inherit';
   overlay.innerHTML =
     '<div style="font-size:48px;margin-bottom:16px">🚫</div>'
     + '<div style="font-size:18px;font-weight:700;margin-bottom:10px;color:#ff6b6b">'+t('Аккаунт временно заблокирован','Account temporarily suspended')+'</div>'
