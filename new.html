@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-02.r5">
+<meta name="ff-build" content="2026-11-03.r8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -18,6 +18,10 @@ html{overflow-x:hidden;width:100%}
 .bubble{position:absolute;border-radius:50%;animation:rise 3s infinite ease-in}
 @keyframes rise{0%{transform:translateY(0) scale(1);opacity:.6}100%{transform:translateY(-180px) scale(.3);opacity:0}}
 .tap-anim{position:absolute;pointer-events:none;font-size:26px;animation:popfish .8s ease-out forwards}
+/* Осетрина картинкой (03.11): значок в углу пруда, пока открыто окно, и всплеск при поимке */
+#rare-fish-indicator img{width:78px;height:auto;display:block;filter:drop-shadow(0 0 6px rgba(255,215,0,.75));animation:rfbob 1.6s ease-in-out infinite}
+@keyframes rfbob{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(4px) rotate(6deg)}}
+.tap-anim img{width:84px;height:auto;display:block;margin:-10px 0 0 -30px}
 .plus-anim{position:absolute;pointer-events:none;font-size:14px;font-weight:700;color:#FFD700;animation:floatup .9s ease-out forwards}
 @keyframes popfish{0%{transform:scale(.5);opacity:1}50%{transform:scale(1.4);opacity:1}100%{transform:scale(1) translateY(-50px);opacity:0}}
 @keyframes floatup{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-55px);opacity:0}}
@@ -703,6 +707,8 @@ function setLanguage(lang) {
   LANG = lang;
   try { localStorage.setItem('fishfarm_lang_override', lang); } catch(e) {}
   applyStaticTranslations();
+  /* полоса локаций и подпись на пруду рисуются только при смене локации — без этого оставались на старом языке */
+  try { renderLocBar(); var _ll=getLoc(); document.getElementById('loc-label').textContent=_ll.emoji+' '+locName(_ll.id); } catch(e) {}
   updateEnergyBar();
   renderContent();
   updateBigFishingBanner();
@@ -1026,7 +1032,7 @@ function fetchRareFish() {
 function checkRareFish() {
   rareFishActive = rareFishEndsAt > Date.now();
   if (rareFishActive && !_rareFishWasActive) {
-    showNotif(t('🫍 Осетрина рядом! Успей поймать!','🫍 Sturgeon nearby! Catch it quick!'));
+    showNotif(t('🐟 Осетрина рядом! Успей поймать!','🐟 Sturgeon nearby! Catch it quick!'));
   }
   _rareFishWasActive = rareFishActive;
 }
@@ -1036,7 +1042,7 @@ function updateRareFishUI() {
   if (!el) return;
   if (rareFishActive) {
     el.style.display = 'block';
-    el.textContent = '🫍';
+    if (!el.firstChild || el.firstChild.tagName !== 'IMG') el.innerHTML = '<img src="img/fish/fish_26_sturgeon.png" alt="">';
   } else {
     el.style.display = 'none';
   }
@@ -1823,8 +1829,12 @@ function processOffline() {
     showNotif(d2msg);
     state.delivery2=null;
   }
-  if (state.autoPerMin > 0) {
-    var autoEarned = Math.round(state.autoPerMin * Math.min(elapsed, 72*3600000) / 1000 / 60 * 100) / 100; /* копится максимум 3 суток (как на сервере) */
+  /* processOffline зовётся второй раз после загрузки сейва из облака (loadFromFirebase) — тот же офлайн
+     показывался дважды (03.11, «Авто-доход за офлайн» ×2). Второй раз считаем только время после первого. */
+  var autoFrom = Math.max(last, window._offlineAutoTo || 0);
+  window._offlineAutoTo = now;
+  if (state.autoPerMin > 0 && now - autoFrom >= 5000) {
+    var autoEarned = Math.round(state.autoPerMin * Math.min(now - autoFrom, 72*3600000) / 1000 / 60 * 100) / 100; /* копится максимум 3 суток (как на сервере) */
     if (autoEarned > 0) {
       state.coins = Math.round((state.coins + autoEarned) * 100) / 100;
       state.totalEarned = Math.round((state.totalEarned + autoEarned) * 100) / 100;
@@ -2053,7 +2063,8 @@ function showNotif(msg, dead) {
 function spawnAnim(x,y,emoji,label) {
   var ocean=document.getElementById('ocean');
   var el=document.createElement('div');
-  el.className='tap-anim'; el.textContent=emoji;
+  el.className='tap-anim';
+  if (emoji && emoji.indexOf('img:')===0) { var im=document.createElement('img'); im.src='img/fish/'+emoji.slice(4)+'.png'; im.alt=''; el.appendChild(im); } else el.textContent=emoji;
   el.style.left=(x-13)+'px'; el.style.top=(y-13)+'px';
   ocean.appendChild(el);
   var plus=document.createElement('div');
@@ -6997,7 +7008,7 @@ function showInstructions() {
     '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
     +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">📖 '+t('Как играть','How to play')+'</div>'
     +'<div style="font-size:12px;color:#90caf9;line-height:1.9">'
-    +'<b style="color:#fff">'+t('🎣 Рыбалка','🎣 Fishing')+'</b><br>'+t('Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!','Tap the water to catch fish. Catch chance depends on your rod. Tapping too fast scares the fish — tap in moderation!')+'<br>🫍 '+t('Раз в 3 часа, в случайный момент, появляется редкая Осетрина (в любой локации) — в течение 10 минут её можно поймать! Заранее время не знает никто — заглядывай почаще. При тапе есть шанс 15% — и ты сразу получишь монеты, сумма растёт вместе с множителем твоей текущей локации (Пруд 🪙25 · Река 🪙50 · Тропики 🪙125 · Глубины 🪙375 · Космос 🪙1250). Следи за иконкой 🫍 под процентом улова!','Once every 3 hours, at a random moment, a rare Sturgeon appears (in any location) — catchable for 10 minutes! Nobody knows the time in advance — check in often. Each tap has a 15% chance to catch it instantly for coins, scaling with your current location multiplier (Pond 🪙25 · River 🪙50 · Tropics 🪙125 · Deep 🪙375 · Space 🪙1250). Watch for the 🫍 icon under the catch percentage!')+'<br><br>'
+    +'<b style="color:#fff">'+t('🎣 Рыбалка','🎣 Fishing')+'</b><br>'+t('Тапай по воде чтобы ловить рыбу. Шанс улова зависит от удочки. Слишком быстрые тапы пугают рыбу — тапай в меру!','Tap the water to catch fish. Catch chance depends on your rod. Tapping too fast scares the fish — tap in moderation!')+'<br>🐟 '+t('Раз в 3 часа, в случайный момент, появляется редкая Осетрина (в любой локации) — в течение 10 минут её можно поймать! Заранее время не знает никто — заглядывай почаще. При тапе есть шанс 15% — и ты сразу получишь монеты, сумма растёт вместе с множителем твоей текущей локации (Пруд 🪙25 · Река 🪙50 · Тропики 🪙125 · Глубины 🪙375 · Космос 🪙1250). Следи за Осетриной в углу пруда!','Once every 3 hours, at a random moment, a rare Sturgeon appears (in any location) — catchable for 10 minutes! Nobody knows the time in advance — check in often. Each tap has a 15% chance to catch it instantly for coins, scaling with your current location multiplier (Pond 🪙25 · River 🪙50 · Tropics 🪙125 · Deep 🪙375 · Space 🪙1250). Watch for the Sturgeon in the corner of the pond!')+'<br><br>'
     +'<b style="color:#fff">'+t('😊 Настроение рыбы','😊 Fish mood')+'</b><br>'+t('Смайлик показывает настроение: 😊 спокойная — максимальный шанс, 😨 напугана — шанс падает. Не спамь тапами!','The emoji shows the mood: 😊 calm — max chance, 😨 scared — chance drops. Don\'t spam taps!')+'<br><br>'
     +'<b style="color:#fff">'+t('🐠 Склад живой рыбы','🐠 Live fish storage')+'</b><br>'+t('Любая рыба живёт 1 час. Продавай или суши вовремя — иначе погибнет!','Any fish lives for 1 hour. Sell or dry it in time — or it will die!')+'<br><br>'
     +'<b style="color:#fff">'+t('🌤 Погода','🌤 Weather')+'</b><br>'+t('Каждые 30 минут погода меняется для всех игроков одновременно!','Every 30 minutes weather changes for all players at once!')+'<br>'
@@ -7460,7 +7471,7 @@ function tapOcean(e) {
     spendEnergyForCatch();
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
     addQuestProgress('catch', 1);
-    spawnAnim(x,y,RARE_FISH.emoji,'🎉 +'+rareEarned+'!');
+    spawnAnim(x,y,'img:fish_26_sturgeon','🎉 +'+rareEarned+'!');
     showNotif(t('Поймал Осетрину! +🪙','Caught a Sturgeon! +🪙')+rareEarned);
     updateUI(); save();
     if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
