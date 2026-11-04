@@ -7838,6 +7838,11 @@ async def process_actions(request):
                         setag = sresp.headers.get("ETag")
                         fresh_sv = await sresp.json()
                 fresh_sv = fresh_sv or {}
+                # 04.11: серия ежедневного бонуса отдаётся игре в КАЖДОМ ответе (раньше — только при
+                # получении бонуса). Игра показывала свою устаревшую копию: «пропустил день, День 1 · 20»,
+                # а сервер честно дал День 6 · 800 (@mapitom 04.11). Ниже при получении перезаписывается.
+                response_daily_day = int(fresh_sv.get('dailyDay', 0) or 0)
+                response_daily_last_claim = int(fresh_sv.get('dailyLastClaim') or 0)
                 # Сбрасываем на каждой попытке — честно пересчитываем всю пачку заново от
                 # fresh_sv, поэтому только значения ПОСЛЕДНЕЙ (успешной) попытки должны попасть
                 # в лог, а не сумма по всем retry.

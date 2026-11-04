@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-03.1">
+<meta name="ff-build" content="2026-11-04.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -7206,7 +7206,7 @@ function queueAction(action) {
     window._actionsFlushTimer = setTimeout(flushActions, 3000);
   }
 }
-function applyActionsResult(res, sentAt) {
+function applyActionsResult(res, sentAt, batch) {
   state.coins = res.coins;
   state.caught = res.caught;
   state.totalEarned = res.totalEarned;
@@ -7214,8 +7214,24 @@ function applyActionsResult(res, sentAt) {
   if (res.rare) applyRareFromServer(res.rare);
   if (Array.isArray(res.ulocs) && res.ulocs.length && !(window._lastUnlockAt && sentAt < window._lastUnlockAt)) syncUnlockedLocs(res.ulocs);
   if (typeof res.energy === 'number') state.energy = res.energy;
-  if (typeof res.dailyDay === 'number') state.dailyDay = res.dailyDay;
-  if (typeof res.dailyLastClaim === 'number') state.dailyLastClaim = res.dailyLastClaim;
+  /* Серия ежедневного бонуса — серверная (с 04.11 приходит в каждом ответе). Ответ на запрос, ушедший ДО
+     нажатия «Забрать», ещё не знает о бонусе — его цифры пропускаем. Сумму показываем со слов сервера:
+     04.11 игра по своей устаревшей копии написала «День 1 — 20», а сервер начислил День 6 — 800. */
+  var hadDaily = false;
+  for (var bi=0; batch && bi<batch.length; bi++) if (batch[bi] && batch[bi].type==='daily_bonus') hadDaily = true;
+  if (hadDaily || !(window._lastDailyClaimAt && sentAt < window._lastDailyClaimAt)) {
+    if (typeof res.dailyDay === 'number') state.dailyDay = res.dailyDay;
+    if (typeof res.dailyLastClaim === 'number') state.dailyLastClaim = res.dailyLastClaim;
+  }
+  if (hadDaily && typeof res.dailyDay === 'number') {
+    if (res.dailyLastClaim && Math.abs(res.dailyLastClaim - sentAt) < 600000) {
+      var dIdx = res.dailyDay === 0 ? 6 : res.dailyDay - 1;
+      var dRew = Math.round(DAILY[dIdx]*maxUnlockedMult()*100)/100;
+      showNotif(t('🎁 День ','🎁 Day ')+(dIdx+1)+t(' — получено 🪙',' — received 🪙')+fmt(dRew)+'!');
+    } else {
+      showNotif(t('🎁 Бонус за сегодня уже получен','🎁 Today\'s bonus is already claimed'));
+    }
+  }
   // Билеты на грузовик и срок аренды — серверные (truckTickets / truckRentalUntil). Ответ
   // на запрос, ушедший ДО траты билета, ещё не знает о ней — его цифры пропускаем.
   if (!(window._lastTicketUseAt && sentAt < window._lastTicketUseAt)) {
@@ -7336,7 +7352,7 @@ function flushActions() {
     if (!res || !res.ok) { window._pendingActions = batch.concat(window._pendingActions); savePendingActionsLocally(); return; }
     // Сервер — источник правды. Молча принимаем его цифры (без пугающих уведомлений) —
     // расхождение почти всегда просто округление, а не читерство.
-    applyActionsResult(res, sentAt);
+    applyActionsResult(res, sentAt, batch);
   }).catch(function(){
     // сеть недоступна — возвращаем действия в очередь (уже сохранены в localStorage), попробуем позже
     window._pendingActions = batch.concat(window._pendingActions);
@@ -8021,9 +8037,9 @@ function claimDaily() {
   state.totalEarned=Math.round((state.totalEarned+reward)*100)/100;
   state.dailyLastClaim=Date.now();
   state.dailyDay=state.dailyDay>=6?0:state.dailyDay+1;
+  window._lastDailyClaimAt = Date.now();
   queueAction({type:'daily_bonus', loc: state.currentLoc});
-  flushActions();
-  showNotif(t('🎁 День ','🎁 Day ')+state.dailyDay+t(' — получено 🪙',' — received 🪙')+fmt(reward)+'!');
+  flushActions(); /* уведомление «День N — получено» — по ответу сервера, см. applyActionsResult */
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
