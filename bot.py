@@ -10255,7 +10255,7 @@ async def clanslist_command(message: types.Message):
         return
     await message.answer("⏳ Загружаю список кланов...")
     import aiohttp
-    from datetime import datetime
+    from datetime import datetime, timezone
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     try:
         async with aiohttp.ClientSession() as session:
@@ -10281,22 +10281,16 @@ async def clanslist_command(message: types.Message):
             maxm = c.get('maxMembers', 2)
             created = c.get('createdAt')
             created_str = datetime.fromtimestamp(created / 1000).strftime('%d.%m.%Y') if created else '?'
-            lines.append(f"🛡️ «{name}» — {count}/{maxm} · капитан {captain_label} · с {created_str}\nID: <code>{cid}</code>")
+            lines.append(f"🛡️ «{name}» — {count}/{maxm} · капитан {captain_label} · с {created_str}\nID: {cid}")
 
-        header = f"🛡️ Всего кланов: {len(clans_list)}\n\n"
-        chunks = []
-        current = header
-        for line in lines:
-            candidate = current + line + "\n\n"
-            if len(candidate) > 3500:
-                chunks.append(current)
-                current = line + "\n\n"
-            else:
-                current = candidate
-        if current.strip():
-            chunks.append(current)
-        for chunk in chunks:
-            await message.answer(chunk, parse_mode="HTML")
+        # Одним файлом (06.11, просьба Саши): раньше список резался на десятки сообщений
+        now_utc = datetime.now(timezone.utc)
+        content = (f"FishFarm — Список кланов\nДата: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}\n"
+                   f"Всего: {len(clans_list)}\n{'='*40}\n\n" + "\n\n".join(lines))
+        await message.answer_document(
+            types.BufferedInputFile(content.encode('utf-8'),
+                                    filename=f"fishfarm_clans_{now_utc.strftime('%Y%m%d_%H%M')}.txt"),
+            caption=f"🛡️ Кланов: {len(clans_list)}")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
