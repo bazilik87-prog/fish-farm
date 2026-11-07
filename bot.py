@@ -3170,6 +3170,10 @@ CLAN_TOUR_WIN_XP = 300             # победа в клановой битве
 # битва — по одной на каждый уровень (победа не обязательна). Счётчик clan_xp/{id}/battles растёт
 # при settled. Уровни, набранные до этого правила, сохранены: clan_xp/{id}/levelFloor.
 CLAN_BATTLE_GATE_FROM_LEVEL = 3
+# С 07.11.2026 (решение Саши): битвы на каждый уровень — НОВЫЕ, прошлые не в счёт, и с каждым уровнем на одну
+# больше: 3-й — 1, 4-й — 2, 5-й — 3 … 10-й — 8 (всего 36). Раньше хватало одной новой битвы на уровень.
+# battles в clan_xp — общий счётчик, поэтому сравниваем с суммой: clan_battles_total_for(level).
+CLAN_BATTLES_FOR_LEVEL = {3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 8: 6, 9: 7, 10: 8}
 CLAN_MONTH_REWARD_STARS = 50       # «Клан месяца» — каждому подходящему участнику
 CLAN_MONTH_MIN_XP = 200            # ... кто сам принёс клану за месяц не меньше
 CLAN_MONTH_MIN_DAYS = 14           # ... и в клане с начала месяца или не меньше 14 дней
@@ -3238,11 +3242,31 @@ def clan_level_for_xp(xp):
     return level
 
 
-def clan_effective_level(xp, battles=0, floor=1):
-    """Уровень клана с учётом битв: по опыту, но не выше (GATE-1 + завершённых битв);
-    уровень, сохранённый при вводе правила (floor), не отнимается (если опыта на него хватает)."""
+def clan_battles_total_for(level):
+    """Сколько завершённых битв всего нужно, чтобы стоять на уровне level (см. CLAN_BATTLES_FOR_LEVEL)."""
+    return sum(n for lv, n in CLAN_BATTLES_FOR_LEVEL.items() if lv <= level)
+
+
+def clan_level_for_battles(battles):
+    """Наивысший уровень, который разрешают завершённые битвы (без учёта опыта)."""
+    level = CLAN_BATTLE_GATE_FROM_LEVEL - 1
+    while level < len(CLAN_LEVEL_XP) and clan_battles_total_for(level + 1) <= int(battles or 0):
+        level += 1
+    return level
+
+
+def _clan_effective_level_v1(xp, battles=0, floor=1):
+    """Правило до 07.11.2026 (одна битва на уровень) — только для разового переноса уровней."""
     by_xp = clan_level_for_xp(xp)
     capped = min(by_xp, CLAN_BATTLE_GATE_FROM_LEVEL - 1 + int(battles or 0))
+    return max(capped, min(int(floor or 1), by_xp))
+
+
+def clan_effective_level(xp, battles=0, floor=1):
+    """Уровень клана с учётом битв: по опыту, но не выше того, что разрешают битвы;
+    уровень, сохранённый при вводе правила (floor), не отнимается (если опыта на него хватает)."""
+    by_xp = clan_level_for_xp(xp)
+    capped = min(by_xp, clan_level_for_battles(battles))
     return max(capped, min(int(floor or 1), by_xp))
 
 
@@ -3274,8 +3298,9 @@ async def _clan_gate_admin_note(clan_id, xp_level, level, battles, xp=None, unlo
             text = (f"⚔️✅ Клан «{name}» завершил битву и открыл {level} уровень "
                     f"(битв всего: {battles}).")
         else:
+            need = max(0, clan_battles_total_for(level + 1) - int(battles or 0))
             text = (f"⚔️ Клан «{name}» набрал опыт на {xp_level} уровень ({xp:,.0f} XP), но остаётся на {level}-м — "
-                    f"нужна завершённая клановая битва (битв сейчас: {battles}). /clanxp {clan_id}")
+                    f"нужна завершённая клановая битва, ещё {need} (битв сейчас: {battles}). /clanxp {clan_id}")
         await bot.send_message(ADMIN_ID, text)
     except Exception as e:
         print(f"[_clan_gate_admin_note] {clan_id}: {e}")
@@ -3340,6 +3365,35 @@ async def clan_battle_gate_migrate():
             print(f"[clan_battle_gate_migrate] кланов: {len(all_xp)}, битв учтено: {sum(done.values())}")
     except Exception as e:
         print(f"[clan_battle_gate_migrate] ошибка: {e}")
+
+
+async def clan_battle_gate_v2_migrate():
+    """Один раз при смене правила битв (07.11.2026): кланам, которые по новому правилу опустились бы,
+    levelFloor = их уровень по старому правилу (Саша: «оставить уровни»). Флаг clan_migrations/battleGateV2."""
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clan_migrations/battleGateV2.json{FB_AUTH}") as r:
+                if await r.json():
+                    return
+            async with session.get(f"{base}/clan_xp.json{FB_AUTH}") as r:
+                all_xp = await r.json() or {}
+            kept = []
+            for cid, xd in all_xp.items():
+                if not isinstance(xd, dict):
+                    continue
+                xp, battles, floor = float(xd.get('xp') or 0), xd.get('battles') or 0, xd.get('levelFloor') or 1
+                old = _clan_effective_level_v1(xp, battles, floor)
+                if clan_effective_level(xp, battles, floor) < old:
+                    async with session.patch(f"{base}/clan_xp/{cid}.json{FB_AUTH}", json={'levelFloor': old}) as w:
+                        if w.status != 200:
+                            raise RuntimeError(f"{cid}: HTTP {w.status}")
+                    kept.append(f"{cid}→{old}")
+            await session.put(f"{base}/clan_migrations/battleGateV2.json{FB_AUTH}", json=int(time_module.time() * 1000))
+            print(f"[clan_battle_gate_v2_migrate] кланов: {len(all_xp)}, уровень сохранён: {kept or 'никому не нужно'}")
+    except Exception as e:
+        print(f"[clan_battle_gate_v2_migrate] ошибка: {e}")
 
 
 def clan_level_bonuses(level):
@@ -3821,7 +3875,9 @@ async def _clan_progress_view(session, base, clan_id, clan_data, pid):
         # Опыта на следующий уровень хватает, но нужна завершённая битва (правило с 09.10.2026)
         'battles': battles,
         'needBattle': level < len(CLAN_LEVEL_XP) and level + 1 >= CLAN_BATTLE_GATE_FROM_LEVEL
-                      and xp >= CLAN_LEVEL_XP[level] and clan_effective_level(xp, battles + 1, xd.get('levelFloor') or 1) > level,
+                      and xp >= CLAN_LEVEL_XP[level] and clan_level_for_battles(battles) < level + 1,
+        # сколько ещё завершённых битв нужно на следующий уровень (с 07.11 — новые на каждый уровень)
+        'battlesNeeded': (max(0, clan_battles_total_for(level + 1) - battles) if level < len(CLAN_LEVEL_XP) else 0),
         'contrib': contrib, 'fishXpDailyCap': CLAN_FISH_XP_DAILY_CAP,
         'month': {'key': month, 'xp': round(month_xp_clan, 1), 'rank': rank, 'clans': len(rows),
                   'leader': leader, 'rewardStars': CLAN_MONTH_REWARD_STARS, 'minXp': CLAN_MONTH_MIN_XP},
@@ -15302,6 +15358,7 @@ async def main():
     # До приёма запросов: разовый перенос уровней кланов под правило битв (иначе клан 3+ уровня
     # на секунды «терял» бы уровень). Дальше — одно чтение флага.
     await clan_battle_gate_migrate()
+    await clan_battle_gate_v2_migrate()
     await verified_seed_migrate()
     _spawn_bg(broadcast_resume_on_start())
     await ads_stats_load()
