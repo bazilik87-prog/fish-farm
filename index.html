@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-07.2">
+<meta name="ff-build" content="2026-11-08.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6817,7 +6817,7 @@ function renderLeaders() {
         var msLeft = res.endsAt - Date.now();
         var th = Math.floor(msLeft/3600000), tm = Math.floor((msLeft%3600000)/60000);
         var tHtml = '<div class="lb-tour"><div class="bs-sec"><b>🏆 '+t('Турнир недели','Weekly tournament')+'</b><span>⏱ '+th+t('ч ','h ')+tm+t('м','m')+'</span></div>'
-          +'<div class="bs-note" style="color:#c9a2ff">'+t('кто больше заработает за неделю','who earns the most this week')+'</div>';
+          +'<div class="bs-note" style="color:#c9a2ff">'+t('кто больше заработает монет за время турнира','who earns the most coins during the tournament')+'</div>';
 
         var tEntries = res.top || [];
         if (tEntries.length === 0) {
