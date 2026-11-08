@@ -1379,7 +1379,9 @@ async def create_invoice(request):
             async with _aiohttp.ClientSession() as session:
                 async with session.get(f"{fb_base}/referrals/used/{target_uid}.json{FB_AUTH}") as resp:
                     existing_ref = await resp.json()
-            if existing_ref:
+            if existing_ref and not await user_is_banned(existing_ref):  # 08.11: реферал забаненного — свободен
+                return web.json_response({'error': 'этот игрок уже занят'}, status=400, headers=CORS)
+            if str(existing_ref) == str(real_user_id):
                 return web.json_response({'error': 'этот игрок уже занят'}, status=400, headers=CORS)
             payload = f"rb:{real_user_id}:{target_uid}"
             link = await bot.create_invoice_link(
@@ -1641,12 +1643,16 @@ async def referral_market_list(request):
     banned = banned or {}
     players = players or {}
     result = []
+    list_now_ms = int(time_module.time() * 1000)
     for v in players.values():
         uid = v.get('userId')
         if not uid or uid == real_user_id:
             continue
-        if str(uid) in used:
-            continue  # уже есть реферер — не продаётся
+        ref_of = used.get(str(uid))
+        if ref_of and not is_ban_active(banned.get(str(ref_of)), list_now_ms):
+            continue  # уже есть реферер — не продаётся. С 08.11: реферер забанен → игрок снова свободен
+        if str(ref_of) == str(real_user_id):
+            continue
         if banned.get(str(uid)):
             continue  # забаненный игрок — не продаётся
         username = v.get('username') or ''
@@ -1742,6 +1748,66 @@ async def clear_pending_knives(request):
 # повторного полного чтения leaderboard, если много игроков открывают вкладку "Лидеры"
 # почти одновременно (а пока турнир активен, это постоянная ситуация).
 _TOURNAMENT_TOP_CACHE = {"ts": 0, "data": None}
+
+# 08.11: стартовая сумма турнира недели для тех, кого не было в leaderboard на старте.
+# Повод — забаненный ID 6860481923: /ban удалил его запись из leaderboard, на старте турнира
+# baseline для него не записался, потом бот сам начислил ему бонус и заново создал запись —
+# и турнир засчитал «Заработано» за ВСЁ время (67 201) как прирост за неделю → 1-е место.
+# Теперь перед записью в leaderboard бот проверяет: если турнир идёт, а у игрока нет baseline —
+# пишет baseline = totalEarned ДО этого начисления. Новички получают 0, как и раньше.
+# Список pid с baseline держим в памяти (читается один раз за турнир через ?shallow=true —
+# это только ключи), состояние турнира перечитываем раз в 5 мин тремя маленькими чтениями.
+_TOURN_BASE_CACHE = {"checkedAt": 0, "startedAt": None, "active": False, "endsAt": 0, "pids": set()}
+TOURN_BASE_CHECK_MS = 300000
+
+
+async def tournament_baseline_ensure(session, base, pid, prev_total):
+    """Записывает tournament/baseline/{pid} = prev_total, если турнир недели идёт, а baseline
+    у игрока нет. Сбой — только в лог: запись в лидерборд и сам запрос игрока не ломаем."""
+    try:
+        c = _TOURN_BASE_CACHE
+        now_ms = int(time_module.time() * 1000)
+        if now_ms - c["checkedAt"] > TOURN_BASE_CHECK_MS:
+            c["checkedAt"] = now_ms
+            vals = {}
+            for f in ("active", "startedAt", "endsAt"):
+                async with session.get(f"{base}/tournament/{f}.json{FB_AUTH}") as r:
+                    vals[f] = await r.json() if r.status == 200 else None
+            c["active"] = bool(vals.get("active"))
+            c["endsAt"] = int(vals.get("endsAt") or 0)
+            started = vals.get("startedAt")
+            if c["active"] and started and started != c["startedAt"]:
+                async with session.get(f"{base}/tournament/baseline.json{FB_AUTH and FB_AUTH + '&' or '?'}shallow=true") as r:
+                    keys = await r.json() if r.status == 200 else None
+                if isinstance(keys, dict):
+                    c["pids"] = set(keys.keys())
+                    c["startedAt"] = started
+                else:
+                    c["checkedAt"] = 0  # не прочиталось — попробуем в следующий раз
+                    return
+        if not c["active"] or now_ms >= c["endsAt"] or c["startedAt"] is None:
+            return
+        if pid in c["pids"]:
+            return
+        c["pids"].add(pid)
+        await session.patch(f"{base}/tournament.json{FB_AUTH}", json={f"baseline/{pid}": round(float(prev_total or 0))})
+        print(f"[tournament_baseline_ensure] {pid}: baseline {round(float(prev_total or 0))}")
+    except Exception as e:
+        print(f"[tournament_baseline_ensure] {pid}: {e}")
+
+
+async def tournament_drop_banned(rows, uid_of, need):
+    """08.11: забаненные не участвуют в турнире недели (ни в рейтинге, ни в итогах и призах).
+    rows уже отсортированы; проверяем по порядку (user_is_banned с кэшем 10 мин), пока не наберём need."""
+    out = []
+    for row in rows:
+        uid = uid_of(row)
+        if uid and await user_is_banned(uid):
+            continue
+        out.append(row)
+        if len(out) >= need:
+            break
+    return out
 TOURNAMENT_TOP_CACHE_TTL_MS = 1800000  # 30 минут (с 31.10, было 5) — каждое обновление читает весь leaderboard (~1 МБ), это 36% трафика бота
 
 
@@ -1801,7 +1867,7 @@ async def tournament_top(request):
                             'delta': delta,
                         })
                 entries.sort(key=lambda e: e['delta'], reverse=True)
-                result['top'] = entries[:10]
+                result['top'] = await tournament_drop_banned(entries, lambda e: str(e['id'])[3:] if str(e['id']).startswith('tg_') else None, 10)
 
             _TOURNAMENT_TOP_CACHE["data"] = result
             _TOURNAMENT_TOP_CACHE["ts"] = now_ms
@@ -6962,6 +7028,8 @@ async def pay_rod2_referral_bonus(base, real_user_id):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/referrals/used/{real_user_id}.json{FB_AUTH}") as r1:
                 referrer_id = await r1.json()
+            if referrer_id and await user_is_banned(referrer_id):
+                referrer_id = None  # 08.11: забаненному рефереру бонусы не начисляем — его доля пропадает
             if referrer_id:
                 # ETag-защита на флаге "уже награждён" — тот же принцип, что и
                 # everywhere else: два одновременных апгрейда до ур.2 (например,
@@ -7011,6 +7079,7 @@ async def pay_rod2_referral_bonus(base, real_user_id):
                     # /actions-запроса реферера (который может случиться нескоро, если
                     # он сам не ловит и не продаёт рыбу).
                     if new_ref_total_earned is not None:
+                        await tournament_baseline_ensure(session, base, f"tg_{referrer_id}", float(ref_sv.get('totalEarned', 0) or 0))
                         try:
                             await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
                                 "totalEarned": round(new_ref_total_earned),
@@ -7320,6 +7389,7 @@ async def process_actions(request):
                                         continue
                                     break
                             if not already_rewarded:
+                                ref_banned = await user_is_banned(referrer_id)  # 08.11: забаненному рефереру бонусы не начисляем — его доля пропадает (сам друг свои +100 получает)
                                 # Самому рефералу — прямо в текущий запрос, он же сейчас
                                 # и есть real_user_id, отдельная запись не нужна.
                                 coins += 100
@@ -7329,7 +7399,7 @@ async def process_actions(request):
                                 ref_save_url = f"{base}/saves/tg_{referrer_id}.json{FB_AUTH}"
                                 new_ref_total_earned = None
                                 ref_merged = {}
-                                for coin_attempt in range(6):
+                                for coin_attempt in range(0 if ref_banned else 6):
                                     async with session.get(ref_save_url, headers={"X-Firebase-ETag": "true"}) as r3:
                                         cetag = r3.headers.get("ETag")
                                         ref_sv = await r3.json()
@@ -7344,6 +7414,7 @@ async def process_actions(request):
                                             continue
                                         break
                                 if new_ref_total_earned is not None:
+                                    await tournament_baseline_ensure(session, base, f"tg_{referrer_id}", float(ref_sv.get('totalEarned', 0) or 0))
                                     try:
                                         await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
                                             "totalEarned": round(new_ref_total_earned),
@@ -7359,11 +7430,12 @@ async def process_actions(request):
                                 except Exception:
                                     ref_label = f"ID:{real_user_id}"
                                 try:
-                                    await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал {REFERRAL_ACTIVE_CATCHES} рыб")
+                                    if not ref_banned:
+                                        await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал {REFERRAL_ACTIVE_CATCHES} рыб")
                                 except Exception:
                                     pass
                                 try:
-                                    await bot.send_message(int(real_user_id), f"🎁 Бонус за {REFERRAL_ACTIVE_CATCHES} пойманных рыб: +🪙100! Столько же получил тот, кто тебя пригласил")
+                                    await bot.send_message(int(real_user_id), f"🎁 Бонус за {REFERRAL_ACTIVE_CATCHES} пойманных рыб: +🪙100!" + ("" if ref_banned else " Столько же получил тот, кто тебя пригласил"))
                                 except Exception:
                                     pass
                 except Exception:
@@ -7816,6 +7888,7 @@ async def process_actions(request):
 
     response_daily_day = None
     response_daily_last_claim = None
+    te_before_request = 0.0
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -7899,6 +7972,7 @@ async def process_actions(request):
                 # а сервер честно дал День 6 · 800 (@mapitom 04.11). Ниже при получении перезаписывается.
                 response_daily_day = int(fresh_sv.get('dailyDay', 0) or 0)
                 response_daily_last_claim = int(fresh_sv.get('dailyLastClaim') or 0)
+                te_before_request = float(fresh_sv.get('totalEarned', 0) or 0)
                 # Сбрасываем на каждой попытке — честно пересчитываем всю пачку заново от
                 # fresh_sv, поэтому только значения ПОСЛЕДНЕЙ (успешной) попытки должны попасть
                 # в лог, а не сумма по всем retry.
@@ -8119,6 +8193,7 @@ async def process_actions(request):
                         premium_until = 0
             except Exception:
                 premium_until = 0  # сбой чтения premium — не должен блокировать запись в лидерборд ниже
+            await tournament_baseline_ensure(session, base, pid, te_before_request)
             try:
                 await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={
                     "coins": round(coins),
@@ -8769,7 +8844,7 @@ async def takecoins_command(message: types.Message):
                 await session.delete(f"{base}/pending_exchanges/tg_{user_id}.json{FB_AUTH}")
                 async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as r:
                     referrer_id = await r.json()
-                if referrer_id:
+                if referrer_id and not await user_is_banned(referrer_id):  # 08.11: забаненному рефереру бонусы не начисляем — его доля пропадает
                     await session.put(f"{base}/ref_bonuses/tg_{referrer_id}/ref_bonus_{user_id}_{now_ms}.json{FB_AUTH}",
                                       json={"amount": round(amount * 0.1 * 100) / 100, "from": f"ID:{user_id}"})
     except Exception as e:
@@ -9177,6 +9252,7 @@ async def starttournament_command(message: types.Message):
                 "endsAt": ends_at,
                 "baseline": baseline
             })
+            _TOURN_BASE_CACHE["checkedAt"] = 0  # новый турнир — перечитать список baseline
 
         ends_dt = datetime.fromtimestamp(ends_at / 1000, tz=timezone(timedelta(hours=3)))
         await message.answer(
@@ -9306,6 +9382,7 @@ async def addtotalearned_command(message: types.Message):
                         return
                     break
 
+            await tournament_baseline_ensure(session, base, f"tg_{target_id}", float(sv.get('totalEarned', 0) or 0))
             try:
                 await session.patch(f"{base}/leaderboard/tg_{target_id}.json{FB_AUTH}", json={
                     "totalEarned": round(new_total_earned),
@@ -9387,6 +9464,7 @@ async def fixmissedref_command(message: types.Message):
                     break
 
             # Синхронизируем лидерборд тем же значением
+            await tournament_baseline_ensure(session, base, f"tg_{referrer_id}", float(sv.get('totalEarned', 0) or 0))
             try:
                 await session.patch(f"{base}/leaderboard/tg_{referrer_id}.json{FB_AUTH}", json={
                     "totalEarned": round(new_total_earned),
@@ -9453,6 +9531,7 @@ async def _settle_weekly_tournament(session, base, t):
         return
 
     results.sort(key=lambda x: x[1], reverse=True)
+    results = await tournament_drop_banned(results, lambda x: x[2], 3)
     medals = ['🥇', '🥈', '🥉']
     top = results[:3]
     lines = []
@@ -9545,16 +9624,17 @@ async def tournamentstats_command(message: types.Message):
                 display = first_name
             else:
                 display = f"ID:{uid}"
-            results.append((display, delta))
+            results.append((display, delta, uid))
 
         if not results:
             await message.answer("Пока никто не поймал рыбу в рамках турнира.")
             return
 
         results.sort(key=lambda x: x[1], reverse=True)
+        results = await tournament_drop_banned(results, lambda x: x[2], 15)
         medals = ['🥇', '🥈', '🥉']
         lines = []
-        for i, (name, delta) in enumerate(results[:15]):
+        for i, (name, delta, _uid) in enumerate(results[:15]):
             medal = medals[i] if i < 3 else f"{i+1}."
             lines.append(f"{medal} {name} — {delta:,} монет")
 
@@ -13994,11 +14074,15 @@ async def successful_payment(message: types.Message):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(f"{base}/referrals/used/{target_id}.json{FB_AUTH}") as resp:
                         existing = await resp.json()
-                    if existing:
-                        await message.answer(t(message.from_user,
-                            "❌ Этого игрока уже купил кто-то другой. Свяжись с администратором для возврата.",
-                            "❌ This player was already claimed by someone else. Contact the admin for a refund."))
+                    # 08.11: реферал забаненного реферера свободен — его можно купить (связь переписываем)
+                    freed_from = existing if (existing and str(existing) != str(buyer_id) and await user_is_banned(existing)) else None
+                    if existing and not freed_from:
+                        # Раньше: «свяжись с администратором для возврата» — теперь возврат сам.
+                        await refund_stars(message, buyer_id, message.successful_payment.total_amount,
+                                           "Этого игрока уже купил кто-то другой.", "This player was already claimed by someone else.")
                     else:
+                        if freed_from:
+                            await session.delete(f"{base}/referrals/by/{freed_from}/{target_id}.json{FB_AUTH}")
                         await session.put(f"{base}/referrals/used/{target_id}.json{FB_AUTH}", json=buyer_id)
                         await session.put(f"{base}/referrals/by/{buyer_id}/{target_id}.json{FB_AUTH}", json=True)
                         await message.answer(t(message.from_user,
@@ -14585,7 +14669,7 @@ async def successful_payment(message: types.Message):
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{base}/referrals/used/{user_id}.json{FB_AUTH}") as resp:
                     referrer_id = await resp.json()
-                if referrer_id:
+                if referrer_id and not await user_is_banned(referrer_id):  # 08.11: забаненному рефереру бонусы не начисляем — его доля пропадает
                     bonus = round(int(coins) * 0.1 * 100) / 100
                     key = f"ref_bonus_{user_id}_{int(time_mod.time() * 1000)}"
                     from_name = f"@{username}" if username else f"ID:{user_id}"
