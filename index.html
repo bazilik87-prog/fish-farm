@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-08.1">
+<meta name="ff-build" content="2026-11-09.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6755,6 +6755,8 @@ function lbAvatar(name, i, cls) {
 function leadersListHtml(entries, myPid) {
   var html = '', myRank = -1;
   var locEmoji = {pond:'🌿',river:'🏞',tropics:'🌴',deep:'🌊',space:'🚀'};
+  /* 09.11: баланс чужих игроков не показываем (решение Саши) — вместо него название локации */
+  var locTitle = {pond:t('Пруд','Pond'),river:t('Река','River'),tropics:t('Тропики','Tropics'),deep:t('Глубины','Deep'),space:t('Космос','Space')};
   for (var k=0;k<entries.length;k++) if (entries[k].id===myPid) myRank=k+1;
   if (entries.length >= 3) {
     var order=[1,0,2];
@@ -6777,7 +6779,7 @@ function leadersListHtml(entries, myPid) {
     var loc = locEmoji[e.data.loc]||'🌿';
     var cl = e.data.clanId ? ' · <span class="lb-clan'+((e.data.clanLevel||1)>=10?' top':'')+'">🛡'+(e.data.clanLevel||1)+'</span>' : '';
     html += '<div class="lb-row'+(isMe?' me':'')+'"><i>'+(i+1)+'</i>'+lbAvatar(name, i)
-      +'<div class="lb-inf"><b>'+name+(isMe?t(' (ты)',' (you)'):'')+'</b><span>'+loc+' · '+fmtXp(e.data.coins)+' '+t('монет','coins')+cl+'</span></div>'
+      +'<div class="lb-inf"><b>'+name+(isMe?t(' (ты)',' (you)'):'')+'</b><span>'+loc+' '+(locTitle[e.data.loc]||locTitle.pond)+cl+'</span></div>'
       +'<div class="lb-val">'+fmtXp(e.data.caught)+'</div></div>';
   }
   if (myRank === -1) html += '<div class="bs-foot">'+t('Тебя пока нет в таблице — лови рыбу!','You\'re not on the board yet — go catch fish!')+'</div>';
