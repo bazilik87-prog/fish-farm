@@ -493,6 +493,15 @@ ROD_TAP = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]           # монет за улов п
 AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход за уровень апгрейда, монет В МИНУТУ (не в секунду — см. index.html: autoPerMin, деление elapsed/1000/60)
 OFFLINE_INCOME_MAX_SEC = 72 * 3600                  # автодоход за отсутствие копится максимум 3 суток (с 15.10.2026)
 ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
+
+
+def energy_now(prev, regen_sec, max_energy):
+    """Энергия с регеном по времени. С 11.11.2026 (решение Саши) энергия может быть СВЕРХ потолка — приз
+    лотереи «⚡ +25» даётся и при полном баке. Избыток не обрезается, а просто не растёт: реген идёт,
+    только пока энергия ниже потолка. Раньше везде было min(max, prev + regen) — оно срезало бы приз."""
+    if prev >= max_energy:
+        return prev
+    return min(max_energy, prev + max(0, regen_sec) / ENERGY_REGEN_SEC)
 PREMIUM_AUTO_MULT = 1.25
 
 # Игроки, которым тапы НИКОГДА не тратят энергию (решение Саши, навсегда) — регенерация
@@ -4154,8 +4163,8 @@ async def clan_claim(request):
                         if kind == 'energy':
                             last_upd = sv.get('lastEnergyUpdate') or now_ms
                             prev = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
-                            cur = min(max_energy, prev + max(0, (now_ms - last_upd) / 1000) / ENERGY_REGEN_SEC)
-                            final = round(min(max_energy, cur + (50 if is_prem else 25)) * 100) / 100
+                            cur = energy_now(prev, (now_ms - last_upd) / 1000, max_energy)
+                            final = round(max(cur, min(max_energy, cur + (50 if is_prem else 25))) * 100) / 100
                             merged.update({'energy': final, 'lastEnergyUpdate': now_ms})
                             result.update(energy=final, maxEnergy=max_energy)
                         else:
@@ -6071,11 +6080,11 @@ def lottery_apply_prizes(merged, prize, now_ms, max_energy=100):
         elif kind == 'truck_ticket':
             merged['truckTickets'] = (merged.get('truckTickets') or 0) + 1
         elif kind == 'energy':
-            # +25 к текущей энергии (с регеном по времени), не выше потолка — как энергия за рекламу.
+            # +25 к текущей энергии (с регеном по времени) — даже сверх полного бака (energy_now).
             last_upd = merged.get('lastEnergyUpdate') or now_ms
             prev = float(merged.get('energy') if merged.get('energy') is not None else max_energy)
-            cur = min(max_energy, prev + max(0, (now_ms - last_upd) / 1000) / ENERGY_REGEN_SEC)
-            merged['energy'] = round(min(max_energy, cur + p['amount']) * 100) / 100
+            cur = energy_now(prev, (now_ms - last_upd) / 1000, max_energy)
+            merged['energy'] = round((cur + p['amount']) * 100) / 100  # сверх потолка тоже (решение Саши 11.11)
             merged['lastEnergyUpdate'] = now_ms
             p['energyNow'] = merged['energy']
     stats = merged.get('lotteryStats')
@@ -6604,8 +6613,8 @@ async def refill_energy_ad(request):
                 last_energy_update = sv.get('lastEnergyUpdate') or now_ms
                 prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
                 regen_sec = max(0, (now_ms - last_energy_update) / 1000)
-                current_energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
-                final_energy = round(min(max_energy, current_energy + ad_bonus) * 100) / 100
+                current_energy = energy_now(prev_energy, regen_sec, max_energy)
+                final_energy = round(max(current_energy, min(max_energy, current_energy + ad_bonus)) * 100) / 100
 
                 headers = {"If-Match": etag} if etag else {}
                 merged = dict(sv)
@@ -7242,7 +7251,7 @@ async def process_actions(request):
     last_energy_update = sv.get('lastEnergyUpdate') or now_ms
     prev_energy = float(sv.get('energy', max_energy) if sv.get('energy') is not None else max_energy)
     regen_sec = max(0, (now_ms - last_energy_update) / 1000)
-    energy = min(max_energy, prev_energy + regen_sec / ENERGY_REGEN_SEC)
+    energy = energy_now(prev_energy, regen_sec, max_energy)
     energy_after_regen_at_start = energy  # для дельты ниже — чистый расход энергии за
     # действия ЭТОГО запроса, отдельно от регенерации по времени (её пересчитываем заново
     # на каждой попытке записи против СВЕЖЕГО lastEnergyUpdate — иначе гонка с
@@ -8046,7 +8055,7 @@ async def process_actions(request):
                 fresh_last_energy_update = fresh_sv.get('lastEnergyUpdate') or now_ms
                 fresh_prev_energy = float(fresh_sv.get('energy', max_energy) if fresh_sv.get('energy') is not None else max_energy)
                 fresh_regen_sec = max(0, (now_ms - fresh_last_energy_update) / 1000)
-                energy = max(0, min(max_energy, fresh_prev_energy + fresh_regen_sec / ENERGY_REGEN_SEC + energy_action_delta))
+                energy = max(0, energy_now(fresh_prev_energy, fresh_regen_sec, max_energy) + energy_action_delta)
 
                 # Автодоход (Сеть/Лодка/Сонар) — пересчитываем от СВЕЖЕГО lastSeen на каждой
                 # попытке, тем же способом, что и energy выше. Если конкурентный /actions уже
@@ -8434,7 +8443,7 @@ async def sync_state(request):
     max_energy = (150 if is_prem else 100) + clan_ctx['bonuses']['maxEnergy']
     last_energy_update = prev.get('lastEnergyUpdate') or now_ms
     stored_energy = float(prev.get('energy', max_energy) if prev.get('energy') is not None else max_energy)
-    final_energy = round(min(max_energy, stored_energy + max(0, (now_ms - last_energy_update) / 1000) / ENERGY_REGEN_SEC) * 100) / 100
+    final_energy = round(energy_now(stored_energy, (now_ms - last_energy_update) / 1000, max_energy) * 100) / 100
 
     # Игра прислала намного больше, чем есть на сервере, — честная игра так не делает
     # (у честного клиента разница — минуты автодохода). Пишем в журнал и в
@@ -11444,7 +11453,7 @@ async def playerinfo_command(message: types.Message):
         last_energy_update = sv.get('lastEnergyUpdate') or 0
         if last_energy_update:
             regen_sec = max(0, (now_ms - last_energy_update) / 1000)
-            current_energy = min(max_energy, raw_energy + regen_sec / ENERGY_REGEN_SEC)
+            current_energy = energy_now(raw_energy, regen_sec, max_energy)
             upd_dt = datetime.fromtimestamp(last_energy_update / 1000, tz=timezone(timedelta(hours=3)))
             lines.append(f"⚡ Энергия: {current_energy:.1f}/{max_energy} (сохранено {raw_energy:.1f}, обновлено {upd_dt.strftime('%d.%m %H:%M')} МСК)")
         else:
@@ -13948,10 +13957,15 @@ async def successful_payment(message: types.Message):
             # админу, если так и не удалось — чтобы можно было доначислить вручную.
             base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
             max_energy = 150 if await is_premium(user_id) else 100
+            _energy_overflow = 0.0
             try:
                 async with aiohttp.ClientSession() as ctx_session:
                     async with ctx_session.get(f"{base}/saves/{pid}.json{FB_AUTH}") as ctx_resp:
                         ctx_sv = await ctx_resp.json() or {}
+                    try:
+                        _energy_overflow = float(ctx_sv.get('energy') or 0)
+                    except (TypeError, ValueError):
+                        _energy_overflow = 0.0
                     max_energy += (await clan_bonus_ctx(ctx_session, base, pid, ctx_sv))['bonuses']['maxEnergy']
             except Exception:
                 pass  # без бонуса клана — просто обычный максимум
@@ -13962,7 +13976,7 @@ async def successful_payment(message: types.Message):
                 try:
                     async with aiohttp.ClientSession() as session:
                         presp = await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={
-                            "energy": max_energy,
+                            "energy": max(max_energy, _energy_overflow),  # избыток от приза лотереи не срезаем
                             "lastEnergyUpdate": int(time.time() * 1000)
                         })
                         if presp.status not in (200, 204):

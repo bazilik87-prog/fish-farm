@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-11.1">
+<meta name="ff-build" content="2026-11-11.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1274,7 +1274,8 @@ function getEnergyMax() {
 }
 function syncEnergy() {
   var max = getEnergyMax();
-  if (state.energy >= max) { state.energy = max; state.lastEnergyUpdate = Date.now(); return; }
+  /* 11.11: энергия может быть сверх бака (приз лотереи) — не обрезаем, просто не растёт (как energy_now в bot.py) */
+  if (state.energy >= max) { state.lastEnergyUpdate = Date.now(); return; }
   var now = Date.now();
   var elapsedSec = (now - (state.lastEnergyUpdate||now)) / 1000;
   // Дробная регенерация — ровно как на сервере (energy/сек = 1/ENERGY_REGEN_SEC), без округления
@@ -2113,7 +2114,7 @@ function updateEnergyBar() {
   if (!el) return;
   syncEnergy();
   var max = getEnergyMax();
-  var pct = Math.round(state.energy/max*100);
+  var pct = Math.min(100, Math.round(state.energy/max*100));
   var color = state.energy<=0 ? '#e53935' : (pct<30 ? 'linear-gradient(90deg,#ff7a45,#ffb347)' : 'linear-gradient(90deg,#2f7fe8,#8fc8ff)');
   el.innerHTML = '<div class="en-row"><div class="en-ico"><svg viewBox="0 0 24 24" fill="#4da3ff"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>'
     + '<div class="en-bar"><div style="background:'+color+';width:'+pct+'%"></div></div>'
@@ -3753,7 +3754,7 @@ function renderBoosts() {
   syncEnergy();
   var eMax = getEnergyMax();
   var adCooldownLeft = Math.max(0, AD_ENERGY_COOLDOWN - (Date.now() - (state.lastAdEnergyRefill||0)));
-  var ePct=Math.round(state.energy/eMax*100);
+  var ePct=Math.min(100, Math.round(state.energy/eMax*100));
   html += '<div class="bs-card bs-energy"><div class="bs-row"><div class="bs-ico" style="background:linear-gradient(160deg,#3d8fff,#1d5fc4)"><svg viewBox="0 0 24 24" fill="#04142e"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>'
     +'<div class="bs-inf"><b>'+t('Энергия','Energy')+'</b><span>'+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</span></div>'
     +'<div class="bs-en-num">'+Math.floor(state.energy)+'<small>/'+eMax+'</small></div></div>'
@@ -3907,9 +3908,9 @@ function applyLotteryPrizeLocal(prize) {
       state.truckTickets = (state.truckTickets||0) + 1;
       showNotif(t('🎫 Выигран билет на аренду грузовика! Используй его на Рынке','🎫 Won a truck rental ticket! Use it at the Market'));
     } else if (prize.kind === 'energy') {
-      /* 11.11: +25 энергии — сервер прислал итог (energyNow, не выше потолка) */
+      /* 11.11: +25 энергии, даже сверх бака — сервер прислал итог (energyNow) */
       if (typeof prize.energyNow === 'number') state.energy = prize.energyNow;
-      else state.energy = Math.min(getEnergyMax(), (state.energy||0) + prize.amount);
+      else state.energy = (state.energy||0) + prize.amount;
       state.lastEnergyUpdate = Date.now();
     } else if (prize.kind === 'luck') {
       /* 11.11: Удачная рыбалка (amount — минуты), продлевает уже идущую */
@@ -4007,7 +4008,7 @@ function watchAdForEnergy() {
     state.lastAdEnergyRefill = Date.now();
     var adBonus = isPremiumActive() ? 50 : 25;
     if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
-      state.energy = Math.min(max, state.energy + adBonus);
+      state.energy = Math.max(state.energy, Math.min(max, state.energy + adBonus));
       showNotif(t('⚡ +','⚡ +') + adBonus + t(' энергии за просмотр!',' energy for watching!'));
       save(); updateUI();
       if (currentTab==='boosts') renderBoosts();
@@ -4184,7 +4185,7 @@ function activateBoost(id, growJackpot) {
   var now = Date.now();
   addQuestProgress('boost', 1);
   if (id==='energyFull') {
-    state.energy = getEnergyMax();
+    state.energy = Math.max(state.energy||0, getEnergyMax());
     state.lastEnergyUpdate = now;
     // Короткая блокировка тапов сразу после покупки. Оплата за Stars долетает до СЕРВЕРА
     // (successful_payment в bot.py, который и пишет реальную энергию в Firebase) чуть позже,
@@ -5282,7 +5283,7 @@ function activateBoostWithTime(id, elapsed) {
   var now = Date.now();
   addQuestProgress('boost', 1);
   if (id==='energyFull') {
-    state.energy = getEnergyMax();
+    state.energy = Math.max(state.energy||0, getEnergyMax());
     state.lastEnergyUpdate = now;
     save(); updateUI();
     return;
