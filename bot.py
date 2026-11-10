@@ -479,6 +479,8 @@ LOCATION_MULT = {'pond': 1, 'river': 2, 'tropics': 5, 'deep': 15, 'space': 50}
 # см. AD_JACKPOT_WIN_THRESHOLD и ad_can_win_jackpot в lottery_spin. Выше своего порога
 # шанс приза 'jackpot' внутри pick_lottery_prize — флэт 1%, для всех видов круток.
 JACKPOT_WIN_THRESHOLD = 125
+LOTTERY_ENERGY_PRIZE = 25    # приз лотереи «⚡ +25 энергии» (11.11.2026)
+LOTTERY_LUCK_MIN = 60        # приз лотереи «🎣 Удачная рыбалка» — минут (в магазине 30)
 AD_JACKPOT_WIN_THRESHOLD = 150
 DEPOSIT_MIN_AMOUNT = 50000
 DEPOSIT_RATES = {15: 0.08, 30: 0.12}  # срок в днях -> ставка ГОДОВЫХ (не за весь срок!)
@@ -5927,7 +5929,7 @@ async def load_fish_stats(pid):
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
-def pick_lottery_prize(mult, jackpot, include_jackpot=True):
+def pick_lottery_prize(mult, jackpot, include_jackpot=True, allow_free=True):
     """
     Определяет приз лотереи — точная копия весов из index.html, но теперь единственное
     место, где это решается (сервер), а не клиент. Возвращает dict с полями:
@@ -5957,8 +5959,15 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True):
         {'kind': 'salt', 'amount': s1, 'label': f'🧂 {s1:,} соли на склад', 'weight': 10},
         {'kind': 'knife', 'amount': k1, 'label': f'🔪 {k1:,} ножей на склад', 'weight': 7},
         {'kind': 'truck_ticket', 'amount': 1, 'label': '🚛 Билет на аренду грузовика (12ч)', 'weight': 3},
-        {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 30},
+        # 11.11.2026 (решение Саши): новые призы без денег — энергия +25, Удачная рыбалка на 1 час,
+        # бесплатная крутка (сразу крутим ещё раз, см. roll_lottery_prize). Вес взят у сапога (30 → 10),
+        # сумма весов осталась 160 — доли старых призов и 1% джекпота не изменились.
+        {'kind': 'energy', 'amount': LOTTERY_ENERGY_PRIZE, 'label': f'⚡ +{LOTTERY_ENERGY_PRIZE} энергии', 'weight': 10},
+        {'kind': 'luck', 'amount': LOTTERY_LUCK_MIN, 'label': f'🎣 Удачная рыбалка на {LOTTERY_LUCK_MIN} мин', 'weight': 6},
+        {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 10},
     ]
+    if allow_free:
+        prizes.append({'kind': 'free_spin', 'amount': 1, 'label': '🎟 Бесплатная крутка', 'weight': 4})
     # Пока накопленный джекпот меньше порога — его вообще не добавляем в пул призов,
     # то есть выиграть его физически нельзя (вес 0 и "weight: 0.0001" дали бы то же самое,
     # но явное условие понятнее). Выше порога — флэт 1% шанс (раньше было 0.1% в
@@ -6004,6 +6013,81 @@ async def claim_jackpot_prize(session, base, prize, mult):
     return {'kind': 'coins', 'amount': c2, 'label': f'🪙 {c2:,} монет'}
 
 
+async def roll_lottery_prize(session, base, mult, jackpot, include_jackpot=True):
+    """Выбирает приз и сразу забирает джекпот, если выпал. «🎟 Бесплатная крутка» (11.11.2026) — сразу
+    крутим ещё раз, второй приз кладём в prize['bonus'] (без новой бесплатной крутки — без цепочек).
+    Начисляются оба одной записью (lottery_apply_prizes)."""
+    prize = await claim_jackpot_prize(session, base, pick_lottery_prize(mult, jackpot, include_jackpot), mult)
+    if prize.get('kind') == 'free_spin':
+        prize['bonus'] = await claim_jackpot_prize(
+            session, base, pick_lottery_prize(mult, jackpot, include_jackpot, allow_free=False), mult)
+    return prize
+
+
+def lottery_prize_list(prize):
+    """Сам приз + второй приз бесплатной крутки, если есть."""
+    out = [prize]
+    if isinstance(prize.get('bonus'), dict):
+        out.append(prize['bonus'])
+    return out
+
+
+def lottery_jackpot_of(prize):
+    for p in lottery_prize_list(prize):
+        if p.get('kind') == 'jackpot':
+            return p
+    return None
+
+
+async def lottery_max_energy(session, base, pid, sv, now_ms, user_id):
+    """Потолок энергии для приза «⚡ +25» — как у энергии за рекламу: 100 (Premium 150) + бонус клана."""
+    m = 150 if await is_premium(user_id) else 100
+    try:
+        m += (await clan_bonus_ctx(session, base, pid, sv, now_ms))['bonuses']['maxEnergy']
+    except Exception as e:
+        print(f"[lottery] clan maxEnergy for {pid} failed: {e}")
+    return m
+
+
+def lottery_apply_prizes(merged, prize, now_ms, max_energy=100):
+    """Начисляет приз (и второй приз бесплатной крутки) в merged — копию saves. Каждый следующий приз
+    считается от уже обновлённого merged. 'jackpot' здесь не начисляется (глобальный пул), 'luck' —
+    бустер, его включает игра (boosts пишет клиент), 'boot'/'free_spin' — ничего."""
+    for p in lottery_prize_list(prize):
+        kind = p.get('kind')
+        if kind == 'coins':
+            merged['coins'] = round((float(merged.get('coins', 0) or 0) + p['amount']) * 100) / 100
+            merged['totalEarned'] = round((float(merged.get('totalEarned', 0) or 0) + p['amount']) * 100) / 100
+        elif kind == 'fish':
+            merged['caught'] = int(merged.get('caught', 0) or 0) + p['amount']
+            merged['unsoldCaught'] = round((float(merged.get('unsoldCaught', 0) or 0) + p['amount']) * 100) / 100
+        elif kind in ('salt', 'knife'):
+            loc = merged.get('loc') or 'pond'
+            field = 'saltByLoc' if kind == 'salt' else 'knifeByLoc'
+            by_loc = merged.get(field) or {}
+            by_loc = dict(by_loc) if isinstance(by_loc, dict) else {}
+            by_loc[loc] = (by_loc.get(loc) or 0) + p['amount']
+            merged[field] = by_loc
+        elif kind == 'truck_ticket':
+            merged['truckTickets'] = (merged.get('truckTickets') or 0) + 1
+        elif kind == 'energy':
+            # +25 к текущей энергии (с регеном по времени), не выше потолка — как энергия за рекламу.
+            last_upd = merged.get('lastEnergyUpdate') or now_ms
+            prev = float(merged.get('energy') if merged.get('energy') is not None else max_energy)
+            cur = min(max_energy, prev + max(0, (now_ms - last_upd) / 1000) / ENERGY_REGEN_SEC)
+            merged['energy'] = round(min(max_energy, cur + p['amount']) * 100) / 100
+            merged['lastEnergyUpdate'] = now_ms
+            p['energyNow'] = merged['energy']
+    stats = merged.get('lotteryStats')
+    stats = dict(stats) if isinstance(stats, dict) else {}
+    wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
+    wins = dict(wins)
+    for p in lottery_prize_list(prize):
+        wins[p['kind']] = (wins.get(p['kind']) or 0) + 1
+    stats['wins'] = wins
+    return stats
+
+
 async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игрок', via='unknown'):
     """
     Применяет уже выбранный сервером приз лотереи к реальным данным игрока в Firebase.
@@ -6025,31 +6109,14 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             sv = sv or {}
 
             merged = dict(sv)
-            if prize['kind'] == 'coins':
-                merged['coins'] = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
-                merged['totalEarned'] = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
-            elif prize['kind'] == 'fish':
-                merged['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
-                merged['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
-            elif prize['kind'] in ('salt', 'knife'):
-                loc = sv.get('loc') or 'pond'
-                field = 'saltByLoc' if prize['kind'] == 'salt' else 'knifeByLoc'
-                by_loc = sv.get(field) or {}
-                if not isinstance(by_loc, dict):
-                    by_loc = {}
-                by_loc[loc] = (by_loc.get(loc) or 0) + prize['amount']
-                merged[field] = by_loc
-            elif prize['kind'] == 'truck_ticket':
-                merged['truckTickets'] = (sv.get('truckTickets') or 0) + 1
-            # 'jackpot' начисляется отдельно ниже (глобальный путь jackpot/amount)
-
-            stats = sv.get('lotteryStats')
-            stats = stats if isinstance(stats, dict) else {}
+            now_ms = int(time_module.time() * 1000)
+            max_energy = (await lottery_max_energy(session, base, pid, sv, now_ms, pid[3:])
+                          if any(p.get('kind') == 'energy' for p in lottery_prize_list(prize)) else 100)
+            # Все виды призов (и второй приз бесплатной крутки) — lottery_apply_prizes; 'jackpot' начисляется
+            # отдельно ниже (глобальный путь jackpot/amount, не per-player).
+            stats = lottery_apply_prizes(merged, prize, now_ms, max_energy)
             spins_key = f"{via}Spins"
             stats[spins_key] = (stats.get(spins_key) or 0) + 1
-            wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
-            wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
-            stats['wins'] = wins
             merged['lotteryStats'] = stats
 
             headers = {"If-Match": etag} if etag else {}
@@ -6078,14 +6145,15 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
         # ветка писала мимо него, и улов из лотереи "не считался" в турнире, пока игрок не
         # поймает ещё хоть одну рыбу вручную. Дублируем caught в leaderboard тем же best-effort
         # PATCH, что и везде (clanId и т.п.) — не блокирует начисление приза при сбое.
-        if prize['kind'] == 'fish':
+        fish_won = sum(p['amount'] for p in lottery_prize_list(prize) if p.get('kind') == 'fish')
+        if fish_won:
             try:
                 await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
             except Exception:
                 pass
             await _bf_track_catch(session, base, pid)
             # Рыба из лотереи тоже идёт в лимит видов при продаже (fish_stats, см. FISH_MAX_SHARE).
-            _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": prize['amount']}))
+            _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": fish_won}))
 
         # Диагностический лог — та же цель, что в lottery_spin: чтобы честные призы за
         # Stars не путались с подозрительными "скачками" при последующем аудите баланса.
@@ -6098,14 +6166,15 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                 "coins_after": coins_after_log,
                 "n_actions": 1,
                 "src": f"lottery_{via}",
-                "prize": prize.get('kind')
+                "prize": '+'.join(p.get('kind') or '?' for p in lottery_prize_list(prize))
             })
         except Exception:
             pass
 
-        if prize['kind'] == 'jackpot':
+        jp_won = lottery_jackpot_of(prize)
+        if jp_won:
             # пул уже сброшен в claim_jackpot_prize
-            await broadcast_jackpot_win(username, prize['amount'], _uid_of(None, pid))
+            await broadcast_jackpot_win(username, jp_won['amount'], _uid_of(None, pid))
         elif grow_jackpot:
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
             for j_attempt in range(6):
@@ -6726,35 +6795,17 @@ async def lottery_spin(request):
                     # рекламу не включает — она джекпот не растит, только пользуется уже
                     # накопленным.
                     ad_can_win_jackpot = jackpot >= AD_JACKPOT_WIN_THRESHOLD
-                    prize = pick_lottery_prize(mult, jackpot, include_jackpot=(via == 'premium' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
-                    prize = await claim_jackpot_prize(session, base, prize, mult)
+                    prize = await roll_lottery_prize(session, base, mult, jackpot,
+                                                     include_jackpot=(via == 'premium' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
 
                 merged = dict(sv)
-                if prize['kind'] == 'coins':
-                    merged['coins'] = round((float(sv.get('coins', 0) or 0) + prize['amount']) * 100) / 100
-                    merged['totalEarned'] = round((float(sv.get('totalEarned', 0) or 0) + prize['amount']) * 100) / 100
-                elif prize['kind'] == 'fish':
-                    merged['caught'] = int(sv.get('caught', 0) or 0) + prize['amount']
-                    merged['unsoldCaught'] = round((float(sv.get('unsoldCaught', 0) or 0) + prize['amount']) * 100) / 100
-                elif prize['kind'] in ('salt', 'knife'):
-                    loc = sv.get('loc') or 'pond'
-                    field = 'saltByLoc' if prize['kind'] == 'salt' else 'knifeByLoc'
-                    by_loc = sv.get(field) or {}
-                    if not isinstance(by_loc, dict):
-                        by_loc = {}
-                    by_loc[loc] = (by_loc.get(loc) or 0) + prize['amount']
-                    merged[field] = by_loc
-                elif prize['kind'] == 'truck_ticket':
-                    merged['truckTickets'] = (sv.get('truckTickets') or 0) + 1
-                # 'jackpot' начисляется отдельно ниже (глобальный путь jackpot/amount, не per-player)
-
-                stats = sv.get('lotteryStats')
-                stats = stats if isinstance(stats, dict) else {}
+                max_energy = (await lottery_max_energy(session, base, pid, sv, now_ms, real_user_id)
+                              if any(p.get('kind') == 'energy' for p in lottery_prize_list(prize)) else 100)
+                # Все виды призов (и второй приз бесплатной крутки) — lottery_apply_prizes; 'jackpot' начисляется
+                # отдельно ниже (глобальный путь jackpot/amount, не per-player).
+                stats = lottery_apply_prizes(merged, prize, now_ms, max_energy)
                 spins_key = f"{via}Spins"
                 stats[spins_key] = (stats.get(spins_key) or 0) + 1
-                wins = stats.get('wins') if isinstance(stats.get('wins'), dict) else {}
-                wins[prize['kind']] = (wins.get(prize['kind']) or 0) + 1
-                stats['wins'] = wins
                 merged['lotteryStats'] = stats
 
                 if via == 'ad':
@@ -6776,13 +6827,14 @@ async def lottery_spin(request):
             # Тот же фикс, что и в apply_lottery_prize (платная крутка): приз "рыба" меняет
             # caught в saves, но live-счёт клановых турниров читает leaderboard.caught, который
             # без этого обновляется только на следующем /actions при обычной ловле.
-            if prize['kind'] == 'fish':
+            fish_won = sum(p['amount'] for p in lottery_prize_list(prize) if p.get('kind') == 'fish')
+            if fish_won:
                 try:
                     await session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'caught': merged.get('caught', 0)})
                 except Exception:
                     pass
                 await _bf_track_catch(session, base, pid)
-                _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": prize['amount']}))
+                _spawn_bg(bump_fish_stats(pid, {f"{sv.get('loc') if sv.get('loc') in FISH_BY_LOC else 'pond'}/c": fish_won}))
 
             # Диагностический лог — та же цель, что и action_logs в process_actions:
             # чтобы честные выигрыши лотереи не путались с подозрительными "скачками"
@@ -6799,7 +6851,7 @@ async def lottery_spin(request):
                     "coins_after": coins_after_log,
                     "n_actions": 1,
                     "src": f"lottery_{via}",
-                    "prize": prize.get('kind')
+                    "prize": '+'.join(p.get('kind') or '?' for p in lottery_prize_list(prize))
                 })
             except Exception:
                 pass
@@ -6807,9 +6859,10 @@ async def lottery_spin(request):
             # Джекпот — отдельный глобальный путь, свой маленький retry на случай
             # одновременного роста/сброса от нескольких игроков разом.
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
-            if prize['kind'] == 'jackpot':
+            jp_won = lottery_jackpot_of(prize)
+            if jp_won:
                 # пул уже сброшен в claim_jackpot_prize
-                await broadcast_jackpot_win(username, prize['amount'], _uid_of(None, pid))
+                await broadcast_jackpot_win(username, jp_won['amount'], _uid_of(None, pid))
             elif grow_jackpot:
                 for j_attempt in range(6):
                     async with session.get(jackpot_url, headers={"X-Firebase-ETag": "true"}) as jresp:
@@ -6825,10 +6878,10 @@ async def lottery_spin(request):
         if clan_spin_period and not spin_committed:
             async with aiohttp.ClientSession() as rel_session:
                 await clan_claim_release(rel_session, base, pid, 'spin', clan_spin_period)
-        if prize and prize.get('kind') == 'jackpot' and not spin_committed and ADMIN_ID:
+        if prize and lottery_jackpot_of(prize) and not spin_committed and ADMIN_ID:
             # Пул уже забран (claim_jackpot_prize), а запись в сохранение не прошла — не теряем молча.
             try:
-                await bot.send_message(ADMIN_ID, f"🚨 Джекпот {prize.get('amount')}⭐ выпал ID {real_user_id} ({via}), "
+                await bot.send_message(ADMIN_ID, f"🚨 Джекпот {lottery_jackpot_of(prize).get('amount')}⭐ выпал ID {real_user_id} ({via}), "
                                                  f"но запись не прошла: {e}\nПул уже сброшен — выплати звёзды вручную.")
             except Exception as e2:
                 print(f"[lottery_spin] jackpot alert failed: {e2}")
@@ -13876,10 +13929,8 @@ async def successful_payment(message: types.Message):
                         jackpot = await resp2.json()
                     jackpot = jackpot if (jackpot and 50 <= jackpot <= 1000) else 50
                 username = message.from_user.username or message.from_user.first_name or 'Игрок'
-                prize = pick_lottery_prize(mult, jackpot)
-                if prize['kind'] == 'jackpot':
-                    async with aiohttp.ClientSession() as session:
-                        prize = await claim_jackpot_prize(session, base, prize, mult)
+                async with aiohttp.ClientSession() as session:
+                    prize = await roll_lottery_prize(session, base, mult, jackpot)
                 # pending_boosts/lottery_result теперь пишется ВНУТРИ apply_lottery_prize,
                 # сразу после начисления в saves — не здесь и не после (см. комментарий там).
                 await apply_lottery_prize(pid, prize, mult, True, username, 'star')
