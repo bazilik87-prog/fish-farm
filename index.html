@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-11.2">
+<meta name="ff-build" content="2026-11-12.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -3787,10 +3787,10 @@ function renderBoosts() {
   }
   var adLotteryCooldownLeft = Math.max(0, 3600000 - (Date.now() - (state.lastAdLotterySpin||0)));
   var lm=maxUnlockedMult();
-  var prizes=[fmtXp(300*lm)+' 🪙', fmtXp(500*lm)+' 🪙', fmtXp(100*lm)+t(' рыб',' fish'), fmtXp(15*lm)+t(' соли',' salt'), fmtXp(15*lm)+t(' ножей',' knives'), t('грузовик 12 ч','truck 12 h')];
+  var prizes=[fmtXp(300*lm)+' 🪙', fmtXp(500*lm)+' 🪙', fmtXp(100*lm)+t(' рыб',' fish'), fmtXp(15*lm)+t(' соли',' salt'), fmtXp(15*lm)+t(' ножей',' knives'), t('грузовик 12 ч','truck 12 h'), t('⚡ +25 энергии','⚡ +25 energy'), t('🎣 удача 1 ч','🎣 luck 1 h'), t('🎟 ещё крутка','🎟 free spin')];
   var prizeHtml=''; for (var pz=0;pz<prizes.length;pz++) prizeHtml+='<span>'+prizes[pz]+'</span>';
   html += '<div class="bs-card bs-lottery"><div class="bs-row"><div class="bs-wheel">'+animPhase(LOTTERY_WHEEL_SVG,'bs-spinner',18000)+'</div>'
-    +'<div class="bs-inf"><b>'+t('Лотерея','Lottery')+'</b><span>'+t('Крути колесо — монеты, рыба или джекпот','Spin the wheel — coins, fish or the jackpot')+'</span></div></div>'
+    +'<div class="bs-inf"><b>'+t('Лотерея','Lottery')+'</b><span>'+t('Крути колесо — монеты, рыба, энергия или джекпот','Spin the wheel — coins, fish, energy or the jackpot')+'</span></div></div>'
     +'<div class="bs-prizes">'+prizeHtml+'<span class="jp">⭐ '+Math.floor(jackpotDisplay)+' '+t('джекпот','jackpot')+'</span></div>'
     +'<div class="bs-2btn">'
     +'<button class="btn bs-spin" onclick="buyBoost(\'lottery\')">'+(isPremiumActive()&&state.premiumFreeSpinDate!==getTodayDate()?t('💎 Крутить бесплатно','💎 Spin free'):t('Крутить · ⭐','Spin · ⭐')+maxUnlockedOrder())+'</button>'
