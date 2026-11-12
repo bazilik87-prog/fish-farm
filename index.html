@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-12.1">
+<meta name="ff-build" content="2026-11-12.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -948,8 +948,8 @@ var QUEST_TEMPLATES = [
   {id:'earn500',    text:'Заработай 250 монет',     textEn:'Earn 250 coins',           type:'earn',     goal:250,  reward:80  },
   {id:'earn1000',   text:'Заработай 100 монет',     textEn:'Earn 100 coins',           type:'earn',     goal:100,  reward:50  },
   {id:'catch_rare', text:'Поймай 10 редких рыб',   textEn:'Catch 10 rare fish',       type:'rare',     goal:10,   reward:200 },
-  {id:'repair1',    text:'Почини транспорт',        textEn:'Repair transport',         type:'repair',   goal:1,    reward:70  },
-  {id:'repair3',    text:'Почини транспорт 3 раза', textEn:'Repair transport 3 times', type:'repair',   goal:3,    reward:70  },
+  {id:'repair1',    text:'Почини транспорт',        textEn:'Repair transport',         type:'repair',   goal:1,    reward:70, fixed:true },
+  {id:'repair3',    text:'Почини транспорт 3 раза', textEn:'Repair transport 3 times', type:'repair',   goal:3,    reward:70, fixed:true },
   {id:'catch20loc', text:'Поймай 20 рыб в локации',textEn:'Catch 20 fish in this location', type:'catch',    goal:20,   reward:80  },
   {id:'bulk100',    text:'Продай 100 рыб оптом',    textEn:'Bulk sell 100 fish',       type:'bulk',     goal:100,  reward:120 },
   {id:'bulk200',    text:'Продай 200 рыб оптом',    textEn:'Bulk sell 200 fish',       type:'bulk',     goal:200,  reward:120 },
@@ -958,8 +958,38 @@ var QUEST_TEMPLATES = [
   {id:'buyknife5',  text:'Купи 5 ножей на рынке',   textEn:'Buy 5 knives at the market', type:'buyknife', goal:5,    reward:50  },
   {id:'buyknife10', text:'Купи 10 ножей на рынке',  textEn:'Buy 10 knives at the market', type:'buyknife', goal:10,   reward:80  },
   {id:'buysalt15',  text:'Купи 15 соли на рынке',   textEn:'Buy 15 salt at the market', type:'buysalt',  goal:15,   reward:80  },
-  {id:'boost1',     text:'Активируй любой бустер',   textEn:'Activate any booster',     type:'boost',    goal:1,    reward:100 },
+  {id:'boost1',     text:'Активируй любой бустер',   textEn:'Activate any booster',     type:'boost',    goal:1,    reward:100, fixed:true },
+  /* 12.11: новые задания (идеи Саши). fixed — цель не растёт с множителем локации */
+  {id:'upgrade1',   text:'Купи любое улучшение',     textEn:'Buy any upgrade',          type:'upgrade',  goal:1,    reward:0, fixed:true },
+  {id:'lottery1',   text:'Крутани колесо лотереи',   textEn:'Spin the lottery wheel',   type:'lottery',  goal:1,    reward:0, fixed:true },
+  {id:'adenergy1',  text:'Получи энергию за рекламу',textEn:'Get energy for an ad',     type:'adenergy', goal:1,    reward:0, fixed:true },
+  {id:'supplies50', text:'Потрать 50 монет на соль и ножи', textEn:'Spend 50 coins on salt and knives', type:'supplies', goal:50, reward:0 },
+  {id:'daily1',     text:'Забери ежедневный бонус',  textEn:'Claim the daily bonus',    type:'daily',    goal:1,    reward:0, fixed:true },
+  {id:'visit3',     text:'Заходи в игру 3 раза (с перерывом 2 ч)', textEn:'Visit the game 3 times (2 h apart)', type:'visit', goal:3, reward:0, fixed:true },
+  {id:'sturgeon10', text:'Поймай 10 рыб, пока плавает Осетрина', textEn:'Catch 10 fish while the Sturgeon is out', type:'sturgeon', goal:10, reward:0, fixed:true },
+  {id:'clan100',    text:'Поймай 100 рыб, будучи в клане', textEn:'Catch 100 fish while in a clan', type:'clancatch', goal:100, reward:0 },
+  {id:'rainsell1',  text:'Продай рыбу в дождь или шторм', textEn:'Sell fish in rain or storm', type:'rainsell', goal:1, reward:0, fixed:true },
 ];
+function questGoal(q, mult) { return q.fixed ? q.goal : Math.round(q.goal*mult); }
+/* Улов: заодно «во время Осетрины» и «в клане» */
+function questCatchExtra() {
+  if (typeof rareFishActive !== 'undefined' && rareFishActive) addQuestProgress('sturgeon', 1);
+  if (typeof myClan !== 'undefined' && myClan) addQuestProgress('clancatch', 1);
+}
+/* Продажа (доставка или опт): засчитывается, если сейчас дождь или шторм */
+function questSold() {
+  if (typeof currentWeather !== 'undefined' && currentWeather && (currentWeather.id==='rain' || currentWeather.id==='storm')) addQuestProgress('rainsell', 1);
+}
+/* Заход в игру: не чаще раза в 2 часа (при запуске и возврате в игру) */
+function questVisit() {
+  generateQuests(); /* новый день — прогресс (и _visitAt) сброшен */
+  var now = Date.now();
+  var qp = state.questProgress || (state.questProgress = {});
+  if (now - (qp._visitAt||0) < 2*3600000) return;
+  qp._visitAt = now; /* внутри questProgress — без нового поля в saves */
+  addQuestProgress('visit', 1);
+  save();
+}
 
 // ── Состояние ─────────────────────────────────────────
 var state = {
@@ -2458,7 +2488,7 @@ function bulkSell(type) {
     var earn=Math.round(count*0.03*lmB*100)/100;
     state.driedFish=restD;
     state.coins=Math.round((state.coins+earn)*100)/100;
-    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'dried', qty: count});
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'dried', qty: count}); questSold();
     addQuestProgress('earn', earn);
     showNotif(t('💰 Продано ','💰 Sold ')+count+t(' пакетов · +🪙',' packs · +🪙')+earn);
   } else if (type==='filet') {
@@ -2473,7 +2503,7 @@ function bulkSell(type) {
     var earnF=Math.round(countF*0.02*lmB2*100)/100;
     state.filets=restFilets;
     state.coins=Math.round((state.coins+earnF)*100)/100;
-    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'filet', qty: countF});
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'filet', qty: countF}); questSold();
     addQuestProgress('earn', earnF);
     showNotif(t('💰 Продано ','💰 Sold ')+countF+t(' пакетов филе · +🪙',' filet packs · +🪙')+earnF);
   } else {
@@ -2487,7 +2517,7 @@ function bulkSell(type) {
     var earn2=Math.round(count2*0.01*lmB3*100)/100;
     state.liveFish=restL;
     state.coins=Math.round((state.coins+earn2)*100)/100;
-    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'fresh', qty: count2});
+    queueAction({type:'bulk_sell', loc: state.currentLoc, kind:'fresh', qty: count2}); questSold();
     addQuestProgress('earn', earn2);
     addQuestProgress('bulk', count2);
     showNotif(t('💰 Продано ','💰 Sold ')+count2+t(' рыб · +🪙',' fish · +🪙')+earn2);
@@ -3245,14 +3275,14 @@ function addQuestProgress(type, amount) {
   var allDoneBefore=true;
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
-    var goal=Math.round(q.goal*qMult);
+    var goal=questGoal(q,qMult);
     if ((state.questProgress[q.id]||0) < goal) allDoneBefore=false;
   }
   if (allDoneBefore) return; // уже все выполнены
 
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
-    var goal=Math.round(q.goal*qMult);
+    var goal=questGoal(q,qMult);
     if (q.type===type) {
       var prev=state.questProgress[q.id]||0;
       if (prev<goal) {
@@ -3267,7 +3297,7 @@ function addQuestProgress(type, amount) {
     var allDone=true;
     for (var j=0;j<state.quests.length;j++) {
       var qq=getQuest(state.quests[j]); if(!qq) continue;
-      var qqGoal=Math.round(qq.goal*qMult);
+      var qqGoal=questGoal(qq,qMult);
       if ((state.questProgress[qq.id]||0)<qqGoal) { allDone=false; break; }
     }
     if (allDone) {
@@ -3368,7 +3398,16 @@ var QUEST_ICONS = {
   filet:'<path d="M4 20L16 8l3 3-9 9z"/><path d="M16 8l3-4 1 1-1 6"/>',
   buyknife:'<path d="M4 20L16 8l3 3-9 9z"/><path d="M16 8l3-4 1 1-1 6"/>',
   buysalt:'<path d="M8 3h8l-1 4H9z"/><rect x="7" y="7" width="10" height="14" rx="3"/>',
-  boost:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>'
+  boost:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  upgrade:'<path d="M12 20V5M6 11l6-6 6 6"/><path d="M5 21h14"/>',
+  lottery:'<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>',
+  adenergy:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M13 8l-4 5h3l-1 3 4-5h-3z"/>',
+  supplies:'<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  daily:'<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 13h18M12 9v12"/><path d="M12 9c-2-4-6-3-5 0M12 9c2-4 6-3 5 0"/>',
+  visit:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  sturgeon:'<path d="M2 12c4-5 12-6 17 0-5 6-13 5-17 0z"/><path d="M19 12l3-3v6z"/><path d="M8 4l1 3M12 3v3"/>',
+  clancatch:'<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2 20c1-4 4-6 6-6s5 2 6 6M10 20c1-4 4-6 6-6s5 2 6 6"/>',
+  rainsell:'<path d="M7 15a4 4 0 1 1 1-7.9A5 5 0 0 1 18 9a3 3 0 0 1-1 6z"/><path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3"/>'
 };
 function questSeg(on) {
   return '<div class="ug-seg qs-seg"><div class="'+(on==='daily'?'on':'')+'" onclick="state.questSubpage=null;renderQuests()">'+t('Ежедневные','Daily')+'</div>'
@@ -3389,10 +3428,10 @@ function renderQuests() {
   var qMultR=maxUnlockedMult();
   for (var i=0;i<state.quests.length;i++) {
     var q=getQuest(state.quests[i]); if(!q) continue;
-    var goal=Math.round(q.goal*qMultR);
+    var goal=questGoal(q,qMultR);
     var baseText = t(q.text, q.textEn);
     var qText=baseText;
-    if (qMultR>1) {
+    if (qMultR>1 && !q.fixed) {
       qText = baseText.replace(new RegExp('\\b'+q.goal+'\\b'),goal);
       // Число заменилось, но старая словоформа "раз/раза" могла остаться неверной — чиним отдельно.
       if (LANG!=='en' && /\bраз(а)?\b/.test(qText)) {
@@ -3922,6 +3961,7 @@ function applyLotteryPrizeLocal(prize) {
 function displayServerLotteryPrize(prize) {
   if (!prize) return;
   addQuestProgress('boost', 1);
+  addQuestProgress('lottery', 1);
   /* 11.11: «Бесплатная крутка» — сервер сразу крутит ещё раз, второй приз в prize.bonus */
   var list = [prize];
   if (prize.bonus) list.push(prize.bonus);
@@ -4010,6 +4050,7 @@ function watchAdForEnergy() {
     if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
       state.energy = Math.max(state.energy, Math.min(max, state.energy + adBonus));
       showNotif(t('⚡ +','⚡ +') + adBonus + t(' энергии за просмотр!',' energy for watching!'));
+      addQuestProgress('adenergy', 1);
       save(); updateUI();
       if (currentTab==='boosts') renderBoosts();
       return;
@@ -4037,6 +4078,7 @@ function watchAdForEnergy() {
           return;
         }
         state.energy = res.data.energy;
+        addQuestProgress('adenergy', 1);
         showNotif(t('⚡ +','⚡ +') + adBonus + t(' энергии за просмотр!',' energy for watching!'));
         updateUI();
         if (currentTab==='boosts') renderBoosts();
@@ -7515,7 +7557,7 @@ function tapOcean(e) {
     checkAdMilestone();
     spendEnergyForCatch();
     state.caughtFish[RARE_FISH.name] = (state.caughtFish[RARE_FISH.name]||0)+1;
-    addQuestProgress('catch', 1);
+    addQuestProgress('catch', 1); questCatchExtra();
     spawnAnim(x,y,'img:fish_26_sturgeon','🎉 +'+rareEarned+'!');
     showNotif(t('Поймал Осетрину! +🪙','Caught a Sturgeon! +🪙')+rareEarned);
     updateUI(); save();
@@ -7537,7 +7579,7 @@ function tapOcean(e) {
   unlockFish();
   // Квест: улов
   var isRare = (FISH[state.currentLoc]||[]).indexOf(f) > 0;
-  addQuestProgress('catch', 1);
+  addQuestProgress('catch', 1); questCatchExtra();
   if (isRare) addQuestProgress('rare', 1);
   spawnAnim(x,y,f.emoji,'+'+earned.toFixed(1));
   updateUI(); save();
@@ -7550,6 +7592,7 @@ function buyUpgrade(id) {
   state.coins=Math.round((state.coins-cost)*100)/100; u.bought++;
   setUpgLevel(id, u.bought); // сохраняем именно в текущую локацию
   queueAction({type:'buy_upgrade', loc: state.currentLoc, upg: id});
+  addQuestProgress('upgrade', 1);
   // Реферальная награда: реферер получает 1000 монет когда реферал купил удочку ур.2
   if (id==='rod' && u.bought===2) {
     checkAndApplyRefRewards(true);
@@ -7702,6 +7745,7 @@ function sendDelivery() {
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
+  if (saltOrder>0 || knifeOrder>0) addQuestProgress('supplies', Math.round((saltCost+knifeCost)*100)/100);
   if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder, transport: tr.id});
   if (tr.id !== 'rentalTruck') {
     state.durability[tr.id]=Math.max(0,dur-10);
@@ -7710,7 +7754,7 @@ function sendDelivery() {
   state.delivery={transportId:tr.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
   state.saltOrder=0; state.knifeOrder=0;
   state.selectedItems=[]; state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
-  addQuestProgress('deliver', 1);
+  addQuestProgress('deliver', 1); questSold();
   updateUI(); save(true); // сразу в Firebase, без 2с debounce — см. комментарий в save()
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 }
@@ -7867,12 +7911,13 @@ function sendDriverDelivery() {
   if ((saltCost+knifeCost)>state.coins) { showNotif(t('Не хватает монет на заказ!','Not enough coins for the order!')); return; }
   if (saltOrder>0) state.coins=Math.round((state.coins-saltCost)*100)/100;
   if (knifeOrder>0) state.coins=Math.round((state.coins-knifeCost)*100)/100;
+  if (saltOrder>0 || knifeOrder>0) addQuestProgress('supplies', Math.round((saltCost+knifeCost)*100)/100);
   if (saltOrder>0 || knifeOrder>0) queueAction({type:'buy_supplies', loc: state.currentLoc, salt: saltOrder, knife: knifeOrder, transport: tr2.id});
   earn=Math.round(earn*0.7*100)/100; // водитель забирает 30%
   var secs=delivTime(tr2);
   if (tr2.id !== 'rentalTruck') state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000,saltOrder:saltOrder,knifeOrder:knifeOrder};
-  addQuestProgress('deliver', 1);
+  addQuestProgress('deliver', 1); questSold();
   // Сбрасываем состояние водителя
   state.driverTransport=null; state.selectedDriverFish=null; state.selectedDriverDried=false; state.selectedDriverFilet=false; state.selectedDriverItems=[]; state.driverSaltOrder=0; state.driverKnifeOrder=0;
   state.marketSubpage=null;
@@ -7935,7 +7980,7 @@ function hireDriver(transportId) {
   var secs=delivTime(tr2);
   if (tr2.id !== 'rentalTruck') state.durability[tr2.id]=Math.max(0,dur2-10);
   state.delivery2={transportId:tr2.id,count:sentCount,earnings:earn,startedAt:Date.now(),endsAt:Date.now()+secs*1000};
-  addQuestProgress('deliver', 1);
+  addQuestProgress('deliver', 1); questSold();
   state.selectedFish=null; state.selectedDried=false; state.selectedFilet=false;
   showNotif(t('Водитель отправлен на ','Driver sent on ')+tr2.emoji+' '+trName(tr2.id)+'!');
   updateUI(); save(true); // сразу в Firebase — см. комментарий в save()
@@ -8068,6 +8113,7 @@ function claimDaily() {
   state.dailyDay=state.dailyDay>=6?0:state.dailyDay+1;
   window._lastDailyClaimAt = Date.now();
   queueAction({type:'daily_bonus', loc: state.currentLoc});
+  addQuestProgress('daily', 1);
   flushActions(); /* уведомление «День N — получено» — по ответу сервера, см. applyActionsResult */
   updateUI(); save();
   if (tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -8244,6 +8290,8 @@ setTimeout(listenWeather, 2000);
 setTimeout(fetchRareFish, 1500);
 setInterval(fetchRareFish, 60000);
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) fetchRareFish(); });
+setTimeout(questVisit, 10000);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(questVisit, 3000); });
 
 // Загружаем из Firebase и сравниваем с localStorage по lastSeen
 function loadFromFirebase(callback0) {
