@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-14.12">
+<meta name="ff-build" content="2026-11-14.13">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2501,7 +2501,7 @@ function badgeImg(id, tier, locked, big) {
 function namedBadgeImg(id, locked, big) {
   return '<img class="bdg-img'+(big?' bdg-img-lg':'')+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'.png" alt="" onerror="this.style.display=\'none\'">';
 }
-var badgesCache = null, badgesLoading = false;
+var badgesCache = null, badgesValues = {}, badgesLoading = false;
 function fetchBadges(cb) {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
     showNotif(t('⚠️ Значки: нет связи с сервером (init_data)','⚠️ Badges: no server connection (init_data)'));
@@ -2517,6 +2517,7 @@ function fetchBadges(cb) {
     badgesLoading = false;
     if (res.ok && res.data && res.data.ok) {
       badgesCache = res.data.badges || {};
+      badgesValues = res.data.values || {};
     } else {
       showNotif(t('⚠️ Значки: ошибка сервера (','⚠️ Badges: server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная','unknown')));
     }
@@ -7044,12 +7045,13 @@ function clearNotifLog() {
   renderSettings();
 }
 function badgeProgressText(id) {
-  // Прогресс считаем на клиенте только там, где цифра уже есть локально (caught/totalEarned/
-  // открытые локации) — серверные счётчики (Осетрина, ремонты, вклады, доставки, задания)
-  // клиент не видит без отдельного запроса, поэтому для них показываем только пороги.
+  // Рыбак/Богач/Путешественник — цифра уже есть локально (caught/totalEarned/открытые
+  // локации), без неё быстрее. Остальные "счётные" серии сервер отдаёт вместе со
+  // значками (res.values, см. fetchBadges/badgesValues) — их не угадать на клиенте.
   if (id === 'fisher') return fmtXp(state.caught||0);
   if (id === 'rich') return fmt(state.totalEarned||0);
   if (id === 'traveler') return String(Math.max(0, (state.unlockedLocs||['pond']).length - 1));
+  if (typeof badgesValues[id] === 'number') return fmtXp(badgesValues[id]);
   return null;
 }
 function showBadges() {

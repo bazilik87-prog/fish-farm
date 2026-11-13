@@ -4052,9 +4052,24 @@ async def badges_list(request):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/badges/{pid}.json{FB_AUTH}") as r:
                 badges = await r.json()
+            async with session.get(f"{base}/badge_stats/{pid}.json{FB_AUTH}") as r2:
+                stats = await r2.json()
+            async with session.get(f"{base}/saves/{pid}/lotteryStats.json{FB_AUTH}") as r3:
+                lottery_stats = await r3.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
-    return web.json_response({'ok': True, 'badges': badges or {}}, headers=CORS)
+    # Текущие значения "счётных" серий — чтобы игра могла показать "сейчас X из нужных Y",
+    # а не только сам факт получения значка. Ключи — id значка (а не название поля в
+    # badge_stats), чтобы клиенту не пришлось знать внутреннюю структуру badge_stats.
+    stats = stats if isinstance(stats, dict) else {}
+    values = {}
+    for field, badge_id in _BADGE_COUNTER_TO_SERIES.items():
+        v = stats.get(field)
+        if isinstance(v, (int, float)):
+            values[badge_id] = v
+    values['gambler'] = _lottery_total_spins(lottery_stats)
+    values['boot'] = _lottery_boot_count(lottery_stats)
+    return web.json_response({'ok': True, 'badges': badges or {}, 'values': values}, headers=CORS)
 
 
 async def clan_status(request):
