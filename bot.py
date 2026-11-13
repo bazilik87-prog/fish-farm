@@ -1585,6 +1585,28 @@ _ONLINE_SEEN = {}  # pid -> время последнего /actions или /syn
 # Firebase, а экраны открывают многие игроки подряд.
 _LB_CACHE = {'ts': 0, 'data': None}
 
+# Кэш текущей погоды — только для значка "Штормовой торговец" (узнать, была ли продажа
+# в дождь/шторм), не для цен (у тех свой расчёт в get_market_prices). TTL короткий,
+# но продажи случаются намного чаще, чем раз в 15с — без кэша это было бы лишнее
+# чтение weather.json на КАЖДУЮ продажу.
+_WEATHER_ID_CACHE = {'ts': 0, 'id': None}
+
+
+async def get_current_weather_id_cached(max_age_ms=15000):
+    now_ms = int(time_module.time() * 1000)
+    if _WEATHER_ID_CACHE['id'] is None or now_ms - _WEATHER_ID_CACHE['ts'] > max_age_ms:
+        import aiohttp
+        base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/weather.json{FB_AUTH}") as r:
+                    w = await r.json()
+            wid = w.get('id') if isinstance(w, dict) and w.get('endsAt', 0) > now_ms else 'sunny'
+        except Exception:
+            wid = _WEATHER_ID_CACHE['id'] or 'sunny'
+        _WEATHER_ID_CACHE.update(ts=now_ms, id=wid)
+    return _WEATHER_ID_CACHE['id']
+
 
 async def get_leaderboard_cached(session, base, max_age_ms=60000):
     now_ms = int(time_module.time() * 1000)
@@ -2838,6 +2860,16 @@ async def _settle_big_fishing(session, base):
                             f"(place {r['place']} of 50).\n\n🏆 Top 3:\n{top3_lines}\n\n"
                             f"The next signup is already open — join in!")
                 try:
+                    # bigfish — всего 2 уровня (1=участие, 2=приз топ-3), award_badge сам не
+                    # понижает и не задваивает уже выданный уровень — отдельный счётчик не нужен.
+                    _bf_pid = f"tg_{uid}"
+                    await award_badge(_bf_pid, 'bigfish', 2 if i < 3 else 1, now_ms)
+                    if i < 3:
+                        await award_named_badge(_bf_pid, f'bigfish_place_{i + 1}', finished_number,
+                                                 {'place': i + 1, 'catches': r['catches']}, now_ms)
+                except Exception as e:
+                    print(f"[badges] bigfish {uid}: {e}")
+                try:
                     await bot.send_message(uid, text)
                 except Exception:
                     pass
@@ -3058,6 +3090,12 @@ async def _settle_tournament(session, base, tournament_id):
                     await bot.send_message(uid, text)
                 except Exception:
                     pass
+                try:
+                    _cf_pid = f"tg_{uid}"
+                    _cf_counts = await bump_badge_stats(_cf_pid, {'clanBattlesPlayed': 1})
+                    await check_counter_badges(_cf_pid, _cf_counts, now_ms)
+                except Exception as e:
+                    print(f"[badges] clanfight {uid}: {e}")
             for p, v in participants_b.items():
                 uid = v.get('userId') if isinstance(v, dict) else None
                 if not uid:
@@ -3076,6 +3114,12 @@ async def _settle_tournament(session, base, tournament_id):
                     await bot.send_message(uid, text)
                 except Exception:
                     pass
+                try:
+                    _cf_pid = f"tg_{uid}"
+                    _cf_counts = await bump_badge_stats(_cf_pid, {'clanBattlesPlayed': 1})
+                    await check_counter_badges(_cf_pid, _cf_counts, now_ms)
+                except Exception as e:
+                    print(f"[badges] clanfight {uid}: {e}")
 
             winner_name = init_name if winner_clan_id == tdata.get('initiatorClanId') else acc_name
             lines = [f"— {_tour_payer_label(v)} — {payout}⭐" for v in winner_participants.values()]
@@ -3089,6 +3133,13 @@ async def _settle_tournament(session, base, tournament_id):
             for wp, wv in winner_participants.items():
                 await notify_star_payout(_uid_of(wv, wp), _tour_payer_label(wv), payout,
                                          f"клановая битва #{number}, победа «{winner_name}»")
+                try:
+                    _wu = _uid_of(wv, wp)
+                    if _wu:
+                        await award_named_badge(f"tg_{_wu}", 'clanwin_1', tournament_id,
+                                                 {'number': number, 'clan': winner_name}, now_ms)
+                except Exception as e:
+                    print(f"[badges] clanwin {wp}: {e}")
             total_payout_stars = payout * len(winner_participants)
             if total_payout_stars > 0:
                 await log_finance('expense', 'clan_tournament', total_payout_stars * STAR_TO_USD,
@@ -3721,6 +3772,13 @@ async def _clan_on_level_change(session, base, clan_id, old_level, new_level):
         if not isinstance(clan_data, dict):
             return
         name = clan_data.get('name', '')
+        captain_id = clan_data.get('captainId')
+        if captain_id and new_level > old_level:
+            try:
+                await award_badge(f"tg_{captain_id}", 'captain', _badge_tier_for(new_level, BADGE_DEFS['captain']['thresholds']),
+                                   int(time_module.time() * 1000))
+            except Exception as e:
+                print(f"[badges] captain {captain_id}: {e}")
         for mpid, m in (clan_data.get('members') or {}).items():
             try:
                 await session.patch(f"{base}/leaderboard/{mpid}.json{FB_AUTH}", json={'clanLevel': new_level})
@@ -5755,28 +5813,48 @@ async def bump_fish_stats(pid, updates):
 
 
 # Значки за достижения (12.11.2026, без наград — см. память/CLAUDE.md). thresholds — пороги
-# по возрастанию, индекс+1 = уровень (1 бронза...5 алмаз). Часть серий — Этап 1 (простые,
-# без денежного риска): fisher/rich/traveler считаются от уже существующих полей сейва,
-# sturgeon/boot/deposit/logist/worker — от нового closed-узла badge_stats/{pid}. Остальные
-# серии (patron/premium/earner/payout/jackpot/gambler/clanfight/captain/bigfish/prize/friends/
-# storm/именные медали/clanwin) — следующий этап, здесь пока не выдаются.
+# по возрастанию, индекс+1 = уровень (1 бронза...5 алмаз). Этап 1 (13.11): fisher/rich/
+# traveler считаются от уже существующих полей сейва, sturgeon/boot/deposit/logist/worker —
+# от closed-узла badge_stats/{pid}. Этап 2 (13.11): patron/premium/gambler/earner/payout/
+# jackpot/friends/prize/clanfight/captain/bigfish/storm + именные (named) значки —
+# tour_place/bigfish_place/clanwin, см. award_named_badge.
 BADGE_DEFS = {
-    'fisher':   {'thresholds': [25000, 100000, 250000, 500000, 1000000]},
-    'rich':     {'thresholds': [1000000, 2500000, 5000000, 10000000, 25000000]},
-    'traveler': {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
-    'sturgeon': {'thresholds': [25, 100, 500]},
-    'worker':   {'thresholds': [50, 150, 365]},
-    'boot':     {'thresholds': [25, 100, 500]},
-    'deposit':  {'thresholds': [5, 25, 100]},
-    'logist':   {'thresholds': [500, 5000, 25000]},
-    'pioneer':  {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
+    'fisher':    {'thresholds': [25000, 100000, 250000, 500000, 1000000]},
+    'rich':      {'thresholds': [1000000, 2500000, 5000000, 10000000, 25000000]},
+    'traveler':  {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
+    'sturgeon':  {'thresholds': [25, 100, 500]},
+    'worker':    {'thresholds': [50, 150, 365]},
+    'boot':      {'thresholds': [25, 100, 500]},
+    'deposit':   {'thresholds': [5, 25, 100]},
+    'logist':    {'thresholds': [500, 5000, 25000]},
+    'pioneer':   {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
+    'patron':    {'thresholds': [100, 500, 2000]},        # ⭐ потрачено всего (любые платежи)
+    'premium':   {'thresholds': [1, 6, 12]},              # месяцев Premium куплено (1 оплата = 1 месяц)
+    'gambler':   {'thresholds': [250, 1000, 5000]},       # круток лотереи всего
+    'earner':    {'thresholds': [5, 25, 100]},            # $ выведено (USDT, по курсу на момент вывода)
+    'payout':    {'thresholds': [1]},                     # первая успешная выплата
+    'jackpot':   {'thresholds': [1]},                     # выигран джекпот лотереи
+    'friends':   {'thresholds': [10, 50, 200]},           # рефералов с 500+ рыб (считается рефереру)
+    'prize':     {'thresholds': [1, 5, 20]},              # мест в турнире недели (1-3 место)
+    'clanfight': {'thresholds': [5, 25, 100]},            # участий в клановых битвах
+    'captain':   {'thresholds': [3, 5, 10]},              # уровень клана, достигнутый будучи капитаном
+    'bigfish':   {'thresholds': [1, 2]},                  # 1=участие, 2=приз (топ-3)
+    'storm':     {'thresholds': [25, 100, 500]},          # продаж рыбы в дождь/шторм
 }
 
 # Поле в badge_stats/{pid} -> id серии значков, которую оно двигает.
 _BADGE_COUNTER_TO_SERIES = {
     'sturgeon': 'sturgeon', 'repairs': 'boot', 'deposits': 'deposit',
-    'deliveries': 'logist', 'dailyAll5': 'worker',
+    'deliveries': 'logist', 'dailyAll5': 'worker', 'starsSpent': 'patron',
+    'premiumMonths': 'premium', 'usdWithdrawn': 'earner', 'friendsActive': 'friends',
+    'clanBattlesPlayed': 'clanfight', 'stormSales': 'storm', 'prizeCount': 'prize',
 }
+
+
+def _lottery_total_spins(stats):
+    if not isinstance(stats, dict):
+        return 0
+    return sum(v for k, v in stats.items() if k.endswith('Spins') and isinstance(v, (int, float)))
 
 
 def _badge_tier_for(value, thresholds):
@@ -5881,6 +5959,48 @@ async def award_pioneer_badge(pid, now_ms, player_num=None):
     except Exception as e:
         print(f"[badges] pioneer {pid}: {e}")
     return None
+
+
+async def award_withdrawal_badges(user_id, usd_amount, now_ms):
+    """Значки "Первая выплата" и "Добытчик" — вызывать из КАЖДОЙ точки, где реально
+    записывается успешный вывод USDT (withdrawals_log), иначе часть игроков их не получит."""
+    pid = f"tg_{user_id}"
+    try:
+        await award_badge(pid, 'payout', 1, now_ms)
+    except Exception as e:
+        print(f"[badges] payout {user_id}: {e}")
+    try:
+        counts = await bump_badge_stats(pid, {'usdWithdrawn': float(usd_amount or 0)})
+        await check_counter_badges(pid, counts, now_ms)
+    except Exception as e:
+        print(f"[badges] earner {user_id}: {e}")
+
+
+async def award_named_badge(pid, badge_id, occurrence_key, meta, now_ms):
+    """Именные (повторяемые) значки — свой экземпляр за каждое событие (место в турнире,
+    место в Большой рыбалке, победа в клановой битве), а не уровень от 1 до 5. Хранятся
+    отдельно от обычных значков: badges/{pid}/named/{badge_id}/{occurrence_key}.
+    occurrence_key должен быть уникален для события (неделя турнира, номер Большой рыбалки,
+    id клановой битвы) — так повторный вызов (retry/повторный settle) не создаёт дубликат."""
+    import aiohttp
+    safe_key = str(occurrence_key).replace('.', '_').replace('#', '_').replace('$', '_').replace('[', '_').replace(']', '_').replace('/', '_')
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/named/{badge_id}/{safe_key}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as r:
+                existing = await r.json()
+            if existing:
+                return None  # уже выдан за это событие
+            body = dict(meta or {})
+            body['earnedAt'] = now_ms
+            async with session.put(url, json=body) as r2:
+                if r2.status not in (200, 204):
+                    print(f"[badges] named {pid} {badge_id} PUT {r2.status}")
+                    return None
+        return {'id': badge_id, 'named': True, 'key': occurrence_key}
+    except Exception as e:
+        print(f"[badges] named {pid} {badge_id}: {e}")
+        return None
 
 
 REFERRAL_ACTIVE_CATCHES = 500  # реферальный бонус +100/+100 — когда друг поймал столько рыб
@@ -6300,6 +6420,15 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
             except Exception:
                 break  # не смогли записать — лучше не начислить молча дважды, чем гадать
 
+        # Значок "Азартный" — по общему числу круток (lotteryStats), без нового счётчика.
+        try:
+            gt = _badge_tier_crossed(_lottery_total_spins(sv.get('lotteryStats')),
+                                      _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds'])
+            if gt:
+                await award_badge(pid, 'gambler', gt, now_ms)
+        except Exception as e:
+            print(f"[badges] gambler {pid}: {e}")
+
         # Пишем результат клиенту СРАЗУ, как только приз реально начислен в saves — ДО
         # медленной админ-возни ниже (сброс джекпота, рассылка в личку и группу поддержки).
         # Раньше это писалось в вызывающем коде уже ПОСЛЕ всей этой функции целиком —
@@ -6347,6 +6476,10 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
         if jp_won:
             # пул уже сброшен в claim_jackpot_prize
             await broadcast_jackpot_win(username, jp_won['amount'], _uid_of(None, pid))
+            try:
+                await award_badge(pid, 'jackpot', 1, now_ms)
+            except Exception as e:
+                print(f"[badges] jackpot {pid}: {e}")
         elif grow_jackpot:
             jackpot_url = f"{base}/jackpot/amount.json{FB_AUTH}"
             for j_attempt in range(6):
@@ -6996,6 +7129,15 @@ async def lottery_spin(request):
             else:
                 raise RuntimeError('internal: too many conflicts')  # → except ниже (там же возврат клановой крутки)
 
+            # Значок "Азартный" — та же логика, что в apply_lottery_prize.
+            try:
+                gt = _badge_tier_crossed(_lottery_total_spins(sv.get('lotteryStats')),
+                                          _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds'])
+                if gt:
+                    await award_badge(pid, 'gambler', gt, now_ms)
+            except Exception as e:
+                print(f"[badges] gambler {pid}: {e}")
+
             # Тот же фикс, что и в apply_lottery_prize (платная крутка): приз "рыба" меняет
             # caught в saves, но live-счёт клановых турниров читает leaderboard.caught, который
             # без этого обновляется только на следующем /actions при обычной ловле.
@@ -7035,6 +7177,10 @@ async def lottery_spin(request):
             if jp_won:
                 # пул уже сброшен в claim_jackpot_prize
                 await broadcast_jackpot_win(username, jp_won['amount'], _uid_of(None, pid))
+                try:
+                    await award_badge(pid, 'jackpot', 1, now_ms)
+                except Exception as e:
+                    print(f"[badges] jackpot {pid}: {e}")
             elif grow_jackpot:
                 for j_attempt in range(6):
                     async with session.get(jackpot_url, headers={"X-Firebase-ETag": "true"}) as jresp:
@@ -7470,6 +7616,7 @@ async def process_actions(request):
     deposit_open_seq = 0
 
     prices_cache = None
+    storm_weather_id = None  # для значка "Штормовой торговец" — узнаём лениво, только если в батче есть продажа
     rejected = 0
     legacy_prize_attempts = 0  # см. LEGACY_CLIENT_PRIZE_ACTIONS
     truck_tickets_used = 0     # см. use_truck_ticket
@@ -7661,6 +7808,13 @@ async def process_actions(request):
                                         await bot.send_message(int(referrer_id), f"🎁 Реферальный бонус: +🪙100! Твой реферал {ref_label} поймал {REFERRAL_ACTIVE_CATCHES} рыб")
                                 except Exception:
                                     pass
+                                if not ref_banned:
+                                    try:
+                                        _fr_pid = f"tg_{referrer_id}"
+                                        _fr_counts = await bump_badge_stats(_fr_pid, {'friendsActive': 1})
+                                        await check_counter_badges(_fr_pid, _fr_counts, now_ms)
+                                    except Exception as e:
+                                        print(f"[badges] friends {referrer_id}: {e}")
                                 try:
                                     await bot.send_message(int(real_user_id), f"🎁 Бонус за {REFERRAL_ACTIVE_CATCHES} пойманных рыб: +🪙100!" + ("" if ref_banned else " Столько же получил тот, кто тебя пригласил"))
                                 except Exception:
@@ -7726,6 +7880,10 @@ async def process_actions(request):
                 escrow_ops.append(('add', True, earned))
             else:
                 escrow_ops.append(('add', False, earned))
+            if storm_weather_id is None:
+                storm_weather_id = await get_current_weather_id_cached()
+            if storm_weather_id in ('rain', 'storm'):
+                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + 1
 
         elif a_type == 'collect_delivery':
             # Доставка прибыла — клиент сам обнаруживает это по истечению таймера
@@ -7758,6 +7916,10 @@ async def process_actions(request):
             earned = round(qty * rate * mult * 100) / 100
             coins += earned
             total_earned += earned
+            if storm_weather_id is None:
+                storm_weather_id = await get_current_weather_id_cached()
+            if storm_weather_id in ('rain', 'storm'):
+                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + 1
 
         elif a_type == 'claim_bonuses':
             # Реферальные бонусы и отложенные награды — теперь тоже начисляет только сервер,
@@ -9166,6 +9328,7 @@ async def takecoins_command(message: types.Message):
         problems.append(f"запись истории: {e}")
     if wallet:
         await wallet_claim(user_id, wallet)
+        await award_withdrawal_badges(user_id, usdt_amount, now_ms)
         if await get_location_mult(user_id) == 1 and await change_pond_withdrawn(user_id, amount) != 'ok':
             problems.append(f"счётчик лимита Пруда (+{amount}) — pond_withdrawn/tg_{user_id}")
         if usdt_amount > 0:
@@ -9865,6 +10028,16 @@ async def _settle_weekly_tournament(session, base, t):
     for i, (name, delta, w_uid) in enumerate(top):
         prize = WEEKLY_TOURNAMENT_PRIZES[i] if i < len(WEEKLY_TOURNAMENT_PRIZES) else 0
         await notify_star_payout(w_uid, name, prize, f"турнир недели, {i + 1} место ({delta:,} монет)")
+        try:
+            _tp_pid = f"tg_{w_uid}"
+            _tp_now = int(time_module.time() * 1000)
+            _tp_counts = await bump_badge_stats(_tp_pid, {'prizeCount': 1})
+            await check_counter_badges(_tp_pid, _tp_counts, _tp_now)
+            _tp_key = t.get('startedAt') or t.get('endsAt') or _tp_now
+            await award_named_badge(_tp_pid, f'tour_place_{i + 1}', _tp_key,
+                                     {'place': i + 1, 'delta': delta, 'name': name}, _tp_now)
+        except Exception as e:
+            print(f"[badges] tour_place {w_uid}: {e}")
 
     if total_stars > 0:
         top_names = ", ".join(n for n, _, _ in top)
@@ -14117,6 +14290,15 @@ async def successful_payment(message: types.Message):
     payer_name_fin = f"@{payer_username_fin}" if payer_username_fin else (message.from_user.first_name or f"ID:{message.from_user.id}")
     await log_finance('income', 'stars_payment', amount * STAR_TO_USD, note=f"{label} — {payer_name_fin}", stars=amount)
 
+    # Значок "Меценат" — любая оплата звёздами идёт в счёт, независимо от того, за что
+    # платили (см. BADGE_DEFS в bot.py). Не должно ронять сам платёж при сбое.
+    try:
+        _patron_pid = f"tg_{message.from_user.id}"
+        _patron_counts = await bump_badge_stats(_patron_pid, {'starsSpent': amount})
+        await check_counter_badges(_patron_pid, _patron_counts, int(time_module.time() * 1000))
+    except Exception as e:
+        print(f"[badges] patron {message.from_user.id}: {e}")
+
     # Опыт клану плательщика — 1 XP за 1⭐ (кроме комиссии за вывод и взносов в битвы,
     # см. clan_award_stars_xp). Фоном: выдача покупки не должна ждать Firebase клана.
     _spawn_bg(clan_award_stars_xp(message.from_user.id, amount, payload))
@@ -14760,6 +14942,12 @@ async def successful_payment(message: types.Message):
         except Exception:
             pass
         try:
+            _prem_pid = f"tg_{user_id}"
+            _prem_counts = await bump_badge_stats(_prem_pid, {'premiumMonths': 1})
+            await check_counter_badges(_prem_pid, _prem_counts, int(time_module.time() * 1000))
+        except Exception as e:
+            print(f"[badges] premium {user_id}: {e}")
+        try:
             await message.answer(
                 t(message.from_user,
                     "🎉 Premium активирован на 30 дней!\n\n"
@@ -14953,6 +15141,7 @@ async def successful_payment(message: types.Message):
 
         if usdt_amount > 0:
             await log_finance('expense', 'withdrawal_usdt', usdt_amount, note=f"вывод USDT → {wallet}")
+            await award_withdrawal_badges(user_id, usdt_amount, int(time_mod.time() * 1000))
 
         await message.answer(
             t(message.from_user,
