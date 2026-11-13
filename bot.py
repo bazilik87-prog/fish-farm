@@ -16006,6 +16006,7 @@ async def main():
     app.router.add_options('/reset_progress', reset_progress)
     app.router.add_post('/clan_status', clan_status)
     app.router.add_post('/badges', badges_list)
+    app.router.add_options('/badges', badges_list)
     app.router.add_options('/clan_status', clan_status)
     app.router.add_post('/clan_claim', clan_claim)
     app.router.add_options('/clan_claim', clan_claim)
