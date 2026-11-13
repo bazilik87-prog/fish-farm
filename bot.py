@@ -3965,6 +3965,40 @@ async def _clan_progress_view(session, base, clan_id, clan_data, pid):
     }
 
 
+async def badges_list(request):
+    """Все значки игрока (badges/{pid}) — опрашивается, только когда игрок САМ открывает
+    экран значков в профиле, не в тике. Узел маленький (десятки полей максимум), в отличие
+    от saves/leaderboard дорогим чтением не является."""
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    real_user_id = real_user.get('id')
+    if not real_user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{real_user_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges/{pid}.json{FB_AUTH}") as r:
+                badges = await r.json()
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True, 'badges': badges or {}}, headers=CORS)
+
+
 async def clan_status(request):
     """
     Статус клановой фичи для игрока. Поле isTester всегда True — оставлено ради
@@ -5720,6 +5754,135 @@ async def bump_fish_stats(pid, updates):
         await asyncio.sleep(1 + attempt)
 
 
+# Значки за достижения (12.11.2026, без наград — см. память/CLAUDE.md). thresholds — пороги
+# по возрастанию, индекс+1 = уровень (1 бронза...5 алмаз). Часть серий — Этап 1 (простые,
+# без денежного риска): fisher/rich/traveler считаются от уже существующих полей сейва,
+# sturgeon/boot/deposit/logist/worker — от нового closed-узла badge_stats/{pid}. Остальные
+# серии (patron/premium/earner/payout/jackpot/gambler/clanfight/captain/bigfish/prize/friends/
+# storm/именные медали/clanwin) — следующий этап, здесь пока не выдаются.
+BADGE_DEFS = {
+    'fisher':   {'thresholds': [25000, 100000, 250000, 500000, 1000000]},
+    'rich':     {'thresholds': [1000000, 2500000, 5000000, 10000000, 25000000]},
+    'traveler': {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
+    'sturgeon': {'thresholds': [25, 100, 500]},
+    'worker':   {'thresholds': [50, 150, 365]},
+    'boot':     {'thresholds': [25, 100, 500]},
+    'deposit':  {'thresholds': [5, 25, 100]},
+    'logist':   {'thresholds': [500, 5000, 25000]},
+    'pioneer':  {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
+}
+
+# Поле в badge_stats/{pid} -> id серии значков, которую оно двигает.
+_BADGE_COUNTER_TO_SERIES = {
+    'sturgeon': 'sturgeon', 'repairs': 'boot', 'deposits': 'deposit',
+    'deliveries': 'logist', 'dailyAll5': 'worker',
+}
+
+
+def _badge_tier_for(value, thresholds):
+    tier = 0
+    for i, t in enumerate(thresholds, 1):
+        if value >= t:
+            tier = i
+    return tier
+
+
+def _badge_tier_crossed(before, after, thresholds):
+    """Уровень, который впервые достигнут между before и after, или 0, если нового нет."""
+    bt = _badge_tier_for(before, thresholds)
+    at = _badge_tier_for(after, thresholds)
+    return at if at > bt else 0
+
+
+async def award_badge(pid, badge_id, tier, now_ms):
+    """Выдаёт/повышает значок badge_id до tier, если игрок ещё не был на этом уровне.
+    Значки не деньги — гонка здесь не страшна (худший случай — повторное уведомление),
+    поэтому без ETag, просто читаем текущий уровень и пишем новый, если он выше."""
+    import aiohttp
+    if tier <= 0:
+        return None
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/{badge_id}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as r:
+                cur = await r.json()
+            cur_tier = int((cur or {}).get('tier', 0) or 0)
+            if tier <= cur_tier:
+                return None
+            async with session.put(url, json={'tier': tier, 'earnedAt': now_ms}) as r2:
+                if r2.status not in (200, 204):
+                    print(f"[badges] {pid} {badge_id} PUT {r2.status}")
+                    return None
+        return {'id': badge_id, 'tier': tier}
+    except Exception as e:
+        print(f"[badges] {pid} {badge_id}: {e}")
+        return None
+
+
+async def bump_badge_stats(pid, updates):
+    """Атомарные приращения в badge_stats/{pid}, затем отдельное чтение свежих сумм —
+    эти действия (ремонт/вклад/доставка/Осетрина/квест-бонус) редкие, лишнее чтение
+    маленького узла не страшно, а полагаться на то, что именно вернёт PATCH с .sv
+    increment, не хочется (это не проверено на реальном Firebase, только в тестовом
+    фейке, где increment не резолвится)."""
+    import aiohttp
+    body = {k: {".sv": {"increment": v}} for k, v in updates.items() if v}
+    if not body:
+        return {}
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badge_stats/{pid}.json{FB_AUTH}"
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(url, json=body) as r:
+                    if r.status != 200:
+                        print(f"[badge_stats] {pid} HTTP {r.status}")
+                        await asyncio.sleep(1 + attempt)
+                        continue
+                async with session.get(url) as r2:
+                    fresh = await r2.json()
+                return fresh if isinstance(fresh, dict) else {}
+        except Exception as e:
+            print(f"[badge_stats] {pid} attempt {attempt}: {e}")
+            await asyncio.sleep(1 + attempt)
+    return {}
+
+
+async def check_counter_badges(pid, new_counts, now_ms):
+    """По новым значениям badge_stats проверяет, не пересечён ли порог какой-то серии,
+    и выдаёт значок. Возвращает список реально выданных (новых) значков."""
+    earned = []
+    for field, badge_id in _BADGE_COUNTER_TO_SERIES.items():
+        val = new_counts.get(field)
+        if not isinstance(val, (int, float)):
+            continue  # сбой/нестандартный ответ Firebase на increment — пропускаем эту проверку, не падаем
+        tier = _badge_tier_for(val, BADGE_DEFS[badge_id]['thresholds'])
+        if tier:
+            r = await award_badge(pid, badge_id, tier, now_ms)
+            if r:
+                earned.append(r)
+    return earned
+
+
+async def award_pioneer_badge(pid, now_ms, player_num=None):
+    """Пионер — по номеру игрока (чем меньше, тем раньше пришёл): ≤5000 → ур.1, ≤1000 → ур.2.
+    Номер пишет клиент (player_numbers/{pid}), читаем один раз, только для новых игроков
+    (на /actions) и в разовой ретроактивной миграции /badgesmigrate."""
+    import aiohttp
+    try:
+        if player_num is None:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/player_numbers/{pid}.json{FB_AUTH}") as r:
+                    player_num = await r.json()
+        if not isinstance(player_num, (int, float)) or player_num <= 0:
+            return None
+        tier = 2 if player_num <= 1000 else (1 if player_num <= 5000 else 0)
+        if tier:
+            return await award_badge(pid, 'pioneer', tier, now_ms)
+    except Exception as e:
+        print(f"[badges] pioneer {pid}: {e}")
+    return None
+
+
 REFERRAL_ACTIVE_CATCHES = 500  # реферальный бонус +100/+100 — когда друг поймал столько рыб
 _REF_ACTIVE_CHECKED = set()    # pid, для которых в этом процессе уже проверяли бонус (без лишних запросов)
 FISH_PER_PACK = 10  # пачка филе/сушёной делается из 10 рыб (startCutting/startDrying в index.html)
@@ -7225,6 +7388,8 @@ async def process_actions(request):
     caught = int(sv.get('caught', 0) or 0)
     caught_before_request = caught  # для _bf_track_catch ниже — нужно знать, реально ли улов вырос именно в этом запросе
     total_earned = float(sv.get('totalEarned', 0) or 0)
+    total_earned_before_request = total_earned  # для проверки значков Рыбак/Богач по порогу
+    badge_counter_deltas = {}  # приращения badge_stats за этот запрос (Осетрина/Сапожник/Вкладчик/Логист/Трудяга)
     spent_accum = 0.0  # сумма реальных трат за этот запрос — см. /sync и защиту earned_delta ниже
     upg_levels = sv.get('upgLevels') or {}
     if not isinstance(upg_levels, dict):
@@ -7573,6 +7738,7 @@ async def process_actions(request):
             # переписать любой другой параллельный запрос).
             via_driver_collect = bool(act.get('via') == 'driver')
             escrow_ops.append(('collect', via_driver_collect))
+            badge_counter_deltas['deliveries'] = badge_counter_deltas.get('deliveries', 0) + 1
 
         elif a_type == 'bulk_sell':
             kind = act.get('kind', 'fresh')
@@ -7723,6 +7889,7 @@ async def process_actions(request):
             caught += 1
             unsold += 1
             fish_caught_by_loc[loc] = fish_caught_by_loc.get(loc, 0) + 1
+            badge_counter_deltas['sturgeon'] = badge_counter_deltas.get('sturgeon', 0) + 1
 
         elif a_type == 'buy_supplies':
             # Заказ соли/ножей при отправке доставки — раньше клиент списывал монеты только
@@ -7819,6 +7986,7 @@ async def process_actions(request):
             spent_accum += repair_cost
             durability[tr_id] = 100
             transport_changed = True
+            badge_counter_deltas['repairs'] = badge_counter_deltas.get('repairs', 0) + 1
 
         elif a_type == 'admin_grant':
             # Кнопки в скрытой админ-панели (видны только вам в игре) — начисление монет
@@ -7888,6 +8056,7 @@ async def process_actions(request):
                 deposits_added.remove(found)
             else:
                 deposits_closed_ids.add(dep_id)
+            badge_counter_deltas['deposits'] = badge_counter_deltas.get('deposits', 0) + 1
 
         elif a_type == 'buy_upgrade':
             upg_id = act.get('upg')
@@ -8021,6 +8190,7 @@ async def process_actions(request):
             log_daily_reward = 0.0
             log_quest_reward = 0.0
             log_comeback_reward = 0.0
+            quest_bonus_granted = False  # для значка "Трудяга" — считаем только реально начисленные дни
             for save_attempt in range(6):
                 if save_attempt == 0 and sv_etag:
                     setag, fresh_sv = sv_etag, _copy.deepcopy(sv_initial)
@@ -8043,6 +8213,7 @@ async def process_actions(request):
                 log_daily_reward = 0.0
                 log_quest_reward = 0.0
                 log_comeback_reward = 0.0
+                quest_bonus_granted = False
                 save_base_coins = float(fresh_sv.get('coins', 0) or 0)  # для точного диагностического
                 # лога ниже — раньше там ошибочно использовался sv (снимок из НАЧАЛА запроса,
                 # до всех retry), из-за чего /actionlog показывал ложные ⚠️ РАСХОЖДЕНИЕ при
@@ -8153,6 +8324,7 @@ async def process_actions(request):
                         total_earned = round((total_earned + quest_reward) * 100) / 100
                         bonus_fields['questBonusDate'] = today_str
                         log_quest_reward = quest_reward
+                        quest_bonus_granted = True
 
                 if pending_comeback_bonus:
                     fresh_comeback_claimed_at = fresh_sv.get('comebackClaimedAt') or 0
@@ -8273,6 +8445,42 @@ async def process_actions(request):
                 pass  # лидерборд не должен ронять сам запрос игрока
             if caught > caught_before_request:
                 await _bf_track_catch(session, base, pid)
+
+            # Значки за достижения (Этап 1) — только после успешной записи сейва, на
+            # финальных значениях caught/totalEarned/ulocs. fisher/rich/traveler проверяем
+            # по факту пересечения порога за ЭТОТ запрос (дёшево, без лишних чтений) —
+            # сам award_badge читает/пишет только маленький узел badges/{pid}/{id}, а не
+            # saves/leaderboard. badge_counter_deltas — см. комментарии у мест накопления.
+            new_badges = []
+            try:
+                ft = _badge_tier_crossed(caught_before_request, caught, BADGE_DEFS['fisher']['thresholds'])
+                if ft:
+                    r = await award_badge(pid, 'fisher', ft, now_ms)
+                    if r:
+                        new_badges.append(r)
+                rt = _badge_tier_crossed(total_earned_before_request, total_earned, BADGE_DEFS['rich']['thresholds'])
+                if rt:
+                    r = await award_badge(pid, 'rich', rt, now_ms)
+                    if r:
+                        new_badges.append(r)
+                if ulocs_changed:
+                    tt = max(0, len(merged.get('ulocs') or []) - 1)
+                    if tt:
+                        r = await award_badge(pid, 'traveler', tt, now_ms)
+                        if r:
+                            new_badges.append(r)
+                if quest_bonus_granted:
+                    badge_counter_deltas['dailyAll5'] = badge_counter_deltas.get('dailyAll5', 0) + 1
+                if badge_counter_deltas:
+                    new_counts = await bump_badge_stats(pid, badge_counter_deltas)
+                    new_badges += await check_counter_badges(pid, new_counts, now_ms)
+                if sv_initial is None or not sv_initial:
+                    r = await award_pioneer_badge(pid, now_ms)
+                    if r:
+                        new_badges.append(r)
+            except Exception as e:
+                print(f"[badges] {pid}: {e}")
+
             # Опыт клану за улов — уже после успешной записи сейва, чтобы не начислить за
             # улов, который так и не сохранился. Не пишем в Firebase на каждый запрос —
             # копим в памяти, clan_fish_flush_loop сбрасывает раз в CLAN_FISH_FLUSH_SEC.
@@ -8354,6 +8562,7 @@ async def process_actions(request):
         'claimed': claim_result,
         'rare': rare_fish_public(now_ms),
         'ulocs': list(ulocs),  # 26.10: игра сверяет открытые локации (см. applyActionsResult)
+        'newBadges': new_badges,  # [{'id':'fisher','tier':2}, ...] — новые значки за этот запрос, для уведомления
         **response_truck
     }, headers=CORS)
 
@@ -8731,6 +8940,50 @@ async def start(message: types.Message):
 
 
 GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры: +50% к улову на 30 мин, ×2 скорость доставки на 1 ч
+
+
+@dp.message(Command('badgesmigrate'))
+async def badgesmigrate_command(message: types.Message):
+    """Разовая (но безопасно повторяемая — award_badge не задваивает) выдача значков задним
+    числом по уже существующим данным: Рыбак/Богач — из leaderboard (caught/totalEarned),
+    Пионер — из player_numbers. Путешественник и остальные серии задним числом НЕ считаем —
+    это требует читать saves.json целиком (дорого по трафику, см. CLAUDE.md), им значки
+    появятся только по новой игре с сегодняшнего дня."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = 'да' in message.text.lower() or 'yes' in message.text.lower()
+    if not confirm:
+        await message.answer("Выдаст Рыбака/Богача по текущим caught/totalEarned из таблицы лидеров "
+                             "и Пионера по номеру игрока — всем, у кого ещё нет такого значка.\n"
+                             "Подтвердить: <code>/badgesmigrate да</code>", parse_mode="HTML")
+        return
+    await message.answer("⏳ Считаю...")
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    now_ms = int(time_module.time() * 1000)
+    fisher_n = rich_n = pioneer_n = 0
+    try:
+        async with aiohttp.ClientSession() as session:
+            lb = await get_leaderboard_cached(session, base, max_age_ms=0)
+            async with session.get(f"{base}/player_numbers.json{FB_AUTH}") as r:
+                numbers = await r.json() or {}
+        for pid, v in (lb or {}).items():
+            if not isinstance(v, dict) or not pid.startswith('tg_'):
+                continue
+            ft = _badge_tier_for(float(v.get('caught', 0) or 0), BADGE_DEFS['fisher']['thresholds'])
+            if ft and await award_badge(pid, 'fisher', ft, now_ms):
+                fisher_n += 1
+            rt = _badge_tier_for(float(v.get('totalEarned', 0) or 0), BADGE_DEFS['rich']['thresholds'])
+            if rt and await award_badge(pid, 'rich', rt, now_ms):
+                rich_n += 1
+        for pid, num in (numbers or {}).items():
+            pid_key = pid if pid.startswith('tg_') else f"tg_{pid}"
+            if await award_pioneer_badge(pid_key, now_ms, player_num=num):
+                pioneer_n += 1
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+    await message.answer(f"✅ Готово.\n🎣 Рыбак выдан: {fisher_n}\n💰 Богач выдан: {rich_n}\n🗺 Пионер выдан: {pioneer_n}")
 
 
 @dp.message(Command('giftall'))
@@ -15539,6 +15792,7 @@ async def main():
     app.router.add_post('/reset_progress', reset_progress)
     app.router.add_options('/reset_progress', reset_progress)
     app.router.add_post('/clan_status', clan_status)
+    app.router.add_post('/badges', badges_list)
     app.router.add_options('/clan_status', clan_status)
     app.router.add_post('/clan_claim', clan_claim)
     app.router.add_options('/clan_claim', clan_claim)

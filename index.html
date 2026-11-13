@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-12.2">
+<meta name="ff-build" content="2026-11-13.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -218,6 +218,8 @@ body{background:#1b243b !important}
 .fs-img{max-width:78px;max-height:46px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
 .fs-emo{font-size:34px}
 .fs-sil{filter:brightness(0) opacity(.45) !important}
+.bdg-img{max-width:44px;max-height:44px}
+.bdg-sil{filter:grayscale(1) brightness(.6) opacity(.6)}
 .fs-inf{flex:1;min-width:0}
 .fs-name{font-size:15px;font-weight:800;color:#fff}
 .fs-tags{display:flex;gap:6px;margin:5px 0 6px;flex-wrap:wrap}
@@ -2416,6 +2418,43 @@ function renderUpgrades() {
 var FISH_IMG = {'Карась':'fish_01_crucian','Красноперка':'fish_02_roach','Окунь':'fish_03_perch','Лещ':'fish_04_bream','Щука':'fish_06_pike',
   'Выдра':'fish_11_otter','Крокодил':'fish_12_crocodile','Гиппо':'fish_13_hippo','Тропик':'fish_14_tropical_fish','Попугай':'fish_15_parrot','Змея':'fish_16_snake','Бабочка':'fish_17_butterfly',
   'Кальмар':'fish_18_squid','Осьминог':'fish_19_octopus','Акула':'fish_20_shark','Кит':'fish_21_whale','Пришелец':'fish_22_alien','НЛО':'fish_23_ufo','Галактика':'fish_24_galaxy','Звезда':'fish_25_star','Осетрина':'fish_26_sturgeon'};
+// Значки за достижения (13.11.2026) — Этап 1: только серии, которые уже считает сервер
+// (см. bot.py BADGE_DEFS). Остальные серии (Призёр, Большая рыбалка, Меценат и т.д.) сюда
+// добавятся следующим заходом, когда появится серверная логика.
+var BADGE_DEFS = {
+  fisher:   {icon:'🎣', nameRu:'Рыбак', nameEn:'Angler', tiers:[25000,100000,250000,500000,1000000], unitRu:'поймано рыб', unitEn:'fish caught'},
+  rich:     {icon:'💰', nameRu:'Богач', nameEn:'Rich', tiers:[1000000,2500000,5000000,10000000,25000000], unitRu:'заработано монет', unitEn:'coins earned'},
+  traveler: {icon:'🗺', nameRu:'Путешественник', nameEn:'Traveler', tiers:[1,2,3,4],
+             tierNamesRu:['Река','Тропики','Глубины','Космос'], tierNamesEn:['River','Tropics','Deep','Space']},
+  sturgeon: {icon:'🐟', nameRu:'Охотник за Осетриной', nameEn:'Sturgeon Hunter', tiers:[25,100,500], unitRu:'поймано Осетрин', unitEn:'sturgeon caught'},
+  worker:   {icon:'📋', nameRu:'Трудяга', nameEn:'Workhorse', tiers:[50,150,365], unitRu:'дней все задания выполнены', unitEn:'days all quests done'},
+  boot:     {icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[25,100,500], unitRu:'ремонтов транспорта', unitEn:'transport repairs'},
+  deposit:  {icon:'🏦', nameRu:'Вкладчик', nameEn:'Depositor', tiers:[5,25,100], unitRu:'закрыто вкладов', unitEn:'deposits closed'},
+  logist:   {icon:'🚚', nameRu:'Логист', nameEn:'Logistician', tiers:[500,5000,25000], unitRu:'доставок собрано', unitEn:'deliveries collected'},
+  pioneer:  {icon:'🧭', nameRu:'Первопроходец', nameEn:'Pioneer', tiers:[5000,1000], reverse:true,
+             tierNamesRu:['в первых 5000','в первой 1000'], tierNamesEn:['among first 5000','among first 1000']}
+};
+function badgeTierName(id, tier) {
+  var d = BADGE_DEFS[id]; if (!d) return '';
+  if (d.tierNamesRu) return t(d.tierNamesRu[tier-1]||'', d.tierNamesEn[tier-1]||'');
+  return ['','🥉 '+t('бронза','bronze'),'🥈 '+t('серебро','silver'),'🥇 '+t('золото','gold'),'💎 '+t('платина','platinum'),'💠 '+t('алмаз','diamond')][tier]||'';
+}
+function badgeImg(id, tier, locked) {
+  return '<img class="bdg-img'+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'_'+tier+'.png" alt="" onerror="this.style.display=\'none\'">';
+}
+var badgesCache = null, badgesLoading = false;
+function fetchBadges(cb) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') { if (cb) cb(); return; }
+  badgesLoading = true;
+  fetch(BOT_API_URL + '/badges', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({init_data: tg.initData})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    badgesLoading = false;
+    if (res && res.ok) badgesCache = res.badges || {};
+    if (cb) cb();
+  }).catch(function(){ badgesLoading = false; if (cb) cb(); });
+}
 function fishPic(f, locked) {
   var img = FISH_IMG[f.name];
   if (img) return '<img class="fs-img'+(locked?' fs-sil':'')+'" src="img/fish/'+img+'.png" alt="">';
@@ -6932,6 +6971,59 @@ function clearNotifLog() {
   notifLog=[];
   renderSettings();
 }
+function badgeProgressText(id) {
+  // Прогресс считаем на клиенте только там, где цифра уже есть локально (caught/totalEarned/
+  // открытые локации) — серверные счётчики (Осетрина, ремонты, вклады, доставки, задания)
+  // клиент не видит без отдельного запроса, поэтому для них показываем только пороги.
+  if (id === 'fisher') return fmtXp(state.caught||0);
+  if (id === 'rich') return fmt(state.totalEarned||0);
+  if (id === 'traveler') return String(Math.max(0, (state.unlockedLocs||['pond']).length - 1));
+  return null;
+}
+function showBadges() {
+  settingsSubpage = 'badges';
+  document.getElementById('content').innerHTML = '<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">🏅</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Значки','Badges')+'</div>'
+    +'</div><div class="card" style="text-align:center;color:#90caf9;font-size:13px;padding:20px">'+t('Загрузка...','Loading...')+'</div>';
+  fetchBadges(renderBadgesScreen);
+}
+function renderBadgesScreen() {
+  if (settingsSubpage !== 'badges') return;
+  var earned = badgesCache || {};
+  var html = '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
+    +'<div class="card" style="text-align:center;padding:16px">'
+    +'<div style="font-size:28px;margin-bottom:6px">🏅</div>'
+    +'<div style="font-size:15px;font-weight:600;color:#FFD700">'+t('Значки','Badges')+'</div>'
+    +'<div style="font-size:12px;color:#90caf9;margin-top:4px">'+t('За достижения в игре, без наград','For achievements in the game, no rewards')+'</div>'
+    +'</div><div class="card" style="padding:0">';
+  Object.keys(BADGE_DEFS).forEach(function(id){
+    var d = BADGE_DEFS[id];
+    var mine = earned[id] || null;
+    var myTier = mine ? (mine.tier||0) : 0;
+    var maxTier = d.tiers.length;
+    var showTier = myTier > 0 ? myTier : 1;
+    var locked = myTier === 0;
+    var nextThreshold = myTier < maxTier ? d.tiers[myTier] : null;
+    var progress = badgeProgressText(id);
+    var sub;
+    if (myTier === 0) {
+      sub = (d.reverse ? '' : t('нужно: ','need: ')) + (nextThreshold!=null ? fmtXp(nextThreshold) : '')
+        + (d.unitRu ? ' '+t(d.unitRu, d.unitEn) : (d.tierNamesRu ? ' · '+badgeTierName(id,1) : ''));
+      if (progress != null) sub = progress + ' / ' + sub;
+    } else {
+      sub = badgeTierName(id, myTier) + (nextThreshold!=null ? (' · '+t('дальше: ','next: ')+fmtXp(nextThreshold)+(d.unitRu?' '+t(d.unitRu,d.unitEn):'')) : ' · '+t('максимум!','maxed out!'));
+      if (progress != null && nextThreshold!=null) sub = progress+' / '+fmtXp(nextThreshold)+' · '+badgeTierName(id, myTier);
+    }
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a'+(locked?';opacity:.55':'')+'">'
+      +'<div style="width:44px;height:44px;flex:none;display:flex;align-items:center;justify-content:center">'+badgeImg(id, showTier, locked)+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:'+(locked?'#9fb3d9':'#fff')+'">'+d.icon+' '+t(d.nameRu,d.nameEn)+'</div>'
+      +'<div style="font-size:11px;color:#90caf9;margin-top:2px">'+sub+'</div></div>'
+      +'</div>';
+  });
+  html += '</div><button class="btn btn-full" onclick="renderSettings()" style="margin-top:8px;background:#0f3460">← '+t('Назад','Back')+'</button>';
+  document.getElementById('content').innerHTML = html;
+}
 function showNotifLog() {
   settingsSubpage = 'notiflog';
   notifLog = readNotifLog().slice(0, 50); // источник истины — реальные ключи localStorage,
@@ -7058,6 +7150,7 @@ function renderSettings() {
     +'</div></div>'
     +renderPremiumCard()
     +'<div class="st-menu">'
+    +menuRow('showBadges()','🏅','#c98b1f',t('Мои значки','My badges'))
     +menuRow('showNews()','📰','#4f7dff',t('Новости','News'))
     +menuRow('showInstructions()','📖','#3d8fff',t('Как играть','How to play'))
     +menuRow('showNotifLog()','📋','#a77bff',t('История уведомлений','Notification history'),'<span class="st-cnt">'+notifLog.length+'</span>')
@@ -7314,6 +7407,14 @@ function applyActionsResult(res, sentAt, batch) {
     // список. Явное закрытие (close_deposit) показывает своё уведомление сразу при вызове,
     // здесь лишний тост не нужен — иначе будет дублироваться.
     state.deposits = res.deposits;
+  }
+  if (Array.isArray(res.newBadges) && res.newBadges.length) {
+    badgesCache = null;  // экран значков (если открыт в другой раз) перечитает заново
+    res.newBadges.forEach(function(b){
+      var d = BADGE_DEFS[b.id];
+      if (!d) return;
+      showNotif('🏅 '+t('Новый значок: ','New badge: ')+d.icon+' '+t(d.nameRu,d.nameEn)+' · '+badgeTierName(b.id, b.tier)+'!');
+    });
   }
   if (res.claimed && res.claimed.total > 0) {
     (res.claimed.details||[]).forEach(function(d){
