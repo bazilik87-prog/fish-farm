@@ -5824,7 +5824,7 @@ BADGE_DEFS = {
     'traveler':  {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
     'sturgeon':  {'thresholds': [25, 100, 500]},
     'worker':    {'thresholds': [50, 150, 365]},
-    'boot':      {'thresholds': [25, 100, 500]},
+    'boot':      {'thresholds': [25, 100, 500]},          # выпало "👢 Дырявый сапог" в лотерее (не ремонт транспорта)
     'deposit':   {'thresholds': [5, 25, 100]},
     'logist':    {'thresholds': [500, 5000, 25000]},
     'pioneer':   {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
@@ -5844,7 +5844,7 @@ BADGE_DEFS = {
 
 # Поле в badge_stats/{pid} -> id серии значков, которую оно двигает.
 _BADGE_COUNTER_TO_SERIES = {
-    'sturgeon': 'sturgeon', 'repairs': 'boot', 'deposits': 'deposit',
+    'sturgeon': 'sturgeon', 'deposits': 'deposit',
     'deliveries': 'logist', 'dailyAll5': 'worker', 'starsSpent': 'patron',
     'premiumMonths': 'premium', 'usdWithdrawn': 'earner', 'friendsActive': 'friends',
     'clanBattlesPlayed': 'clanfight', 'stormSales': 'storm', 'prizeCount': 'prize',
@@ -5855,6 +5855,15 @@ def _lottery_total_spins(stats):
     if not isinstance(stats, dict):
         return 0
     return sum(v for k, v in stats.items() if k.endswith('Spins') and isinstance(v, (int, float)))
+
+
+def _lottery_boot_count(stats):
+    """Сколько раз выпал пустой приз лотереи "👢 Дырявый сапог" — значок "Сапожник"
+    (13.11: сначала перепутал с ремонтом транспорта, исправлено по просьбе Саши)."""
+    if not isinstance(stats, dict):
+        return 0
+    wins = stats.get('wins')
+    return int(wins.get('boot') or 0) if isinstance(wins, dict) else 0
 
 
 def _badge_tier_for(value, thresholds):
@@ -6428,6 +6437,14 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                 await award_badge(pid, 'gambler', gt, now_ms)
         except Exception as e:
             print(f"[badges] gambler {pid}: {e}")
+        # Значок "Сапожник" — по числу выпавших "👢 Дырявый сапог" (тоже из lotteryStats.wins.boot).
+        try:
+            bt = _badge_tier_crossed(_lottery_boot_count(sv.get('lotteryStats')),
+                                      _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds'])
+            if bt:
+                await award_badge(pid, 'boot', bt, now_ms)
+        except Exception as e:
+            print(f"[badges] boot {pid}: {e}")
 
         # Пишем результат клиенту СРАЗУ, как только приз реально начислен в saves — ДО
         # медленной админ-возни ниже (сброс джекпота, рассылка в личку и группу поддержки).
@@ -7137,6 +7154,14 @@ async def lottery_spin(request):
                     await award_badge(pid, 'gambler', gt, now_ms)
             except Exception as e:
                 print(f"[badges] gambler {pid}: {e}")
+            # Значок "Сапожник" — по числу "👢 Дырявый сапог" (lotteryStats.wins.boot).
+            try:
+                bt = _badge_tier_crossed(_lottery_boot_count(sv.get('lotteryStats')),
+                                          _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds'])
+                if bt:
+                    await award_badge(pid, 'boot', bt, now_ms)
+            except Exception as e:
+                print(f"[badges] boot {pid}: {e}")
 
             # Тот же фикс, что и в apply_lottery_prize (платная крутка): приз "рыба" меняет
             # caught в saves, но live-счёт клановых турниров читает leaderboard.caught, который
@@ -8148,7 +8173,6 @@ async def process_actions(request):
             spent_accum += repair_cost
             durability[tr_id] = 100
             transport_changed = True
-            badge_counter_deltas['repairs'] = badge_counter_deltas.get('repairs', 0) + 1
 
         elif a_type == 'admin_grant':
             # Кнопки в скрытой админ-панели (видны только вам в игре) — начисление монет

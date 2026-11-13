@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-13.4">
+<meta name="ff-build" content="2026-11-13.6">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2428,7 +2428,7 @@ var BADGE_DEFS = {
               tierNamesRu:['Река','Тропики','Глубины','Космос'], tierNamesEn:['River','Tropics','Deep','Space']},
   sturgeon:  {icon:'🐟', nameRu:'Охотник за Осетриной', nameEn:'Sturgeon Hunter', tiers:[25,100,500], unitRu:'поймано Осетрин', unitEn:'sturgeon caught'},
   worker:    {icon:'📋', nameRu:'Трудяга', nameEn:'Workhorse', tiers:[50,150,365], unitRu:'дней все задания выполнены', unitEn:'days all quests done'},
-  boot:      {icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[25,100,500], unitRu:'ремонтов транспорта', unitEn:'transport repairs'},
+  boot:      {icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[25,100,500], unitRu:'сапог выпало в лотерее', unitEn:'"boot" lottery prizes'},
   deposit:   {icon:'🏦', nameRu:'Вкладчик', nameEn:'Depositor', tiers:[5,25,100], unitRu:'закрыто вкладов', unitEn:'deposits closed'},
   logist:    {icon:'🚚', nameRu:'Логист', nameEn:'Logistician', tiers:[500,5000,25000], unitRu:'доставок собрано', unitEn:'deliveries collected'},
   pioneer:   {icon:'🧭', nameRu:'Первопроходец', nameEn:'Pioneer', tiers:[5000,1000], reverse:true,
@@ -2474,16 +2474,29 @@ function namedBadgeImg(id, locked) {
 }
 var badgesCache = null, badgesLoading = false;
 function fetchBadges(cb) {
-  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') { if (cb) cb(); return; }
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
+    showNotif(t('⚠️ Значки: нет связи с сервером (init_data)','⚠️ Badges: no server connection (init_data)'));
+    if (cb) cb(); return;
+  }
   badgesLoading = true;
   fetch(BOT_API_URL + '/badges', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({init_data: tg.initData})
-  }).then(function(r){ return r.json(); }).then(function(res){
+  }).then(function(r){
+    return r.json().then(function(d){ return {ok:r.ok, status:r.status, data:d}; });
+  }).then(function(res){
     badgesLoading = false;
-    if (res && res.ok) badgesCache = res.badges || {};
+    if (res.ok && res.data && res.data.ok) {
+      badgesCache = res.data.badges || {};
+    } else {
+      showNotif(t('⚠️ Значки: ошибка сервера (','⚠️ Badges: server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная','unknown')));
+    }
     if (cb) cb();
-  }).catch(function(){ badgesLoading = false; if (cb) cb(); });
+  }).catch(function(e){
+    badgesLoading = false;
+    showNotif(t('⚠️ Значки: не удалось загрузить — ','⚠️ Badges: failed to load — ')+(e&&e.message||e));
+    if (cb) cb();
+  });
 }
 function fishPic(f, locked) {
   var img = FISH_IMG[f.name];
