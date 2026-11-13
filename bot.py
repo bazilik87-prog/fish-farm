@@ -5819,27 +5819,27 @@ async def bump_fish_stats(pid, updates):
 # jackpot/friends/prize/clanfight/captain/bigfish/storm + именные (named) значки —
 # tour_place/bigfish_place/clanwin, см. award_named_badge.
 BADGE_DEFS = {
-    'fisher':    {'thresholds': [25000, 100000, 250000, 500000, 1000000]},
+    'fisher':    {'thresholds': [125000, 1000000, 2500000, 5000000, 10000000]},
     'rich':      {'thresholds': [1000000, 2500000, 5000000, 10000000, 25000000]},
     'traveler':  {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
-    'sturgeon':  {'thresholds': [25, 100, 500]},
+    'sturgeon':  {'thresholds': [2500, 10000, 50000]},
     'worker':    {'thresholds': [50, 150, 365]},
     'boot':      {'thresholds': [25, 100, 500]},          # выпало "👢 Дырявый сапог" в лотерее (не ремонт транспорта)
     'deposit':   {'thresholds': [5, 25, 100]},
-    'logist':    {'thresholds': [500, 5000, 25000]},
+    'logist':    {'thresholds': [5000, 50000, 250000]},
     'pioneer':   {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
-    'patron':    {'thresholds': [100, 500, 2000]},        # ⭐ потрачено всего (любые платежи)
+    'patron':    {'thresholds': [500, 2500, 5000]},        # ⭐ потрачено всего (любые платежи)
     'premium':   {'thresholds': [1, 6, 12]},              # месяцев Premium куплено (1 оплата = 1 месяц)
-    'gambler':   {'thresholds': [250, 1000, 5000]},       # круток лотереи всего
-    'earner':    {'thresholds': [5, 25, 100]},            # $ выведено (USDT, по курсу на момент вывода)
+    'gambler':   {'thresholds': [1000, 10000, 25000]},    # круток лотереи всего
+    'earner':    {'thresholds': [25, 100, 250]},          # $ выведено (USDT, по курсу на момент вывода)
     'payout':    {'thresholds': [1]},                     # первая успешная выплата
     'jackpot':   {'thresholds': [1]},                     # выигран джекпот лотереи
-    'friends':   {'thresholds': [10, 50, 200]},           # рефералов с 500+ рыб (считается рефереру)
-    'prize':     {'thresholds': [1, 5, 20]},              # мест в турнире недели (1-3 место)
-    'clanfight': {'thresholds': [5, 25, 100]},            # участий в клановых битвах
+    'friends':   {'thresholds': [100, 250, 500]},         # рефералов с 500+ рыб (считается рефереру)
+    'prize':     {'thresholds': [5, 15, 50]},             # мест в турнире недели (1-3 место)
+    'clanfight': {'thresholds': [10, 50, 250]},           # участий в клановых битвах
     'captain':   {'thresholds': [3, 5, 10]},              # уровень клана, достигнутый будучи капитаном
     'bigfish':   {'thresholds': [1, 2]},                  # 1=участие, 2=приз (топ-3)
-    'storm':     {'thresholds': [25, 100, 500]},          # продаж рыбы в дождь/шторм
+    'storm':     {'thresholds': [100, 500, 2500]},        # продаж рыбы в дождь/шторм
 }
 
 # Поле в badge_stats/{pid} -> id серии значков, которую оно двигает.
@@ -5906,6 +5906,63 @@ async def award_badge(pid, badge_id, tier, now_ms):
         return None
 
 
+async def update_badge_laps(pid, badge_id, value, now_ms):
+    """Для "накопительных" серий (13.11, по просьбе Саши) каждый уровень можно получить
+    заново, когда счётчик проходит ещё один круг — ровно значение его порога (бронза
+    каждые 125к рыб, серебро каждые 1М и т.д., независимо друг от друга). Хранит
+    badges/{pid}/{badge_id} = {tier: лучший уровень когда-либо достигнутый (для списка/
+    иконки — не меняется), earnedAt, laps: {"1": N1, "2": N2, ...}} — N_i = сколько раз
+    пройден порог уровня i. Возвращает список новых событий [{id, tier, lap}] — одно
+    значение может перескочить сразу несколько уровней/кругов за один раз."""
+    thresholds = BADGE_DEFS.get(badge_id, {}).get('thresholds') or []
+    if not thresholds:
+        return []
+    import aiohttp
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/{badge_id}.json{FB_AUTH}"
+    events = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as r:
+                cur = await r.json()
+            cur = cur if isinstance(cur, dict) else {}
+            laps = cur.get('laps') if isinstance(cur.get('laps'), dict) else {}
+            new_laps = dict(laps)
+            best_tier = int(cur.get('tier') or 0)
+            changed = False
+            for i, th in enumerate(thresholds, 1):
+                if not th or th <= 0:
+                    continue
+                new_lap = int(value // th)
+                old_lap = int(laps.get(str(i)) or 0)
+                if new_lap > old_lap:
+                    new_laps[str(i)] = new_lap
+                    changed = True
+                    events.append({'id': badge_id, 'tier': i, 'lap': new_lap})
+                    if i > best_tier:
+                        best_tier = i
+            if changed:
+                body = {'tier': best_tier, 'earnedAt': now_ms, 'laps': new_laps}
+                async with session.put(url, json=body) as r2:
+                    if r2.status not in (200, 204):
+                        print(f"[badges] laps {pid} {badge_id} PUT {r2.status}")
+                        return []
+    except Exception as e:
+        print(f"[badges] laps {pid} {badge_id}: {e}")
+        return []
+    return events
+
+
+def _any_lap_crossed(before, after, thresholds):
+    """Дешёвая проверка в памяти (без похода в Firebase) — пересёк ли value хоть один
+    новый круг хоть одного уровня между before и after. Вызывать update_badge_laps
+    (который реально читает/пишет) только если тут True — иначе на каждый /actions
+    пришлось бы лишний раз стучаться в badges/{pid}/{id}, что и пытались избежать."""
+    for th in thresholds:
+        if th and th > 0 and int(after // th) > int(before // th):
+            return True
+    return False
+
+
 async def bump_badge_stats(pid, updates):
     """Атомарные приращения в badge_stats/{pid}, затем отдельное чтение свежих сумм —
     эти действия (ремонт/вклад/доставка/Осетрина/квест-бонус) редкие, лишнее чтение
@@ -5935,18 +5992,17 @@ async def bump_badge_stats(pid, updates):
 
 
 async def check_counter_badges(pid, new_counts, now_ms):
-    """По новым значениям badge_stats проверяет, не пересечён ли порог какой-то серии,
-    и выдаёт значок. Возвращает список реально выданных (новых) значков."""
+    """По новым значениям badge_stats проверяет, не пройден ли новый круг какого-то
+    уровня серии (см. update_badge_laps), и выдаёт значок. Возвращает список реально
+    выданных (новых) значков. Эти счётчики сами по себе уже редкие события (ремонт,
+    вклад, доставка и т.д.), поэтому доп. проверка "а был ли смысл стучаться в Firebase"
+    тут не нужна — она уже произошла на уровне вызывающего кода."""
     earned = []
     for field, badge_id in _BADGE_COUNTER_TO_SERIES.items():
         val = new_counts.get(field)
         if not isinstance(val, (int, float)):
             continue  # сбой/нестандартный ответ Firebase на increment — пропускаем эту проверку, не падаем
-        tier = _badge_tier_for(val, BADGE_DEFS[badge_id]['thresholds'])
-        if tier:
-            r = await award_badge(pid, badge_id, tier, now_ms)
-            if r:
-                earned.append(r)
+        earned += await update_badge_laps(pid, badge_id, val, now_ms)
     return earned
 
 
@@ -6431,18 +6487,16 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
 
         # Значок "Азартный" — по общему числу круток (lotteryStats), без нового счётчика.
         try:
-            gt = _badge_tier_crossed(_lottery_total_spins(sv.get('lotteryStats')),
-                                      _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds'])
-            if gt:
-                await award_badge(pid, 'gambler', gt, now_ms)
+            if _any_lap_crossed(_lottery_total_spins(sv.get('lotteryStats')),
+                                 _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds']):
+                await update_badge_laps(pid, 'gambler', _lottery_total_spins(stats), now_ms)
         except Exception as e:
             print(f"[badges] gambler {pid}: {e}")
         # Значок "Сапожник" — по числу выпавших "👢 Дырявый сапог" (тоже из lotteryStats.wins.boot).
         try:
-            bt = _badge_tier_crossed(_lottery_boot_count(sv.get('lotteryStats')),
-                                      _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds'])
-            if bt:
-                await award_badge(pid, 'boot', bt, now_ms)
+            if _any_lap_crossed(_lottery_boot_count(sv.get('lotteryStats')),
+                                 _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds']):
+                await update_badge_laps(pid, 'boot', _lottery_boot_count(stats), now_ms)
         except Exception as e:
             print(f"[badges] boot {pid}: {e}")
 
@@ -7148,18 +7202,16 @@ async def lottery_spin(request):
 
             # Значок "Азартный" — та же логика, что в apply_lottery_prize.
             try:
-                gt = _badge_tier_crossed(_lottery_total_spins(sv.get('lotteryStats')),
-                                          _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds'])
-                if gt:
-                    await award_badge(pid, 'gambler', gt, now_ms)
+                if _any_lap_crossed(_lottery_total_spins(sv.get('lotteryStats')),
+                                     _lottery_total_spins(stats), BADGE_DEFS['gambler']['thresholds']):
+                    await update_badge_laps(pid, 'gambler', _lottery_total_spins(stats), now_ms)
             except Exception as e:
                 print(f"[badges] gambler {pid}: {e}")
             # Значок "Сапожник" — по числу "👢 Дырявый сапог" (lotteryStats.wins.boot).
             try:
-                bt = _badge_tier_crossed(_lottery_boot_count(sv.get('lotteryStats')),
-                                          _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds'])
-                if bt:
-                    await award_badge(pid, 'boot', bt, now_ms)
+                if _any_lap_crossed(_lottery_boot_count(sv.get('lotteryStats')),
+                                     _lottery_boot_count(stats), BADGE_DEFS['boot']['thresholds']):
+                    await update_badge_laps(pid, 'boot', _lottery_boot_count(stats), now_ms)
             except Exception as e:
                 print(f"[badges] boot {pid}: {e}")
 
@@ -8639,16 +8691,10 @@ async def process_actions(request):
             # saves/leaderboard. badge_counter_deltas — см. комментарии у мест накопления.
             new_badges = []
             try:
-                ft = _badge_tier_crossed(caught_before_request, caught, BADGE_DEFS['fisher']['thresholds'])
-                if ft:
-                    r = await award_badge(pid, 'fisher', ft, now_ms)
-                    if r:
-                        new_badges.append(r)
-                rt = _badge_tier_crossed(total_earned_before_request, total_earned, BADGE_DEFS['rich']['thresholds'])
-                if rt:
-                    r = await award_badge(pid, 'rich', rt, now_ms)
-                    if r:
-                        new_badges.append(r)
+                if _any_lap_crossed(caught_before_request, caught, BADGE_DEFS['fisher']['thresholds']):
+                    new_badges += await update_badge_laps(pid, 'fisher', caught, now_ms)
+                if _any_lap_crossed(total_earned_before_request, total_earned, BADGE_DEFS['rich']['thresholds']):
+                    new_badges += await update_badge_laps(pid, 'rich', total_earned, now_ms)
                 if ulocs_changed:
                     tt = max(0, len(merged.get('ulocs') or []) - 1)
                     if tt:
@@ -9132,14 +9178,16 @@ GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры:
 async def badgesmigrate_command(message: types.Message):
     """Разовая (но безопасно повторяемая — award_badge не задваивает) выдача значков задним
     числом по уже существующим данным: Рыбак/Богач — из leaderboard (caught/totalEarned),
-    Пионер — из player_numbers. Путешественник и остальные серии задним числом НЕ считаем —
-    это требует читать saves.json целиком (дорого по трафику, см. CLAUDE.md), им значки
-    появятся только по новой игре с сегодняшнего дня."""
+    Пионер — из player_numbers, Путешественник — из saves/{pid}/ulocs (читаем ТОЛЬКО это
+    маленькое поле через путь Firebase, не весь сейв целиком — дёшево по трафику, в отличие
+    от чтения saves.json полностью). Остальные серии (которые считают события, а не
+    текущее состояние — лотерея, турниры, битвы и т.д.) задним числом не восстановить,
+    им значки появятся по новой игре с сегодняшнего дня."""
     if message.from_user.id != ADMIN_ID:
         return
     confirm = 'да' in message.text.lower() or 'yes' in message.text.lower()
     if not confirm:
-        await message.answer("Выдаст Рыбака/Богача по текущим caught/totalEarned из таблицы лидеров "
+        await message.answer("Выдаст Рыбака/Богача/Путешественника по текущим данным из таблицы лидеров и сейвов, "
                              "и Пионера по номеру игрока — всем, у кого ещё нет такого значка.\n"
                              "Подтвердить: <code>/badgesmigrate да</code>", parse_mode="HTML")
         return
@@ -9147,21 +9195,30 @@ async def badgesmigrate_command(message: types.Message):
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     now_ms = int(time_module.time() * 1000)
-    fisher_n = rich_n = pioneer_n = 0
+    fisher_n = rich_n = pioneer_n = traveler_n = 0
     try:
         async with aiohttp.ClientSession() as session:
             lb = await get_leaderboard_cached(session, base, max_age_ms=0)
             async with session.get(f"{base}/player_numbers.json{FB_AUTH}") as r:
                 numbers = await r.json() or {}
-        for pid, v in (lb or {}).items():
-            if not isinstance(v, dict) or not pid.startswith('tg_'):
-                continue
-            ft = _badge_tier_for(float(v.get('caught', 0) or 0), BADGE_DEFS['fisher']['thresholds'])
-            if ft and await award_badge(pid, 'fisher', ft, now_ms):
-                fisher_n += 1
-            rt = _badge_tier_for(float(v.get('totalEarned', 0) or 0), BADGE_DEFS['rich']['thresholds'])
-            if rt and await award_badge(pid, 'rich', rt, now_ms):
-                rich_n += 1
+            pids = [pid for pid, v in (lb or {}).items() if isinstance(v, dict) and pid.startswith('tg_')]
+            for pid, v in (lb or {}).items():
+                if not isinstance(v, dict) or not pid.startswith('tg_'):
+                    continue
+                if await update_badge_laps(pid, 'fisher', float(v.get('caught', 0) or 0), now_ms):
+                    fisher_n += 1
+                if await update_badge_laps(pid, 'rich', float(v.get('totalEarned', 0) or 0), now_ms):
+                    rich_n += 1
+            for pid in pids:
+                try:
+                    async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as r:
+                        ulocs = await r.json()
+                except Exception:
+                    continue
+                tt = max(0, len(ulocs) - 1) if isinstance(ulocs, list) else 0
+                tt = _badge_tier_for(tt, BADGE_DEFS['traveler']['thresholds'])
+                if tt and await award_badge(pid, 'traveler', tt, now_ms):
+                    traveler_n += 1
         for pid, num in (numbers or {}).items():
             pid_key = pid if pid.startswith('tg_') else f"tg_{pid}"
             if await award_pioneer_badge(pid_key, now_ms, player_num=num):
@@ -9169,7 +9226,8 @@ async def badgesmigrate_command(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
-    await message.answer(f"✅ Готово.\n🎣 Рыбак выдан: {fisher_n}\n💰 Богач выдан: {rich_n}\n🗺 Пионер выдан: {pioneer_n}")
+    await message.answer(f"✅ Готово.\n🎣 Рыбак выдан: {fisher_n}\n💰 Богач выдан: {rich_n}\n"
+                         f"🗺 Путешественник выдан: {traveler_n}\n🧭 Пионер выдан: {pioneer_n}")
 
 
 @dp.message(Command('giftall'))

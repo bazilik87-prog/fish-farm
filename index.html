@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-14.1">
+<meta name="ff-build" content="2026-11-14.12">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -219,6 +219,7 @@ body{background:#1b243b !important}
 .fs-emo{font-size:34px}
 .fs-sil{filter:brightness(0) opacity(.45) !important}
 .bdg-img{max-width:44px;max-height:44px}
+.bdg-img-lg{max-width:80px;max-height:80px}
 .bdg-sil{filter:grayscale(1) brightness(.6) opacity(.6)}
 .fs-inf{flex:1;min-width:0}
 .fs-name{font-size:15px;font-weight:800;color:#fff}
@@ -2422,33 +2423,33 @@ var FISH_IMG = {'Карась':'fish_01_crucian','Красноперка':'fish_
 // Значки за достижения (13.11.2026, Этап 1+2 — все 21 серия + именные медали, см. bot.py BADGE_DEFS).
 // Без наград, по решению Саши. single:true — значок с одним уровнем (описание вместо "нужно: X").
 var BADGE_DEFS = {
-  fisher:    {icon:'🎣', nameRu:'Рыбак', nameEn:'Angler', tiers:[25000,100000,250000,500000,1000000], unitRu:'поймано рыб', unitEn:'fish caught',
+  fisher:    {repeat:true, icon:'🎣', nameRu:'Рыбак', nameEn:'Angler', tiers:[125000,1000000,2500000,5000000,10000000], unitRu:'поймано рыб', unitEn:'fish caught',
               descRu:'Считается общее число пойманных рыб за всё время игры.', descEn:'Counts the total number of fish caught over your whole time playing.'},
-  rich:      {icon:'💰', nameRu:'Богач', nameEn:'Rich', tiers:[1000000,2500000,5000000,10000000,25000000], unitRu:'заработано монет', unitEn:'coins earned',
+  rich:      {repeat:true, icon:'💰', nameRu:'Богач', nameEn:'Rich', tiers:[1000000,2500000,5000000,10000000,25000000], unitRu:'заработано монет', unitEn:'coins earned',
               descRu:'Считается общая сумма заработанных монет за всё время (включая автодоход и продажи).', descEn:'Counts total coins earned over time (including auto-income and sales).'},
   traveler:  {icon:'🗺', nameRu:'Путешественник', nameEn:'Traveler', tiers:[1,2,3,4],
               tierNamesRu:['Река','Тропики','Глубины','Космос'], tierNamesEn:['River','Tropics','Deep','Space'],
               descRu:'Уровень повышается за каждую новую открытую локацию: Река → Тропики → Глубины → Космос.', descEn:'Tier goes up with each new location you unlock: River → Tropics → Deep → Space.'},
-  sturgeon:  {icon:'🐟', nameRu:'Охотник за Осетриной', nameEn:'Sturgeon Hunter', tiers:[25,100,500], unitRu:'поймано Осетрин', unitEn:'sturgeon caught',
+  sturgeon:  {repeat:true, icon:'🐟', nameRu:'Охотник за Осетриной', nameEn:'Sturgeon Hunter', tiers:[2500,10000,50000], unitRu:'поймано Осетрин', unitEn:'sturgeon caught',
               descRu:'Считается, сколько раз поймана редкая Осетрина.', descEn:'Counts how many times you caught the rare Sturgeon.'},
-  worker:    {icon:'📋', nameRu:'Трудяга', nameEn:'Workhorse', tiers:[50,150,365], unitRu:'дней все задания выполнены', unitEn:'days all quests done',
+  worker:    {repeat:true, icon:'📋', nameRu:'Трудяга', nameEn:'Workhorse', tiers:[50,150,365], unitRu:'дней все задания выполнены', unitEn:'days all quests done',
               descRu:'Считается, за сколько дней были выполнены ВСЕ 5 ежедневных заданий (не обязательно подряд).', descEn:'Counts the number of days you completed ALL 5 daily quests (not necessarily in a row).'},
-  boot:      {icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[25,100,500], unitRu:'сапог выпало в лотерее', unitEn:'"boot" lottery prizes',
+  boot:      {repeat:true, icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[25,100,500], unitRu:'сапог выпало в лотерее', unitEn:'"boot" lottery prizes',
               descRu:'Считается, сколько раз в лотерее выпадал пустой приз «👢 Дырявый сапог».', descEn:'Counts how many times the lottery gave you the empty "👢 Torn Boot" prize.'},
-  deposit:   {icon:'🏦', nameRu:'Вкладчик', nameEn:'Depositor', tiers:[5,25,100], unitRu:'закрыто вкладов', unitEn:'deposits closed',
+  deposit:   {repeat:true, icon:'🏦', nameRu:'Вкладчик', nameEn:'Depositor', tiers:[5,25,100], unitRu:'закрыто вкладов', unitEn:'deposits closed',
               descRu:'Считается, сколько банковских вкладов было закрыто — и досрочно, и по сроку.', descEn:'Counts how many bank deposits you closed — both early and on term.'},
-  logist:    {icon:'🚚', nameRu:'Логист', nameEn:'Logistician', tiers:[500,5000,25000], unitRu:'доставок собрано', unitEn:'deliveries collected',
+  logist:    {repeat:true, icon:'🚚', nameRu:'Логист', nameEn:'Logistician', tiers:[5000,50000,250000], unitRu:'доставок собрано', unitEn:'deliveries collected',
               descRu:'Считается, сколько доставок (водитель/транспорт) было собрано.', descEn:'Counts how many deliveries (driver/transport) you collected.'},
   pioneer:   {icon:'🧭', nameRu:'Первопроходец', nameEn:'Pioneer', tiers:[5000,1000], reverse:true,
               tierNamesRu:['в первых 5000','в первой 1000'], tierNamesEn:['among first 5000','among first 1000'],
               descRu:'Показывает, насколько рано ты зарегистрировался в игре — по порядковому номеру игрока. Чем меньше номер, тем раньше пришёл. Не зависит от того, что ты делаешь в игре — только от даты регистрации.', descEn:'Shows how early you joined the game, by your player number. The lower the number, the earlier you joined. Not based on what you do in the game — only your registration date.'},
-  patron:    {icon:'💎', nameRu:'Меценат', nameEn:'Patron', tiers:[100,500,2000], unitRu:'⭐ потрачено', unitEn:'⭐ spent',
+  patron:    {repeat:true, icon:'💎', nameRu:'Меценат', nameEn:'Patron', tiers:[500,2500,5000], unitRu:'⭐ потрачено', unitEn:'⭐ spent',
               descRu:'Считается общая сумма звёзд ⭐, потраченных в игре на любые покупки (бустеры, Premium, комиссии и т.д.).', descEn:'Counts the total ⭐ Stars spent in the game on anything (boosters, Premium, fees, etc.).'},
-  premium:   {icon:'👑', nameRu:'Premium', nameEn:'Premium', tiers:[1,6,12], unitRu:'месяцев Premium куплено', unitEn:'months of Premium bought',
+  premium:   {repeat:true, icon:'👑', nameRu:'Premium', nameEn:'Premium', tiers:[1,6,12], unitRu:'месяцев Premium куплено', unitEn:'months of Premium bought',
               descRu:'Считается, сколько месяцев Premium-подписки было куплено (включая автопродления).', descEn:'Counts how many months of Premium you bought (including auto-renewals).'},
-  gambler:   {icon:'🎰', nameRu:'Азартный', nameEn:'Gambler', tiers:[250,1000,5000], unitRu:'круток лотереи', unitEn:'lottery spins',
+  gambler:   {repeat:true, icon:'🎰', nameRu:'Азартный', nameEn:'Gambler', tiers:[1000,10000,25000], unitRu:'круток лотереи', unitEn:'lottery spins',
               descRu:'Считается общее число круток лотереи — любых: за рекламу, Premium, клан или за ⭐.', descEn:'Counts all lottery spins — ad, Premium, clan, or paid with ⭐.'},
-  earner:    {icon:'💵', nameRu:'Добытчик', nameEn:'Earner', tiers:[5,25,100], unitRu:'$ выведено', unitEn:'$ withdrawn',
+  earner:    {repeat:true, icon:'💵', nameRu:'Добытчик', nameEn:'Earner', tiers:[25,100,250], unitRu:'$ выведено', unitEn:'$ withdrawn',
               descRu:'Считается общая сумма выведенных долларов (USDT) за всё время.', descEn:'Counts the total dollars (USDT) you withdrew over time.'},
   payout:    {icon:'⭐', nameRu:'Первая выплата', nameEn:'First Payout', tiers:[1], single:true,
               singleRu:'Первый успешный вывод USDT', singleEn:'First successful USDT withdrawal',
@@ -2456,11 +2457,11 @@ var BADGE_DEFS = {
   jackpot:   {icon:'🎲', nameRu:'Везунчик', nameEn:'Lucky One', tiers:[1], single:true,
               singleRu:'Выигран джекпот лотереи', singleEn:'Won the lottery jackpot',
               descRu:'Выдаётся, если хоть раз выигран джекпот лотереи.', descEn:'Earned if you ever win the lottery jackpot.'},
-  friends:   {icon:'👥', nameRu:'Душа компании', nameEn:'Life of the Party', tiers:[10,50,200], unitRu:'друзей с 500+ рыб', unitEn:'friends with 500+ fish',
+  friends:   {repeat:true, icon:'👥', nameRu:'Душа компании', nameEn:'Life of the Party', tiers:[100,250,500], unitRu:'друзей с 500+ рыб', unitEn:'friends with 500+ fish',
               descRu:'Считается, сколько приглашённых тобой друзей поймали 500+ рыб (тем самым активировав реферальный бонус).', descEn:'Counts how many friends you invited who caught 500+ fish (triggering the referral bonus).'},
-  prize:     {icon:'🏆', nameRu:'Призёр', nameEn:'Prize Winner', tiers:[1,5,20], unitRu:'мест в турнире недели', unitEn:'weekly tournament placements',
+  prize:     {repeat:true, icon:'🏆', nameRu:'Призёр', nameEn:'Prize Winner', tiers:[5,15,50], unitRu:'мест в турнире недели', unitEn:'weekly tournament placements',
               descRu:'Считается, сколько раз занято призовое место (1-3) в турнире недели.', descEn:'Counts how many times you placed in the top 3 of the weekly tournament.'},
-  clanfight: {icon:'⚔️', nameRu:'Клановый боец', nameEn:'Clan Fighter', tiers:[5,25,100], unitRu:'клановых битв', unitEn:'clan battles',
+  clanfight: {repeat:true, icon:'⚔️', nameRu:'Клановый боец', nameEn:'Clan Fighter', tiers:[10,50,250], unitRu:'клановых битв', unitEn:'clan battles',
               descRu:'Считается, сколько клановых битв сыграно — неважно, выиграны они или нет.', descEn:'Counts how many clan battles you played in — win or lose.'},
   captain:   {icon:'⚓', nameRu:'Капитан', nameEn:'Captain', tiers:[3,5,10],
               tierNamesRu:['клан ур.3','клан ур.5','клан ур.10'], tierNamesEn:['clan lv.3','clan lv.5','clan lv.10'],
@@ -2468,7 +2469,7 @@ var BADGE_DEFS = {
   bigfish:   {icon:'🎣', nameRu:'Большая рыбалка', nameEn:'Big Fishing', tiers:[1,2],
               tierNamesRu:['участник','призёр (топ-3)'], tierNamesEn:['participant','prize winner (top-3)'],
               descRu:'Первый уровень — за участие в «Большой рыбалке», второй — за призовое место (топ-3).', descEn:'First tier for taking part in Big Fishing, second for placing in the top 3.'},
-  storm:     {icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[25,100,500], unitRu:'продаж в дождь/шторм', unitEn:'sales during rain/storm',
+  storm:     {repeat:true, icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[100,500,2500], unitRu:'продаж в дождь/шторм', unitEn:'sales during rain/storm',
               descRu:'Считается, сколько продаж рыбы совершено во время дождя или шторма.', descEn:'Counts how many fish sales you made during rain or a storm.'}
 };
 // Именные (повторяемые) медали — отдельно от обычных значков, badges/{pid}/named/{id}/{key}.
@@ -2494,11 +2495,11 @@ function badgeTierName(id, tier) {
   if (d.tierNamesRu) return t(d.tierNamesRu[tier-1]||'', d.tierNamesEn[tier-1]||'');
   return ['','🥉 '+t('бронза','bronze'),'🥈 '+t('серебро','silver'),'🥇 '+t('золото','gold'),'💎 '+t('платина','platinum'),'💠 '+t('алмаз','diamond')][tier]||'';
 }
-function badgeImg(id, tier, locked) {
-  return '<img class="bdg-img'+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'_'+tier+'.png" alt="" onerror="this.style.display=\'none\'">';
+function badgeImg(id, tier, locked, big) {
+  return '<img class="bdg-img'+(big?' bdg-img-lg':'')+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'_'+tier+'.png" alt="" onerror="this.style.display=\'none\'">';
 }
-function namedBadgeImg(id, locked) {
-  return '<img class="bdg-img'+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'.png" alt="" onerror="this.style.display=\'none\'">';
+function namedBadgeImg(id, locked, big) {
+  return '<img class="bdg-img'+(big?' bdg-img-lg':'')+(locked?' bdg-sil':'')+'" src="img/badges/'+id+'.png" alt="" onerror="this.style.display=\'none\'">';
 }
 var badgesCache = null, badgesLoading = false;
 function fetchBadges(cb) {
@@ -7086,8 +7087,10 @@ function renderBadgesScreen() {
           + (d.unitRu ? ' '+t(d.unitRu, d.unitEn) : (d.tierNamesRu ? ' · '+badgeTierName(id,1) : ''));
         if (progress != null) sub = progress + ' / ' + sub;
       } else {
-        sub = badgeTierName(id, myTier) + (nextThreshold!=null ? (' · '+t('дальше: ','next: ')+fmtXp(nextThreshold)+(d.unitRu?' '+t(d.unitRu,d.unitEn):'')) : ' · '+t('максимум!','maxed out!'));
-        if (progress != null && nextThreshold!=null) sub = progress+' / '+fmtXp(nextThreshold)+' · '+badgeTierName(id, myTier);
+        var curLap = d.repeat ? (parseInt((mine.laps||{})[String(myTier)], 10) || 0) : 0;
+        var lapSuffix = curLap>1 ? ' ×'+curLap : '';
+        sub = badgeTierName(id, myTier) + lapSuffix + (nextThreshold!=null ? (' · '+t('дальше: ','next: ')+fmtXp(nextThreshold)+(d.unitRu?' '+t(d.unitRu,d.unitEn):'')) : ' · '+t('максимум!','maxed out!'));
+        if (progress != null && nextThreshold!=null) sub = progress+' / '+fmtXp(nextThreshold)+' · '+badgeTierName(id, myTier)+lapSuffix;
       }
     }
     html += '<div onclick="showBadgeDetail(\''+id+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a;cursor:pointer'+(locked?';opacity:.55':'')+'">'
@@ -7129,13 +7132,16 @@ function showBadgeDetail(id) {
   var maxTier = d.tiers.length;
   var progress = badgeProgressText(id);
 
+  var laps = (mine && mine.laps) || {};
   var tiersHtml = '';
   if (!d.single) {
     for (var ti=1; ti<=maxTier; ti++) {
       var tLocked = ti > myTier;
-      tiersHtml += '<div style="text-align:center;flex:1;min-width:0">'
+      var lapCount = parseInt(laps[String(ti)], 10) || 0;
+      tiersHtml += '<div style="text-align:center;flex:1;min-width:0;position:relative">'
         + '<div style="width:52px;height:52px;margin:0 auto;display:flex;align-items:center;justify-content:center">'+badgeImg(id, ti, tLocked)+'</div>'
-        + '<div style="font-size:10px;color:'+(tLocked?'#5a6f99':'#90caf9')+';margin-top:4px;line-height:1.3">'+badgeTierName(id, ti)+'<br>'+fmtXp(d.tiers[ti-1])+(d.unitRu&&!d.tierNamesRu?'':'')+'</div>'
+        + (d.repeat && lapCount>1 ? '<div style="font-size:10px;font-weight:700;color:#FFD700;margin-top:2px">×'+lapCount+'</div>' : '')
+        + '<div style="font-size:10px;color:'+(tLocked?'#5a6f99':'#90caf9')+';margin-top:2px;line-height:1.3">'+badgeTierName(id, ti)+'<br>'+fmtXp(d.tiers[ti-1])+(d.unitRu&&!d.tierNamesRu?'':'')+'</div>'
         + '</div>';
     }
   }
@@ -7157,11 +7163,12 @@ function showBadgeDetail(id) {
 
   var html = '<div style="background:#1d2d47;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #FFD700;max-height:85vh;overflow-y:auto">'
     + '<div style="text-align:center;margin-bottom:12px">'
-    + '<div style="width:64px;height:64px;margin:0 auto 8px">'+(d.single ? badgeImg(id,1,myTier===0) : badgeImg(id, myTier>0?myTier:1, myTier===0))+'</div>'
+    + '<div style="width:88px;height:88px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center">'+(d.single ? badgeImg(id,1,myTier===0,true) : badgeImg(id, myTier>0?myTier:1, myTier===0, true))+'</div>'
     + '<div style="font-size:16px;font-weight:700;color:#FFD700">'+d.icon+' '+t(d.nameRu,d.nameEn)+'</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(d.descRu,d.descEn)+'</div>'
-    + (tiersHtml ? '<div style="display:flex;gap:4px;margin-bottom:14px">'+tiersHtml+'</div>' : '')
+    + (tiersHtml ? '<div style="display:flex;gap:4px;margin-bottom:6px">'+tiersHtml+'</div>' : '')
+    + (d.repeat ? '<div style="font-size:10px;color:#5a6f99;text-align:center;margin-bottom:10px">'+t('Каждый уровень можно получить заново — просто пройди порог ещё раз','Each tier can be earned again — just pass its threshold once more')+'</div>' : '')
     + '<div style="background:#162238;border-radius:10px;padding:12px;font-size:12px;text-align:center;margin-bottom:14px">'+statusHtml+'</div>'
     + '<button onclick="closeBadgeModal()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">'+t('Закрыть','Close')+'</button>'
     + '</div>';
@@ -7192,7 +7199,7 @@ function showNamedBadgeDetail(id) {
   }
   var html = '<div style="background:#1d2d47;border-radius:16px;padding:20px;max-width:360px;width:100%;border:1.5px solid #FFD700;max-height:85vh;overflow-y:auto">'
     + '<div style="text-align:center;margin-bottom:12px">'
-    + '<div style="width:64px;height:64px;margin:0 auto 8px">'+namedBadgeImg(id, count===0)+'</div>'
+    + '<div style="width:88px;height:88px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center">'+namedBadgeImg(id, count===0, true)+'</div>'
     + '<div style="font-size:16px;font-weight:700;color:#FFD700">'+nd.icon+' '+t(nd.nameRu,nd.nameEn)+'</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(nd.descRu,nd.descEn)+'</div>'
@@ -7599,7 +7606,8 @@ function applyActionsResult(res, sentAt, batch) {
       var d = BADGE_DEFS[b.id];
       if (!d) return;
       var tierLabel = d.single ? '' : (' · '+badgeTierName(b.id, b.tier));
-      showNotif('🏅 '+t('Новый значок: ','New badge: ')+d.icon+' '+t(d.nameRu,d.nameEn)+tierLabel+'!');
+      var lapLabel = (d.repeat && b.lap>1) ? ' ×'+b.lap : '';
+      showNotif('🏅 '+t('Новый значок: ','New badge: ')+d.icon+' '+t(d.nameRu,d.nameEn)+tierLabel+lapLabel+'!');
     });
   }
   if (res.claimed && res.claimed.total > 0) {
