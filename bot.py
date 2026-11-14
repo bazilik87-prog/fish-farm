@@ -5915,6 +5915,7 @@ async def award_badge(pid, badge_id, tier, now_ms):
                 if r2.status not in (200, 204):
                     print(f"[badges] {pid} {badge_id} PUT {r2.status}")
                     return None
+        await mark_nft_eligible(pid, badge_id, tier, now_ms)
         return {'id': badge_id, 'tier': tier}
     except Exception as e:
         print(f"[badges] {pid} {badge_id}: {e}")
@@ -5964,6 +5965,8 @@ async def update_badge_laps(pid, badge_id, value, now_ms):
     except Exception as e:
         print(f"[badges] laps {pid} {badge_id}: {e}")
         return []
+    if events:
+        await mark_nft_eligible(pid, badge_id, best_tier, now_ms)
     return events
 
 
@@ -5976,6 +5979,42 @@ def _any_lap_crossed(before, after, thresholds):
         if th and th > 0 and int(after // th) > int(before // th):
             return True
     return False
+
+
+# NFT-план (14.11, решения Саши): золото+ (уровень 3) в "накопительных" сериях + разовые
+# редкие (Первая выплата, Везунчик) — один NFT на серию навсегда (повторные круги золота
+# NFT не плодят). Именные медали — в award_named_badge, там свой путь (NFT на КАЖДОЕ
+# событие). Остальные значки (Путешественник/Первопроходец/Капитан/Большая рыбалка) NFT не
+# получают — так решили.
+NFT_ELIGIBLE_TIER = {
+    'fisher': 3, 'rich': 3, 'sturgeon': 3, 'worker': 3, 'boot': 3, 'deposit': 3,
+    'logist': 3, 'patron': 3, 'premium': 3, 'gambler': 3, 'earner': 3, 'friends': 3,
+    'prize': 3, 'clanfight': 3, 'storm': 3,
+    'payout': 1, 'jackpot': 1,
+}
+
+
+async def mark_nft_eligible(pid, badge_id, tier, now_ms):
+    """Если достигнутый уровень впервые пересёк NFT-порог — ставит badges/{pid}/{id}.nft =
+    'pending' (ждёт чеканки). PATCH, а не PUT — чтобы не затереть tier/laps, которые пишет
+    вызывающий код в этом же узле отдельной операцией чуть раньше. Саму чеканку этот
+    этап НЕ делает — только помечает, кому она положена (см. /nftqueue)."""
+    req = NFT_ELIGIBLE_TIER.get(badge_id)
+    if not req or tier < req:
+        return
+    import aiohttp
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/{badge_id}.json{FB_AUTH}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as r:
+                cur = await r.json()
+            if isinstance(cur, dict) and cur.get('nft'):
+                return  # уже 'pending' или 'minted' — не трогаем
+            async with session.patch(url, json={'nft': 'pending', 'nftMarkedAt': now_ms}) as r2:
+                if r2.status not in (200, 204):
+                    print(f"[badges] nft mark {pid} {badge_id} PATCH {r2.status}")
+    except Exception as e:
+        print(f"[badges] nft mark {pid} {badge_id}: {e}")
 
 
 async def bump_badge_stats(pid, updates):
@@ -6073,6 +6112,7 @@ async def award_named_badge(pid, badge_id, occurrence_key, meta, now_ms):
                 return None  # уже выдан за это событие
             body = dict(meta or {})
             body['earnedAt'] = now_ms
+            body['nft'] = 'pending'  # именные медали — NFT на КАЖДОЕ событие (решение Саши 14.11)
             async with session.put(url, json=body) as r2:
                 if r2.status not in (200, 204):
                     print(f"[badges] named {pid} {badge_id} PUT {r2.status}")
@@ -9293,6 +9333,70 @@ async def badgesmigrate_command(message: types.Message):
                          f"🎰 Азартный выдан: {gambler_n}\n👢 Сапожник выдан: {boot_n}\n"
                          f"⭐ Первая выплата выдана: {payout_n}\n💵 Добытчик выдан: {earner_n}\n"
                          f"💎 Меценат выдан: {patron_n}\n👑 Premium выдан: {premium_n}")
+
+
+@dp.message(Command('nftqueue'))
+async def nftqueue_command(message: types.Message):
+    """Список "кому положен NFT" — значки с nft:'pending' (см. mark_nft_eligible/
+    award_named_badge), только у проверенных (/verify) игроков, с их кошельком. Разметка
+    делает чеканку руками (как заявки на вывод) до появления автоматической — см. план
+    в памяти. Команда НИЧЕГО не чеканит и не отправляет сама, только показывает список;
+    отметить выданным — /nftsent (отдельная команда, добавится вместе с чеканкой)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
+                all_badges = await r.json() or {}
+            async with session.get(f"{base}/verified_players.json{FB_AUTH}") as r:
+                verified = await r.json() or {}
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    rows = []  # (uid, label, wallet)
+    for pid, data in (all_badges or {}).items():
+        if not isinstance(data, dict) or not pid.startswith('tg_'):
+            continue
+        uid = pid[3:]
+        vp = verified.get(uid) if isinstance(verified, dict) else None
+        wallets = list((vp or {}).get('wallets') or {}) if isinstance(vp, dict) else []
+        wallet = wallets[0] if wallets else None
+        for bid, bdata in data.items():
+            if bid == 'named':
+                if not isinstance(bdata, dict):
+                    continue
+                for named_id, occs in bdata.items():
+                    if not isinstance(occs, dict):
+                        continue
+                    for key, occ in occs.items():
+                        if isinstance(occ, dict) and occ.get('nft') == 'pending':
+                            rows.append((uid, f"{named_id} ({key})", wallet))
+            elif isinstance(bdata, dict) and bdata.get('nft') == 'pending':
+                rows.append((uid, f"{bid} ур.{bdata.get('tier')}", wallet))
+
+    if not rows:
+        await message.answer("Пока никому не положено (нет значков со статусом pending).")
+        return
+
+    ready = [r for r in rows if r[2]]
+    no_wallet = [r for r in rows if not r[2]]
+    lines = [f"🎨 Ждут чеканки: {len(rows)} (из них с известным кошельком: {len(ready)})\n"]
+    for uid, label, wallet in ready:
+        lines.append(f"ID {uid} — {label} → {wallet}")
+    if no_wallet:
+        lines.append(f"\n⚠️ Без кошелька (не /verify или нет записанного адреса) — {len(no_wallet)} чел., им NFT пока не отправить:")
+        for uid, label, _ in no_wallet:
+            lines.append(f"ID {uid} — {label}")
+
+    text = "\n".join(lines)
+    if len(text) > 3500:
+        await message.answer_document(
+            types.BufferedInputFile(text.encode('utf-8'), filename='nftqueue.txt'))
+    else:
+        await message.answer(text)
 
 
 @dp.message(Command('giftall'))
