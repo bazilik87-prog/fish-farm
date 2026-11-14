@@ -5839,7 +5839,7 @@ BADGE_DEFS = {
     'traveler':  {'thresholds': [1, 2, 3, 4]},  # число открытых локаций сверх Пруда
     'sturgeon':  {'thresholds': [2500, 10000, 50000]},
     'worker':    {'thresholds': [50, 150, 365]},
-    'boot':      {'thresholds': [25, 100, 500]},          # выпало "👢 Дырявый сапог" в лотерее (не ремонт транспорта)
+    'boot':      {'thresholds': [250, 1000, 5000]},       # выпало "👢 Дырявый сапог" в лотерее (не ремонт транспорта)
     'deposit':   {'thresholds': [5, 25, 100]},
     'logist':    {'thresholds': [5000, 50000, 250000]},
     'pioneer':   {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
@@ -9191,31 +9191,48 @@ GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры:
 
 @dp.message(Command('badgesmigrate'))
 async def badgesmigrate_command(message: types.Message):
-    """Разовая (но безопасно повторяемая — award_badge не задваивает) выдача значков задним
-    числом по уже существующим данным: Рыбак/Богач — из leaderboard (caught/totalEarned),
-    Пионер — из player_numbers, Путешественник — из saves/{pid}/ulocs (читаем ТОЛЬКО это
-    маленькое поле через путь Firebase, не весь сейв целиком — дёшево по трафику, в отличие
-    от чтения saves.json полностью). Остальные серии (которые считают события, а не
-    текущее состояние — лотерея, турниры, битвы и т.д.) задним числом не восстановить,
-    им значки появятся по новой игре с сегодняшнего дня."""
+    """Разовая (но безопасно повторяемая — award_badge/update_badge_laps не задваивают)
+    выдача значков задним числом по данным, которые уже существовали ДО системы значков:
+    Рыбак/Богач — из leaderboard (caught/totalEarned), Пионер — из player_numbers,
+    Путешественник и Азартный/Сапожник — из saves/{pid}/ulocs и saves/{pid}/lotteryStats,
+    Первая выплата/Добытчик — из публичного withdrawals_log (один общий read, как и в
+    /playerinfo), Меценат/Premium — из stars_payments/{pid} (то же самое, что считает
+    "Оплачено звёзд всего" в /playerinfo). Читаем только маленькие нужные поля через путь
+    Firebase, не весь сейв целиком — дёшево по трафику, в отличие от чтения saves.json
+    полностью.
+
+    НЕ восстанавливаются задним числом (считают НОВЫЕ счётчики badge_stats, которых до
+    запуска значков не существовало, либо исторических данных для них просто нет нигде):
+    Осетрина, Трудяга, Вкладчик, Логист, Шторм (новые badge_stats-счётчики конкретных
+    действий — их раньше никто не считал); Призёр, Клановый боец, Капитан, Большая
+    рыбалка, Везунчик, Душа компании (есть разрозненные логи турниров/битв/рефералов, но
+    посчитать по ним прошлое надёжно и дёшево нельзя — риск занизить или задвоить). Для
+    них значки копятся с сегодняшнего дня по новым событиям."""
     if message.from_user.id != ADMIN_ID:
         return
     confirm = 'да' in message.text.lower() or 'yes' in message.text.lower()
     if not confirm:
-        await message.answer("Выдаст Рыбака/Богача/Путешественника по текущим данным из таблицы лидеров и сейвов, "
-                             "и Пионера по номеру игрока — всем, у кого ещё нет такого значка.\n"
+        await message.answer("Выдаст Рыбака/Богача/Путешественника/Азартного/Сапожника/Первой выплаты/Добытчика/"
+                             "Мецената/Premium по уже существующим данным — всем, у кого ещё нет такого значка.\n"
                              "Подтвердить: <code>/badgesmigrate да</code>", parse_mode="HTML")
         return
     await message.answer("⏳ Считаю...")
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     now_ms = int(time_module.time() * 1000)
-    fisher_n = rich_n = pioneer_n = traveler_n = 0
+    fisher_n = rich_n = pioneer_n = traveler_n = gambler_n = boot_n = 0
+    payout_n = earner_n = patron_n = premium_n = 0
     try:
         async with aiohttp.ClientSession() as session:
             lb = await get_leaderboard_cached(session, base, max_age_ms=0)
             async with session.get(f"{base}/player_numbers.json{FB_AUTH}") as r:
                 numbers = await r.json() or {}
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
+            usdt_by_uid = {}
+            for w in (wl or {}).values():
+                if isinstance(w, dict) and w.get('currency') == 'usdt' and w.get('user_id'):
+                    usdt_by_uid[str(w['user_id'])] = usdt_by_uid.get(str(w['user_id']), 0.0) + float(w.get('usdt') or 0)
             pids = [pid for pid, v in (lb or {}).items() if isinstance(v, dict) and pid.startswith('tg_')]
             for pid, v in (lb or {}).items():
                 if not isinstance(v, dict) or not pid.startswith('tg_'):
@@ -9229,11 +9246,41 @@ async def badgesmigrate_command(message: types.Message):
                     async with session.get(f"{base}/saves/{pid}/ulocs.json{FB_AUTH}") as r:
                         ulocs = await r.json()
                 except Exception:
-                    continue
+                    ulocs = None
                 tt = max(0, len(ulocs) - 1) if isinstance(ulocs, list) else 0
                 tt = _badge_tier_for(tt, BADGE_DEFS['traveler']['thresholds'])
                 if tt and await award_badge(pid, 'traveler', tt, now_ms):
                     traveler_n += 1
+                try:
+                    async with session.get(f"{base}/saves/{pid}/lotteryStats.json{FB_AUTH}") as r:
+                        lstats = await r.json()
+                except Exception:
+                    lstats = None
+                if lstats is not None:
+                    if await update_badge_laps(pid, 'gambler', _lottery_total_spins(lstats), now_ms):
+                        gambler_n += 1
+                    if await update_badge_laps(pid, 'boot', _lottery_boot_count(lstats), now_ms):
+                        boot_n += 1
+                uid = pid[3:]
+                usdt_total = usdt_by_uid.get(uid, 0.0)
+                if usdt_total > 0:
+                    if await award_badge(pid, 'payout', 1, now_ms):
+                        payout_n += 1
+                    if await update_badge_laps(pid, 'earner', usdt_total, now_ms):
+                        earner_n += 1
+                try:
+                    async with session.get(f"{base}/stars_payments/{pid}.json{FB_AUTH}") as r:
+                        sp = await r.json()
+                except Exception:
+                    sp = None
+                if isinstance(sp, dict):
+                    entries = [p for p in sp.values() if isinstance(p, dict)]
+                    stars_total = sum(float(p.get('amount') or 0) for p in entries)
+                    premium_count = sum(1 for p in entries if p.get('label') == 'Premium подписка')
+                    if await update_badge_laps(pid, 'patron', stars_total, now_ms):
+                        patron_n += 1
+                    if premium_count and await update_badge_laps(pid, 'premium', premium_count, now_ms):
+                        premium_n += 1
         for pid, num in (numbers or {}).items():
             pid_key = pid if pid.startswith('tg_') else f"tg_{pid}"
             if await award_pioneer_badge(pid_key, now_ms, player_num=num):
@@ -9242,7 +9289,10 @@ async def badgesmigrate_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
         return
     await message.answer(f"✅ Готово.\n🎣 Рыбак выдан: {fisher_n}\n💰 Богач выдан: {rich_n}\n"
-                         f"🗺 Путешественник выдан: {traveler_n}\n🧭 Пионер выдан: {pioneer_n}")
+                         f"🗺 Путешественник выдан: {traveler_n}\n🧭 Пионер выдан: {pioneer_n}\n"
+                         f"🎰 Азартный выдан: {gambler_n}\n👢 Сапожник выдан: {boot_n}\n"
+                         f"⭐ Первая выплата выдана: {payout_n}\n💵 Добытчик выдан: {earner_n}\n"
+                         f"💎 Меценат выдан: {patron_n}\n👑 Premium выдан: {premium_n}")
 
 
 @dp.message(Command('giftall'))
