@@ -9407,68 +9407,108 @@ async def nftqueue_command(message: types.Message):
 
 NFT_IMG_BASE = "https://bazilik87-prog.github.io/fish-farm/img/badges_nft/"  # 2000×2000-версии (16.11)
 
-# Базовое название/описание серии (без уровня) — для чеканки NFT. С 16.11 (решение Саши
-# "все картинки должны быть NFT") чеканится КАЖДЫЙ уровень каждой серии, включая
-# Путешественника/Первопроходца/Капитана/Большую рыбалку.
+# Базовое название/описание серии (RU, EN; без уровня) — для чеканки NFT. С 16.11 (решение
+# Саши "все картинки должны быть NFT") чеканится КАЖДЫЙ уровень каждой серии, включая
+# Путешественника/Капитана/Большую рыбалку. Первопроходец НЕ включён (16.11, уточнение
+# Саши) — это не достижение, а просто дата регистрации, NFT за него не нужны (иначе
+# почти 5000 игроков получили бы одинаковый "Первопроходец" только за то, что рано зашли).
+# Название/описание пишутся сразу на двух языках (16.11) — NFT не имеет "своего" языка
+# игрока, как интерфейс: её можно продать/подарить кому угодно, поэтому текст фиксируется
+# раз и навсегда сразу билингвально, а не подбирается под язык текущего владельца.
 NFT_BADGE_META = {
-    'fisher':    ('Рыбак', 'Значок FishFarm «Рыбак» — считается общее число пойманных рыб за всё время.'),
-    'rich':      ('Богач', 'Значок FishFarm «Богач» — считается общая сумма заработанных монет за всё время.'),
-    'traveler':  ('Путешественник', 'Значок FishFarm «Путешественник» — за открытие новой локации.'),
-    'sturgeon':  ('Охотник за Осетриной', 'Значок FishFarm «Охотник за Осетриной» — считается, сколько раз поймана редкая Осетрина.'),
-    'worker':    ('Трудяга', 'Значок FishFarm «Трудяга» — считается, за сколько дней выполнены все 5 ежедневных заданий.'),
-    'boot':      ('Сапожник', 'Значок FishFarm «Сапожник» — считается, сколько раз в лотерее выпал приз «Дырявый сапог».'),
-    'deposit':   ('Вкладчик', 'Значок FishFarm «Вкладчик» — считается, сколько банковских вкладов закрыто.'),
-    'logist':    ('Логист', 'Значок FishFarm «Логист» — считается, сколько доставок собрано.'),
-    'pioneer':   ('Первопроходец', 'Значок FishFarm «Первопроходец» — за раннюю регистрацию в игре.'),
-    'patron':    ('Меценат', 'Значок FishFarm «Меценат» — считается общая сумма ⭐ Stars, потраченных в игре.'),
-    'premium':   ('Premium', 'Значок FishFarm «Premium» — считается, сколько месяцев Premium-подписки куплено.'),
-    'gambler':   ('Азартный', 'Значок FishFarm «Азартный» — считается общее число круток лотереи.'),
-    'earner':    ('Добытчик', 'Значок FishFarm «Добытчик» — считается общая сумма выведенных USDT за всё время.'),
-    'payout':    ('Первая выплата', 'Значок FishFarm «Первая выплата» — первый успешный вывод USDT.'),
-    'jackpot':   ('Везунчик', 'Значок FishFarm «Везунчик» — выигран джекпот лотереи.'),
-    'friends':   ('Душа компании', 'Значок FishFarm «Душа компании» — считается, сколько друзей поймали 500+ рыб.'),
-    'prize':     ('Призёр', 'Значок FishFarm «Призёр» — считается, сколько призовых мест занято в турнире недели.'),
-    'clanfight': ('Клановый боец', 'Значок FishFarm «Клановый боец» — считается, сколько клановых битв сыграно.'),
-    'captain':   ('Капитан', 'Значок FishFarm «Капитан» — клан достиг уровня под руководством этого капитана.'),
-    'bigfish':   ('Большая рыбалка', 'Значок FishFarm «Большая рыбалка» — участие или призовое место.'),
-    'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько продаж сделано в дождь/шторм.'),
+    'fisher':    ('Рыбак', 'Значок FishFarm «Рыбак» — считается общее число пойманных рыб за всё время.',
+                  'Angler', 'FishFarm "Angler" badge — counts the total number of fish caught over time.'),
+    'rich':      ('Богач', 'Значок FishFarm «Богач» — считается общая сумма заработанных монет за всё время.',
+                  'Rich', 'FishFarm "Rich" badge — counts total coins earned over time.'),
+    'traveler':  ('Путешественник', 'Значок FishFarm «Путешественник» — за открытие новой локации.',
+                  'Traveler', 'FishFarm "Traveler" badge — for unlocking a new location.'),
+    'sturgeon':  ('Охотник за Осетриной', 'Значок FishFarm «Охотник за Осетриной» — считается, сколько раз поймана редкая Осетрина.',
+                  'Sturgeon Hunter', 'FishFarm "Sturgeon Hunter" badge — counts how many times you caught the rare Sturgeon.'),
+    'worker':    ('Трудяга', 'Значок FishFarm «Трудяга» — считается, за сколько дней выполнены все 5 ежедневных заданий.',
+                  'Workhorse', 'FishFarm "Workhorse" badge — counts the days all 5 daily quests were completed.'),
+    'boot':      ('Сапожник', 'Значок FishFarm «Сапожник» — считается, сколько раз в лотерее выпал приз «Дырявый сапог».',
+                  'Cobbler', 'FishFarm "Cobbler" badge — counts how many times the lottery gave the "Torn Boot" prize.'),
+    'deposit':   ('Вкладчик', 'Значок FishFarm «Вкладчик» — считается, сколько банковских вкладов закрыто.',
+                  'Depositor', 'FishFarm "Depositor" badge — counts how many bank deposits were closed.'),
+    'logist':    ('Логист', 'Значок FishFarm «Логист» — считается, сколько доставок собрано.',
+                  'Logistician', 'FishFarm "Logistician" badge — counts how many deliveries were collected.'),
+    'patron':    ('Меценат', 'Значок FishFarm «Меценат» — считается общая сумма ⭐ Stars, потраченных в игре.',
+                  'Patron', 'FishFarm "Patron" badge — counts total ⭐ Stars spent in the game.'),
+    'premium':   ('Premium', 'Значок FishFarm «Premium» — считается, сколько месяцев Premium-подписки куплено.',
+                  'Premium', 'FishFarm "Premium" badge — counts how many months of Premium were bought.'),
+    'gambler':   ('Азартный', 'Значок FishFarm «Азартный» — считается общее число круток лотереи.',
+                  'Gambler', 'FishFarm "Gambler" badge — counts total lottery spins.'),
+    'earner':    ('Добытчик', 'Значок FishFarm «Добытчик» — считается общая сумма выведенных USDT за всё время.',
+                  'Earner', 'FishFarm "Earner" badge — counts total USDT withdrawn over time.'),
+    'payout':    ('Первая выплата', 'Значок FishFarm «Первая выплата» — первый успешный вывод USDT.',
+                  'First Payout', 'FishFarm "First Payout" badge — earned for your first successful USDT withdrawal.'),
+    'jackpot':   ('Везунчик', 'Значок FishFarm «Везунчик» — выигран джекпот лотереи.',
+                  'Lucky One', 'FishFarm "Lucky One" badge — earned for winning the lottery jackpot.'),
+    'friends':   ('Душа компании', 'Значок FishFarm «Душа компании» — считается, сколько друзей поймали 500+ рыб.',
+                  'Life of the Party', 'FishFarm "Life of the Party" badge — counts friends you invited who caught 500+ fish.'),
+    'prize':     ('Призёр', 'Значок FishFarm «Призёр» — считается, сколько призовых мест занято в турнире недели.',
+                  'Prize Winner', 'FishFarm "Prize Winner" badge — counts top-3 placements in the weekly tournament.'),
+    'clanfight': ('Клановый боец', 'Значок FishFarm «Клановый боец» — считается, сколько клановых битв сыграно.',
+                  'Clan Fighter', 'FishFarm "Clan Fighter" badge — counts how many clan battles were played.'),
+    'captain':   ('Капитан', 'Значок FishFarm «Капитан» — клан достиг уровня под руководством этого капитана.',
+                  'Captain', 'FishFarm "Captain" badge — earned when the clan reaches a level under this captain.'),
+    'bigfish':   ('Большая рыбалка', 'Значок FishFarm «Большая рыбалка» — участие или призовое место.',
+                  'Big Fishing', 'FishFarm "Big Fishing" badge — for taking part or placing in the top 3.'),
+    'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько продаж сделано в дождь/шторм.',
+                  'Storm Trader', 'FishFarm "Storm Trader" badge — counts fish sales made during rain or storm.'),
 }
 
-# Названия уровней — как badgeTierName() в index.html, но на стороне бота (для NFT).
+# Названия уровней (RU, EN) — как badgeTierName() в index.html, но на стороне бота (для NFT).
 NFT_TIER_LABELS = {
-    'traveler': ['Река', 'Тропики', 'Глубины', 'Космос'],
-    'pioneer':  ['в первых 5000', 'в первой 1000'],
-    'captain':  ['клан ур.3', 'клан ур.5', 'клан ур.10'],
-    'bigfish':  ['участник', 'призёр (топ-3)'],
+    'traveler': (['Река', 'Тропики', 'Глубины', 'Космос'], ['River', 'Tropics', 'Deep', 'Space']),
+    'captain':  (['клан ур.3', 'клан ур.5', 'клан ур.10'], ['clan lv.3', 'clan lv.5', 'clan lv.10']),
+    'bigfish':  (['участник', 'призёр (топ-3)'], ['participant', 'prize winner (top-3)']),
 }
-_NFT_GENERIC_TIER_LABELS = ['', 'бронза', 'серебро', 'золото', 'платина', 'алмаз']
+_NFT_GENERIC_TIER_LABELS_RU = ['', 'бронза', 'серебро', 'золото', 'платина', 'алмаз']
+_NFT_GENERIC_TIER_LABELS_EN = ['', 'bronze', 'silver', 'gold', 'platinum', 'diamond']
 
 
 def nft_tier_label(badge_id, tier):
-    arr = NFT_TIER_LABELS.get(badge_id)
-    if arr:
-        return arr[tier - 1] if 1 <= tier <= len(arr) else str(tier)
-    return _NFT_GENERIC_TIER_LABELS[tier] if 0 <= tier < len(_NFT_GENERIC_TIER_LABELS) else str(tier)
+    """(RU, EN) для уровня."""
+    pair = NFT_TIER_LABELS.get(badge_id)
+    if pair:
+        ru_arr, en_arr = pair
+        ru = ru_arr[tier - 1] if 1 <= tier <= len(ru_arr) else str(tier)
+        en = en_arr[tier - 1] if 1 <= tier <= len(en_arr) else str(tier)
+        return ru, en
+    ru = _NFT_GENERIC_TIER_LABELS_RU[tier] if 0 <= tier < len(_NFT_GENERIC_TIER_LABELS_RU) else str(tier)
+    en = _NFT_GENERIC_TIER_LABELS_EN[tier] if 0 <= tier < len(_NFT_GENERIC_TIER_LABELS_EN) else str(tier)
+    return ru, en
 
 
 def nft_name_desc(badge_id, tier):
-    """(название, описание) для чеканки конкретного уровня. None, если серии нет в NFT_BADGE_META."""
+    """(название, описание) для чеканки конкретного уровня — билингвально RU / EN.
+    None, если серии нет в NFT_BADGE_META."""
     base = NFT_BADGE_META.get(badge_id)
     if not base:
         return None
-    name_ru, desc_ru = base
+    name_ru, desc_ru, name_en, desc_en = base
+    desc = f"{desc_ru} / {desc_en}"
     if badge_id in ('payout', 'jackpot'):
-        return name_ru, desc_ru
-    return f"{name_ru} — {nft_tier_label(badge_id, tier)}", desc_ru
+        return f"{name_ru} / {name_en}", desc
+    label_ru, label_en = nft_tier_label(badge_id, tier)
+    return f"{name_ru} — {label_ru} / {name_en} — {label_en}", desc
 
 NAMED_BADGE_META = {
-    'tour_place_1': ('Турнир недели — 1 место', 'Медаль FishFarm за 1 место в турнире недели — отдельная за каждую неделю.'),
-    'tour_place_2': ('Турнир недели — 2 место', 'Медаль FishFarm за 2 место в турнире недели — отдельная за каждую неделю.'),
-    'tour_place_3': ('Турнир недели — 3 место', 'Медаль FishFarm за 3 место в турнире недели — отдельная за каждую неделю.'),
-    'bigfish_place_1': ('Большая рыбалка — 1 место', 'Медаль FishFarm за 1 место в «Большой рыбалке» — отдельная за каждый раунд.'),
-    'bigfish_place_2': ('Большая рыбалка — 2 место', 'Медаль FishFarm за 2 место в «Большой рыбалке» — отдельная за каждый раунд.'),
-    'bigfish_place_3': ('Большая рыбалка — 3 место', 'Медаль FishFarm за 3 место в «Большой рыбалке» — отдельная за каждый раунд.'),
-    'clanwin_1': ('Победа в клановой битве', 'Медаль FishFarm за победу в клановой битве — отдельная за каждую победу.'),
+    'tour_place_1': ('Турнир недели — 1 место', 'Медаль FishFarm за 1 место в турнире недели — отдельная за каждую неделю.',
+                      'Weekly tournament — 1st place', 'FishFarm medal for 1st place in the weekly tournament — a separate one each week.'),
+    'tour_place_2': ('Турнир недели — 2 место', 'Медаль FishFarm за 2 место в турнире недели — отдельная за каждую неделю.',
+                      'Weekly tournament — 2nd place', 'FishFarm medal for 2nd place in the weekly tournament — a separate one each week.'),
+    'tour_place_3': ('Турнир недели — 3 место', 'Медаль FishFarm за 3 место в турнире недели — отдельная за каждую неделю.',
+                      'Weekly tournament — 3rd place', 'FishFarm medal for 3rd place in the weekly tournament — a separate one each week.'),
+    'bigfish_place_1': ('Большая рыбалка — 1 место', 'Медаль FishFarm за 1 место в «Большой рыбалке» — отдельная за каждый раунд.',
+                         'Big Fishing — 1st place', 'FishFarm medal for 1st place in Big Fishing — a separate one each round.'),
+    'bigfish_place_2': ('Большая рыбалка — 2 место', 'Медаль FishFarm за 2 место в «Большой рыбалке» — отдельная за каждый раунд.',
+                         'Big Fishing — 2nd place', 'FishFarm medal for 2nd place in Big Fishing — a separate one each round.'),
+    'bigfish_place_3': ('Большая рыбалка — 3 место', 'Медаль FishFarm за 3 место в «Большой рыбалке» — отдельная за каждый раунд.',
+                         'Big Fishing — 3rd place', 'FishFarm medal for 3rd place in Big Fishing — a separate one each round.'),
+    'clanwin_1': ('Победа в клановой битве', 'Медаль FishFarm за победу в клановой битве — отдельная за каждую победу.',
+                  'Clan battle win', 'FishFarm medal for a clan battle win — a separate one each victory.'),
 }
 
 
@@ -9567,7 +9607,9 @@ async def nftmint_command(message: types.Message):
                             when = occ.get('earnedAt')
                             date_s = _fmt_date_msk(when) if when else ''
                             path = f"badges/{pid}/named/{named_id}/{key}.json"
-                            items.append((uid, 'named', named_id, None, key, path, ndef[0], ndef[1],
+                            nm = f"{ndef[0]} / {ndef[2]}"
+                            desc = f"{ndef[1]} / {ndef[3]}"
+                            items.append((uid, 'named', named_id, None, key, path, nm, desc,
                                           f"{NFT_IMG_BASE}{named_id}.png", date_s))
             else:
                 nft_map = bdata.get('nft') if isinstance(bdata, dict) else None
@@ -9622,13 +9664,15 @@ async def nftmint_command(message: types.Message):
                 uid, kind, bid, tier, key, path, nm, desc, img, date_s = it
                 if kind == 'tier':
                     req_id = f"t{uid}_{bid}_{tier}"
-                    attrs = [{"trait_type": "Серия", "value": NFT_BADGE_META[bid][0]},
-                             {"trait_type": "Уровень", "value": nft_tier_label(bid, tier)}]
+                    series_ru, _, series_en, _ = NFT_BADGE_META[bid]
+                    label_ru, label_en = nft_tier_label(bid, tier)
+                    attrs = [{"trait_type": "Серия / Series", "value": f"{series_ru} / {series_en}"},
+                             {"trait_type": "Уровень / Tier", "value": f"{label_ru} / {label_en}"}]
                 else:
                     req_id = f"n{uid}_{bid}_{key}"
-                    attrs = [{"trait_type": "Медаль", "value": nm}]
+                    attrs = [{"trait_type": "Медаль / Medal", "value": nm}]
                     if date_s:
-                        attrs.append({"trait_type": "Дата", "value": date_s})
+                        attrs.append({"trait_type": "Дата / Date", "value": date_s})
                         nm = f"{nm} ({date_s})"  # дата видна и в названии NFT, не только в атрибуте
                 try:
                     resp = await mint_nft_badge(session, req_id, addr, nm, desc, img, attrs)
