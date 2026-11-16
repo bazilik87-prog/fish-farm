@@ -9670,7 +9670,7 @@ async def nftmint_command(message: types.Message):
                 await message.answer("\n".join(lines))
                 return
 
-            minted, failed = [], []
+            minted, failed, already = [], [], []
             for it, addr in resolved:
                 uid, kind, bid, tier, key, path, nm, desc, img, date_s = it
                 if kind == 'tier':
@@ -9699,12 +9699,34 @@ async def nftmint_command(message: types.Message):
                             pass
                     minted.append((uid, nm))
                 except Exception as e:
-                    failed.append((uid, nm, str(e)))
+                    err = str(e)
+                    if 'used for other nft meta or owner address' in err:
+                        # requestId уже занят РОВНО этой же парой (игрок+значок+уровень) —
+                        # значит это НЕ дубликат, а уже начеканенная раньше (до переделки
+                        # формата хранения) NFT, которую Firebase из-за бага с массивом снова
+                        # пометила 'pending'. Возвращаем 'minted', саму чеканку не повторяем.
+                        try:
+                            if kind == 'tier':
+                                async with session.put(f"{base}/{path}{FB_AUTH}", json='minted'):
+                                    pass
+                            else:
+                                async with session.patch(f"{base}/{path}{FB_AUTH}",
+                                                          json={'nft': 'minted'}):
+                                    pass
+                            already.append((uid, nm))
+                        except Exception as e2:
+                            failed.append((uid, nm, f"не удалось исправить статус: {e2}"))
+                    else:
+                        failed.append((uid, nm, err))
                 await asyncio.sleep(0.6)
 
             lines = [f"✅ Начеканено: {len(minted)}"]
             for uid, nm in minted:
                 lines.append(f"ID {uid} — {nm}")
+            if already:
+                lines.append(f"\nℹ️ Уже были начеканены раньше, статус исправлен на 'minted': {len(already)}")
+                for uid, nm in already:
+                    lines.append(f"ID {uid} — {nm}")
             if failed:
                 lines.append(f"\n❌ Ошибки (остались 'pending', можно повторить /nftmint да): {len(failed)}")
                 for uid, nm, err in failed:
