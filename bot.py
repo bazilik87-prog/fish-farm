@@ -4074,6 +4074,66 @@ async def badges_list(request):
     return web.json_response({'ok': True, 'badges': badges or {}, 'values': values}, headers=CORS)
 
 
+async def link_wallet(request):
+    """Привязка TON-кошелька через TonConnect (16.11) — закрытый узел linked_wallets/{pid}
+    = {wallet, linkedAt}. Нужен для будущего автодохода от NFT нашей коллекции на кошельке
+    (отдельная, ещё не реализованная часть) и позже — для вывода строго на привязанный
+    адрес (решение Саши 16.11). Само подключение кошелька через TonConnect уже требует,
+    чтобы игрок подтвердил его в СВОЁМ приложении кошелька — в отличие от текстового поля
+    при выводе, адрес нельзя подделать, просто вписав чужой.
+    Правило «один кошелёк — один игрок» действует и здесь — тот же узел wallet_owner, что
+    и при выводе (wallet_owner_other/wallet_claim), иначе один кошелёк можно было бы
+    привязать к нескольким аккаунтам и задвоить будущий NFT-доход."""
+    if request.method == 'OPTIONS':
+        return web.Response(status=200, headers=CORS)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400, headers=CORS)
+
+    verified = validate_init_data(data.get('init_data', ''))
+    if not verified:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+    try:
+        real_user = json.loads(verified.get('user', '{}'))
+    except Exception:
+        real_user = {}
+    user_id = real_user.get('id')
+    if not user_id:
+        return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
+
+    wallet = str(data.get('wallet', '')).strip()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    pid = f"tg_{user_id}"
+    if not wallet:
+        # Без wallet — просто узнать текущую привязку (открыли экран Настроек), ничего не пишем.
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as r:
+                    cur = await r.json()
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500, headers=CORS)
+        return web.json_response({'ok': True, 'wallet': (cur or {}).get('wallet')}, headers=CORS)
+
+    other = await wallet_owner_other(user_id, wallet)
+    if other:
+        is_ru = str(real_user.get('language_code') or '').startswith('ru')
+        msg = ('Этот кошелёк уже привязан к другому аккаунту. Правило: один кошелёк — один игрок.'
+               if is_ru else
+               'This wallet is already linked to another account. Rule: one wallet — one player.')
+        return web.json_response({'error': msg, 'code': 'wallet_taken'}, status=400, headers=CORS)
+
+    await wallet_claim(user_id, wallet)
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.put(f"{base}/linked_wallets/{pid}.json{FB_AUTH}",
+                               json={'wallet': wallet, 'linkedAt': int(time_module.time() * 1000)})
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500, headers=CORS)
+    return web.json_response({'ok': True, 'wallet': wallet}, headers=CORS)
+
+
 async def clan_status(request):
     """
     Статус клановой фичи для игрока. Поле isTester всегда True — оставлено ради
@@ -16668,6 +16728,8 @@ async def main():
     app.router.add_post('/clan_status', clan_status)
     app.router.add_post('/badges', badges_list)
     app.router.add_options('/badges', badges_list)
+    app.router.add_post('/link_wallet', link_wallet)
+    app.router.add_options('/link_wallet', link_wallet)
     app.router.add_options('/clan_status', clan_status)
     app.router.add_post('/clan_claim', clan_claim)
     app.router.add_options('/clan_claim', clan_claim)

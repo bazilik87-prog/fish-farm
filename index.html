@@ -2,13 +2,14 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-14.14">
+<meta name="ff-build" content="2026-11-16.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script src="https://unpkg.com/@tonconnect/ui@2.4.4/dist/tonconnect-ui.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#272c47;color:#eee;min-height:100vh;overflow-x:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top, 0px);touch-action:manipulation}
@@ -2366,6 +2367,7 @@ function renderContent() {
     else if (settingsSubpage==='news') showNews();
     else if (settingsSubpage==='newsArchive') showNewsArchive();
     else if (settingsSubpage==='badges') renderBadgesScreen();
+    else if (settingsSubpage==='walletnft') renderWalletNftScreen();
     else renderSettings();
   }
 }
@@ -4729,6 +4731,64 @@ function renderLocations() {
 // URL API бота на Railway (замени на свой после деплоя)
 var BOT_API_URL = 'https://fish-farm-production-436a.up.railway.app';
 var BOT_USERNAME = 'fish_farmings_bot';
+
+// ── TonConnect: привязка TON-кошелька (16.11) ───────────────────────────────
+// Нужен и для будущего автодохода от NFT (отдельная фича), и позже для вывода
+// строго на привязанный адрес. Подключение через TonConnect уже само по себе
+// требует подтверждения в приложении кошелька игрока — в отличие от текстового
+// поля, адрес нельзя подделать, просто вписав чужой.
+var tonConnectUI = null;
+var linkedWalletAddr = null;
+var walletNftLoaded = false;
+var _tonConnectInitTries = 0;
+function initTonConnect() {
+  if (tonConnectUI) return;
+  if (typeof TON_CONNECT_UI === 'undefined') {
+    // CDN-скрипт иногда ещё не успевает зарегистрировать глобал к этому моменту —
+    // пробуем ещё несколько раз, не сдаёмся с первой попытки (реально ловили вживую).
+    if (_tonConnectInitTries++ < 10) setTimeout(initTonConnect, 500);
+    return;
+  }
+  try {
+    tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+      manifestUrl: 'https://bazilik87-prog.github.io/fish-farm/tonconnect-manifest.json'
+    });
+    tonConnectUI.onStatusChange(function (wallet) {
+      if (wallet && wallet.account && wallet.account.address) {
+        sendLinkWallet(wallet.account.address);
+      }
+    });
+  } catch (e) { console.error('TonConnect init failed', e); }
+}
+function connectTonWallet() {
+  if (!tonConnectUI) { showNotif(t('⚠️ TonConnect не загрузился, попробуй позже', '⚠️ TonConnect failed to load, try later')); return; }
+  tonConnectUI.openModal();
+}
+// address===null — просто узнать текущую привязку (ничего не меняет на сервере), иначе — привязать новую.
+function sendLinkWallet(address, cb) {
+  if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
+    walletNftLoaded = true;
+    if (cb) cb();
+    if (settingsSubpage === 'walletnft') renderWalletNftScreen();
+    return;
+  }
+  var body = { init_data: tg.initData };
+  if (address) body.wallet = address;
+  fetch(BOT_API_URL + '/link_wallet', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    walletNftLoaded = true;
+    if (res && res.ok) {
+      linkedWalletAddr = res.wallet || null;
+      if (address) showNotif(t('✅ Кошелёк подключён', '✅ Wallet connected'));
+    } else if (res && res.error && address) {
+      showNotif('⚠️ ' + res.error);
+    }
+    if (cb) cb();
+    if (settingsSubpage === 'walletnft') renderWalletNftScreen();
+  }).catch(function () { walletNftLoaded = true; if (cb) cb(); if (settingsSubpage === 'walletnft') renderWalletNftScreen(); });
+}
+initTonConnect();
 // Вставь свои данные из Firebase Console
 var FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCIWhrRP6VfZMxYNJsBQPWPLEuW6D-d3rw",
@@ -7345,6 +7405,7 @@ function renderSettings() {
     +renderPremiumCard()
     +'<div class="st-menu">'
     +menuRow('showBadges()','🏅','#c98b1f',t('Мои значки','My badges'))
+    +menuRow('showWalletNft()','🖼','#2e7d32',t('Кошелёк и NFT','Wallet & NFT'))
     +menuRow('showNews()','📰','#4f7dff',t('Новости','News'))
     +menuRow('showInstructions()','📖','#3d8fff',t('Как играть','How to play'))
     +menuRow('showNotifLog()','📋','#a77bff',t('История уведомлений','Notification history'),'<span class="st-cnt">'+notifLog.length+'</span>')
@@ -7359,6 +7420,29 @@ function renderSettings() {
     +'<button class="'+(LANG==='en'?'on':'')+'" onclick="setLanguage(\'en\')">🇬🇧 English</button></div>'
     +'<div class="st-reset"><b>'+t('Сброс прогресса','Reset progress')+'</b><span>'+t('Весь прогресс будет удалён безвозвратно','All progress will be permanently deleted')+'</span>'
     +'<button class="btn btn-red btn-full" onclick="resetGame()">🗑 '+t('Сбросить прогресс','Reset progress')+'</button></div>';
+}
+function showWalletNft() {
+  settingsSubpage = 'walletnft';
+  renderWalletNftScreen();
+  if (!walletNftLoaded) sendLinkWallet(null);
+}
+function renderWalletNftScreen() {
+  if (settingsSubpage !== 'walletnft') return;
+  var body;
+  if (!walletNftLoaded) {
+    body = '<div style="text-align:center;color:#90caf9;font-size:13px;padding:20px">'+t('Загрузка...','Loading...')+'</div>';
+  } else if (linkedWalletAddr) {
+    body = '<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Привязанный кошелёк','Linked wallet')+':<br><b style="color:#fff;word-break:break-all">'+linkedWalletAddr+'</b></div>'
+      +'<div style="font-size:11px;color:#6a8bbd;margin-bottom:10px">'+t('Доход от NFT-значков на этом кошельке появится здесь, когда функция будет готова.','Income from NFT badges on this wallet will appear here once the feature is ready.')+'</div>'
+      +'<button class="btn btn-full" onclick="connectTonWallet()">🔄 '+t('Сменить кошелёк','Change wallet')+'</button>';
+  } else {
+    body = '<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Подключи TON-кошелёк — в будущем это даст доход от NFT-значков FishFarm, которые на нём лежат.','Connect your TON wallet — in the future this will give income from FishFarm NFT badges held on it.')+'</div>'
+      +'<button class="btn btn-full btn-green" onclick="connectTonWallet()">🔗 '+t('Подключить кошелёк','Connect wallet')+'</button>';
+  }
+  document.getElementById('content').innerHTML =
+    '<button class="btn btn-full" onclick="renderSettings()" style="margin-bottom:8px;background:#0f3460">← '+t('Назад','Back')+'</button>'
+    +'<div class="card"><div style="font-size:14px;font-weight:600;color:#FFD700;margin-bottom:10px">🖼 '+t('Кошелёк и NFT','Wallet & NFT')+'</div>'
+    +body+'</div>';
 }
 function showInstructions() {
   settingsSubpage = 'instructions';
