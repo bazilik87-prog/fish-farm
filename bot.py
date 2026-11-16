@@ -9618,6 +9618,73 @@ async def nftmint_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('nftbackfill'))
+async def nftbackfill_command(message: types.Message):
+    """Разовая (но безопасно повторяемая) задним числом простановка nft:'pending' у уже
+    выданных значков, которые достигли NFT-порога ДО того, как появился mark_nft_eligible
+    (16.11) — иначе они никогда не попадут в /nftqueue/nftmint, хотя уровень подходит.
+    Трогает только записи, где поля nft ещё нет вообще — уже начеканенные/в очереди не
+    задевает. Без «да» — только подсчёт."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
+                all_badges = await r.json() or {}
+            to_patch = []  # (path, label)
+            for pid, data in (all_badges or {}).items():
+                if not isinstance(data, dict) or not pid.startswith('tg_'):
+                    continue
+                uid = pid[3:]
+                for bid, bdata in data.items():
+                    if bid == 'named':
+                        if not isinstance(bdata, dict):
+                            continue
+                        for named_id, occs in bdata.items():
+                            if named_id not in NAMED_BADGE_META or not isinstance(occs, dict):
+                                continue
+                            for key, occ in occs.items():
+                                if isinstance(occ, dict) and not occ.get('nft'):
+                                    to_patch.append((f"badges/{pid}/named/{named_id}/{key}.json",
+                                                      f"ID {uid} — {named_id} ({key})"))
+                    else:
+                        req = NFT_ELIGIBLE_TIER.get(bid)
+                        if not req or not isinstance(bdata, dict):
+                            continue
+                        tier = int(bdata.get('tier') or 0)
+                        if tier >= req and not bdata.get('nft'):
+                            to_patch.append((f"badges/{pid}/{bid}.json", f"ID {uid} — {bid} ур.{tier}"))
+
+            if not to_patch:
+                await message.answer("Нечего досчитывать — у всех подходящих значков уже есть метка nft.")
+                return
+            if not confirm:
+                lines = [f"Найдено задним числом: {len(to_patch)} значков без метки nft (подходят по уровню).",
+                         "Чтобы проставить pending по-настоящему: /nftbackfill да"]
+                text = "\n".join(lines + [l for _, l in to_patch[:50]])
+                if len(text) > 3500:
+                    await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftbackfill_preview.txt'))
+                else:
+                    await message.answer(text)
+                return
+
+            now_ms = int(time_module.time() * 1000)
+            done = 0
+            for path, _label in to_patch:
+                try:
+                    async with session.patch(f"{base}/{path}{FB_AUTH}", json={'nft': 'pending', 'nftMarkedAt': now_ms}) as r2:
+                        if r2.status in (200, 204):
+                            done += 1
+                except Exception as e:
+                    print(f"[nftbackfill] {path}: {e}")
+            await message.answer(f"✅ Проставлено pending: {done} из {len(to_patch)}. Проверь /nftqueue.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('giftall'))
 async def giftall_command(message: types.Message):
     """Подарок всем, кто заходил за последние N дней: монеты (через pending_rewards — как /addcoins,
