@@ -5989,12 +5989,23 @@ def _any_lap_crossed(before, after, thresholds):
 
 
 # NFT-план (16.11, решение Саши: "все картинки, которые у нас есть, должны быть NFT") —
-# КАЖДЫЙ уровень КАЖДОЙ серии (включая Путешественника/Первопроходца/Капитана/Большую
-# рыбалку, раньше исключённых по моей собственной — не Сашиной — прикидке) получает свой
-# NFT, плюс разовые (Первая выплата, Везунчик) и именные медали (award_named_badge,
-# отдельный путь, NFT на КАЖДОЕ событие). Статус хранится ПО УРОВНЮ:
-# badges/{pid}/{badge_id}/nft/{tier} = 'pending' | 'minted' — так бронза/серебро/золото
-# чеканятся независимо и не наступают друг другу на пятки.
+# КАЖДЫЙ уровень КАЖДОЙ серии (включая Путешественника/Капитана/Большую рыбалку; Пионер/
+# Первопроходец исключён отдельно — это не достижение) получает свой NFT, плюс разовые
+# (Первая выплата, Везунчик) и именные медали (award_named_badge, отдельный путь, NFT на
+# КАЖДОЕ событие). Статус хранится ПО УРОВНЮ: badges/{pid}/{badge_id}/nft/{tier} =
+# 'pending' | 'minted' — так бронза/серебро/золото чеканятся независимо.
+# Ключ уровня — "t1"/"t2"/... а НЕ голое "1"/"2": если ключи объекта в Firebase Realtime
+# Database — просто числа, Firebase молча хранит такой узел как МАССИВ, а не объект, и
+# тогда isinstance(..., dict) в коде перестаёт его видеть (поймано вживую 16.11 — /nftqueue
+# показывал "пусто" после реально успешной записи). Префикс "t" убирает двусмысленность.
+
+
+def _nft_tier_key(tier):
+    return f"t{tier}"
+
+
+def _nft_tier_from_key(key):
+    return int(str(key).lstrip('t'))
 
 
 async def mark_nft_eligible(pid, badge_id, tiers, now_ms):
@@ -6012,7 +6023,7 @@ async def mark_nft_eligible(pid, badge_id, tiers, now_ms):
             async with session.get(url) as r:
                 cur = await r.json()
             cur = cur if isinstance(cur, dict) else {}
-            patch = {str(t): 'pending' for t in tiers if str(t) not in cur}
+            patch = {_nft_tier_key(t): 'pending' for t in tiers if _nft_tier_key(t) not in cur}
             if not patch:
                 return
             async with session.patch(url, json=patch) as r2:
@@ -9381,7 +9392,7 @@ async def nftqueue_command(message: types.Message):
             elif isinstance(bdata, dict) and isinstance(bdata.get('nft'), dict):
                 for tier_s, status in bdata['nft'].items():
                     if status == 'pending':
-                        rows.append((uid, f"{bid} ур.{tier_s}", wallet))
+                        rows.append((uid, f"{bid} ур.{_nft_tier_from_key(tier_s)}", wallet))
 
     if not rows:
         await message.answer("Пока никому не положено (нет значков со статусом pending).")
@@ -9618,7 +9629,7 @@ async def nftmint_command(message: types.Message):
                 for tier_s, status in nft_map.items():
                     if status != 'pending':
                         continue
-                    tier = int(tier_s)
+                    tier = _nft_tier_from_key(tier_s)
                     name, desc = nft_name_desc(bid, tier)
                     path = f"badges/{pid}/{bid}/nft/{tier_s}.json"
                     items.append((uid, 'tier', bid, tier, None, path, name, desc,
@@ -9751,16 +9762,20 @@ async def nftbackfill_command(message: types.Message):
                         if isinstance(existing, dict):
                             nft_map = dict(existing)
                         elif isinstance(existing, str):
-                            nft_map = {str(max_tier): existing}  # старый формат — статус относился к max_tier
+                            nft_map = {_nft_tier_key(max_tier): existing}  # старый формат — статус относился к max_tier
                         else:
+                            # None, или список — Firebase превратил числовые ключи в массив
+                            # (старый баг 16.11, уже исправлен префиксом "t"); ничего из этого
+                            # не было реально начеканено, безопасно собрать заново с нуля.
                             nft_map = {}
                         added = False
                         for t in range(1, max_tier + 1):
-                            if str(t) not in nft_map:
-                                nft_map[str(t)] = 'pending'
+                            key = _nft_tier_key(t)
+                            if key not in nft_map:
+                                nft_map[key] = 'pending'
                                 added = True
-                        if added or isinstance(existing, str):  # менялась структура — надо перезаписать
-                            new_tiers = [t for t in range(1, max_tier + 1) if str(t) not in (existing if isinstance(existing, dict) else {})]
+                        if added or isinstance(existing, str) or isinstance(existing, list):  # менялась структура — надо перезаписать
+                            new_tiers = [t for t in range(1, max_tier + 1) if _nft_tier_key(t) not in (existing if isinstance(existing, dict) else {})]
                             label = f"ID {uid} — {bid} ур.{','.join(map(str, new_tiers)) or max_tier}"
                             to_patch.append((f"badges/{pid}/{bid}/nft.json", label, 'tier_full', nft_map))
 
