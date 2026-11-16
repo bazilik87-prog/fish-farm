@@ -75,6 +75,8 @@ ADMIN_ID  = int(os.getenv("ADMIN_ID", "0"))
 PORT      = int(os.getenv("PORT", "8080"))
 PARTNER_API_KEY = os.getenv("PARTNER_API_KEY", "")  # секретный ключ для проверки заданий кросс-промо-партнёров
 PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")  # публичный URL сервиса в Railway, для webhook
+GETGEMS_COLLECTION = os.getenv("GETGEMS_COLLECTION", "")  # адрес коллекции NFT-значков (mainnet, с API-ключом)
+GETGEMS_API_KEY = os.getenv("GETGEMS_API_KEY", "")        # authorization для Getgems minting API (16.11)
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = secrets.token_hex(16)  # генерируется заново при каждом старте — это ок, т.к. используется вместе с set_webhook в этом же запуске
 FIREBASE_DB_SECRET = os.getenv("FIREBASE_DB_SECRET", "")
@@ -9397,6 +9399,223 @@ async def nftqueue_command(message: types.Message):
             types.BufferedInputFile(text.encode('utf-8'), filename='nftqueue.txt'))
     else:
         await message.answer(text)
+
+
+NFT_IMG_BASE = "https://bazilik87-prog.github.io/fish-farm/img/badges_nft/"  # 2000×2000-версии (16.11)
+
+# Название/описание для чеканки — те же тексты, что в BADGE_DEFS/NAMED_BADGE_DEFS в index.html,
+# но только для уровня/значка, который реально чеканится (см. NFT_ELIGIBLE_TIER).
+NFT_BADGE_META = {
+    'fisher':    ('Рыбак — золото', 'Значок FishFarm «Рыбак» (золото): поймано 5 000 000+ рыб за всё время.'),
+    'rich':      ('Богач — золото', 'Значок FishFarm «Богач» (золото): заработано 10 000 000+ монет за всё время.'),
+    'sturgeon':  ('Охотник за Осетриной — золото', 'Значок FishFarm «Охотник за Осетриной» (золото): поймано 50 000+ редких Осетрин.'),
+    'worker':    ('Трудяга — золото', 'Значок FishFarm «Трудяга» (золото): 365 дней выполнены все 5 ежедневных заданий.'),
+    'boot':      ('Сапожник — золото', 'Значок FishFarm «Сапожник» (золото): 5000 раз выпал приз лотереи «Дырявый сапог».'),
+    'deposit':   ('Вкладчик — золото', 'Значок FishFarm «Вкладчик» (золото): закрыто 100 банковских вкладов.'),
+    'logist':    ('Логист — золото', 'Значок FishFarm «Логист» (золото): собрано 250 000 доставок.'),
+    'patron':    ('Меценат — золото', 'Значок FishFarm «Меценат» (золото): потрачено 5000 ⭐ Stars.'),
+    'premium':   ('Premium — золото', 'Значок FishFarm «Premium» (золото): куплено 12 месяцев Premium-подписки.'),
+    'gambler':   ('Азартный — золото', 'Значок FishFarm «Азартный» (золото): сделано 25 000 круток лотереи.'),
+    'earner':    ('Добытчик — золото', 'Значок FishFarm «Добытчик» (золото): выведено $250 (USDT) за всё время.'),
+    'friends':   ('Душа компании — золото', 'Значок FishFarm «Душа компании» (золото): 500 приглашённых друзей поймали 500+ рыб.'),
+    'prize':     ('Призёр — золото', 'Значок FishFarm «Призёр» (золото): 50 призовых мест в турнире недели.'),
+    'clanfight': ('Клановый боец — золото', 'Значок FishFarm «Клановый боец» (золото): сыграно 250 клановых битв.'),
+    'storm':     ('Штормовой торговец — золото', 'Значок FishFarm «Штормовой торговец» (золото): 2500 продаж рыбы в дождь/шторм.'),
+    'payout':    ('Первая выплата', 'Значок FishFarm «Первая выплата»: первый успешный вывод USDT.'),
+    'jackpot':   ('Везунчик', 'Значок FishFarm «Везунчик»: выигран джекпот лотереи.'),
+}
+
+NAMED_BADGE_META = {
+    'tour_place_1': ('Турнир недели — 1 место', 'Медаль FishFarm за 1 место в турнире недели — отдельная за каждую неделю.'),
+    'tour_place_2': ('Турнир недели — 2 место', 'Медаль FishFarm за 2 место в турнире недели — отдельная за каждую неделю.'),
+    'tour_place_3': ('Турнир недели — 3 место', 'Медаль FishFarm за 3 место в турнире недели — отдельная за каждую неделю.'),
+    'bigfish_place_1': ('Большая рыбалка — 1 место', 'Медаль FishFarm за 1 место в «Большой рыбалке» — отдельная за каждый раунд.'),
+    'bigfish_place_2': ('Большая рыбалка — 2 место', 'Медаль FishFarm за 2 место в «Большой рыбалке» — отдельная за каждый раунд.'),
+    'bigfish_place_3': ('Большая рыбалка — 3 место', 'Медаль FishFarm за 3 место в «Большой рыбалке» — отдельная за каждый раунд.'),
+    'clanwin_1': ('Победа в клановой битве', 'Медаль FishFarm за победу в клановой битве — отдельная за каждую победу.'),
+}
+
+
+def _fmt_date_msk(ts_ms):
+    """ts_ms (мс) -> 'ДД.ММ.ГГГГ' по МСК — для названия именных NFT («с датами», решение Саши 14.11)."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        return datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone(timedelta(hours=3))).strftime('%d.%m.%Y')
+    except Exception:
+        return ''
+
+
+async def get_player_wallet_address(session, base, user_id, wl=None):
+    """Настоящий адрес кошелька (не ключ wallet_key) — последний, на который этот игрок
+    выводил деньги, по публичному withdrawals_log. Нужен для чеканки NFT (ownerAddress
+    в Getgems принимает только реальный адрес, а verified_players/{uid}/wallets хранит
+    только производный ключ)."""
+    if wl is None:
+        async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+            wl = await r.json() or {}
+    me = str(user_id)
+    entries = [e for e in wl.values() if isinstance(e, dict) and str(e.get('user_id')) == me and e.get('wallet')]
+    if not entries:
+        return None
+    entries.sort(key=lambda e: e.get('ts', 0), reverse=True)
+    return entries[0]['wallet']
+
+
+async def mint_nft_badge(session, request_id, owner_address, name, description, image_url, attributes):
+    """Один запрос на чеканку через Getgems minting API (mainnet). requestId уникален и
+    идемпотентен — повторный вызов с тем же requestId не создаёт второй NFT, поэтому
+    безопасно звать /nftmint повторно (уже начеканенные просто не трогаются — см. фильтр
+    по nft=='pending' в вызывающем коде)."""
+    import aiohttp
+    url = f"https://api.getgems.io/public-api/minting/{GETGEMS_COLLECTION}"
+    headers = {"authorization": GETGEMS_API_KEY, "content-type": "application/json"}
+    body = {
+        "requestId": request_id[:100],
+        "ownerAddress": owner_address,
+        "name": name,
+        "description": description,
+        "image": image_url,
+        "attributes": attributes,
+    }
+    async with session.post(url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
+        data = await r.json()
+        if r.status == 200 and isinstance(data, dict) and data.get('success'):
+            return data.get('response') or {}
+        raise RuntimeError(f"HTTP {r.status}: {data}")
+
+
+@dp.message(Command('nftmint'))
+async def nftmint_command(message: types.Message):
+    """Чеканит реальные NFT через Getgems API всем, у кого badges/{pid}(...)/nft == 'pending'
+    и есть известный кошелёк (по withdrawals_log). Без «да» — только предпросмотр (сколько
+    будет начеканено, у скольких нет кошелька, остаток на газовом кошельке). С «да» —
+    чеканит по одному, помечает nft:'minted' + nftAddress/nftUrl при успехе; при ошибке
+    оставляет 'pending' (можно повторить команду позже — requestId не даст задвоить)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    if not GETGEMS_COLLECTION or not GETGEMS_API_KEY:
+        await message.answer("❌ Не настроено: нет GETGEMS_COLLECTION/GETGEMS_API_KEY в переменных окружения Railway.")
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
+                all_badges = await r.json() or {}
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
+    except Exception as e:
+        await message.answer(f"❌ Ошибка чтения: {e}")
+        return
+
+    # items: (uid, kind, badge_id, tier_or_none, named_key_or_none, firebase_path, name, description, image_url)
+    items = []
+    for pid, data in (all_badges or {}).items():
+        if not isinstance(data, dict) or not pid.startswith('tg_'):
+            continue
+        uid = pid[3:]
+        for bid, bdata in data.items():
+            if bid == 'named':
+                if not isinstance(bdata, dict):
+                    continue
+                for named_id, occs in bdata.items():
+                    if not isinstance(occs, dict):
+                        continue
+                    ndef = NAMED_BADGE_META.get(named_id)
+                    if not ndef:
+                        continue
+                    for key, occ in occs.items():
+                        if isinstance(occ, dict) and occ.get('nft') == 'pending':
+                            when = occ.get('earnedAt')
+                            date_s = _fmt_date_msk(when) if when else ''
+                            path = f"badges/{pid}/named/{named_id}/{key}.json"
+                            items.append((uid, 'named', named_id, None, key, path, ndef[0], ndef[1],
+                                          f"{NFT_IMG_BASE}{named_id}.png", date_s))
+            else:
+                if isinstance(bdata, dict) and bdata.get('nft') == 'pending':
+                    meta = NFT_BADGE_META.get(bid)
+                    if not meta:
+                        continue
+                    tier = bdata.get('tier')
+                    path = f"badges/{pid}/{bid}.json"
+                    items.append((uid, 'tier', bid, tier, None, path, meta[0], meta[1],
+                                  f"{NFT_IMG_BASE}{bid}_{tier}.png", ''))
+
+    if not items:
+        await message.answer("Пока никому не положено (нет значков со статусом pending).")
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            resolved = []
+            no_wallet = []
+            for it in items:
+                uid = it[0]
+                addr = await get_player_wallet_address(session, base, uid, wl=wl)
+                if addr:
+                    resolved.append((it, addr))
+                else:
+                    no_wallet.append(it)
+
+            if not confirm:
+                async with session.get(
+                    f"https://api.getgems.io/public-api/minting/{GETGEMS_COLLECTION}/wallet-balance",
+                    headers={"authorization": GETGEMS_API_KEY}
+                ) as r:
+                    bal = await r.json()
+                nano = int((bal or {}).get('response', {}).get('balance', 0) or 0)
+                ton = nano / 1e9
+                need_ton = len(resolved) * 0.023
+                lines = [f"🎨 Готово к чеканке: {len(resolved)} (без кошелька: {len(no_wallet)})",
+                         f"Баланс газового кошелька: {ton:.3f} TON, нужно ~{need_ton:.3f} TON",
+                         "", "Чтобы начеканить по-настоящему: /nftmint да"]
+                if no_wallet:
+                    lines.append(f"\n⚠️ Без кошелька — {len(no_wallet)} чел. (не /verify или нет вывода), им пока не отправить:")
+                    for it in no_wallet[:30]:
+                        lines.append(f"ID {it[0]} — {it[6]}")
+                await message.answer("\n".join(lines))
+                return
+
+            minted, failed = [], []
+            for it, addr in resolved:
+                uid, kind, bid, tier, key, path, nm, desc, img, date_s = it
+                if kind == 'tier':
+                    req_id = f"t{uid}_{bid}_{tier}"
+                    attrs = [{"trait_type": "Серия", "value": NFT_BADGE_META[bid][0].split(' — ')[0]},
+                             {"trait_type": "Уровень", "value": "Золото" if tier == 3 else str(tier)}]
+                else:
+                    req_id = f"n{uid}_{bid}_{key}"
+                    attrs = [{"trait_type": "Медаль", "value": nm}]
+                    if date_s:
+                        attrs.append({"trait_type": "Дата", "value": date_s})
+                        nm = f"{nm} ({date_s})"  # дата видна и в названии NFT, не только в атрибуте
+                try:
+                    resp = await mint_nft_badge(session, req_id, addr, nm, desc, img, attrs)
+                    patch = {'nft': 'minted', 'nftMintedAt': int(time_module.time() * 1000),
+                              'nftAddress': resp.get('address'), 'nftUrl': resp.get('url')}
+                    async with session.patch(f"{base}/{path}{FB_AUTH}", json=patch):
+                        pass
+                    minted.append((uid, nm))
+                except Exception as e:
+                    failed.append((uid, nm, str(e)))
+                await asyncio.sleep(0.6)
+
+            lines = [f"✅ Начеканено: {len(minted)}"]
+            for uid, nm in minted:
+                lines.append(f"ID {uid} — {nm}")
+            if failed:
+                lines.append(f"\n❌ Ошибки (остались 'pending', можно повторить /nftmint да): {len(failed)}")
+                for uid, nm, err in failed:
+                    lines.append(f"ID {uid} — {nm}: {err}")
+            text = "\n".join(lines)
+            if len(text) > 3500:
+                await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftmint.txt'))
+            else:
+                await message.answer(text)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command('giftall'))
