@@ -5917,7 +5917,10 @@ async def award_badge(pid, badge_id, tier, now_ms):
                 if r2.status not in (200, 204):
                     print(f"[badges] {pid} {badge_id} PUT {r2.status}")
                     return None
-        await mark_nft_eligible(pid, badge_id, tier, now_ms)
+        # NFT — на КАЖДЫЙ уровень (решение Саши 16.11: "все картинки должны быть NFT"),
+        # включая те, что перепрыгнули молча между cur_tier и tier (например Первопроходец
+        # сразу на 2-й уровень, минуя 1-й) — тоже помечаем, картинка всё равно "разблокирована".
+        await mark_nft_eligible(pid, badge_id, list(range(cur_tier + 1, tier + 1)), now_ms)
         return {'id': badge_id, 'tier': tier}
     except Exception as e:
         print(f"[badges] {pid} {badge_id}: {e}")
@@ -5968,7 +5971,9 @@ async def update_badge_laps(pid, badge_id, value, now_ms):
         print(f"[badges] laps {pid} {badge_id}: {e}")
         return []
     if events:
-        await mark_nft_eligible(pid, badge_id, best_tier, now_ms)
+        # NFT на каждый уровень, который реально впервые пройден в этом вызове (не на каждый
+        # круг — mark_nft_eligible сам не трогает уровни, где NFT уже стоит pending/minted).
+        await mark_nft_eligible(pid, badge_id, sorted(set(e['tier'] for e in events)), now_ms)
     return events
 
 
@@ -5983,36 +5988,34 @@ def _any_lap_crossed(before, after, thresholds):
     return False
 
 
-# NFT-план (14.11, решения Саши): золото+ (уровень 3) в "накопительных" сериях + разовые
-# редкие (Первая выплата, Везунчик) — один NFT на серию навсегда (повторные круги золота
-# NFT не плодят). Именные медали — в award_named_badge, там свой путь (NFT на КАЖДОЕ
-# событие). Остальные значки (Путешественник/Первопроходец/Капитан/Большая рыбалка) NFT не
-# получают — так решили.
-NFT_ELIGIBLE_TIER = {
-    'fisher': 3, 'rich': 3, 'sturgeon': 3, 'worker': 3, 'boot': 3, 'deposit': 3,
-    'logist': 3, 'patron': 3, 'premium': 3, 'gambler': 3, 'earner': 3, 'friends': 3,
-    'prize': 3, 'clanfight': 3, 'storm': 3,
-    'payout': 1, 'jackpot': 1,
-}
+# NFT-план (16.11, решение Саши: "все картинки, которые у нас есть, должны быть NFT") —
+# КАЖДЫЙ уровень КАЖДОЙ серии (включая Путешественника/Первопроходца/Капитана/Большую
+# рыбалку, раньше исключённых по моей собственной — не Сашиной — прикидке) получает свой
+# NFT, плюс разовые (Первая выплата, Везунчик) и именные медали (award_named_badge,
+# отдельный путь, NFT на КАЖДОЕ событие). Статус хранится ПО УРОВНЮ:
+# badges/{pid}/{badge_id}/nft/{tier} = 'pending' | 'minted' — так бронза/серебро/золото
+# чеканятся независимо и не наступают друг другу на пятки.
 
 
-async def mark_nft_eligible(pid, badge_id, tier, now_ms):
-    """Если достигнутый уровень впервые пересёк NFT-порог — ставит badges/{pid}/{id}.nft =
-    'pending' (ждёт чеканки). PATCH, а не PUT — чтобы не затереть tier/laps, которые пишет
-    вызывающий код в этом же узле отдельной операцией чуть раньше. Саму чеканку этот
-    этап НЕ делает — только помечает, кому она положена (см. /nftqueue)."""
-    req = NFT_ELIGIBLE_TIER.get(badge_id)
-    if not req or tier < req:
+async def mark_nft_eligible(pid, badge_id, tiers, now_ms):
+    """tiers — уровни, впервые достигнутые в этом вызове (может быть несколько сразу,
+    если значение перепрыгнуло через уровень). Ставит badges/{pid}/{id}/nft/{tier} =
+    'pending' для тех из них, где ещё вообще ничего нет (PATCH на подузел nft — не трогает
+    tier/laps/earnedAt и другие уровни nft, уже начеканенные/в очереди). Саму чеканку этот
+    этап НЕ делает — только помечает, кому она положена (см. /nftqueue, /nftmint)."""
+    if not tiers:
         return
     import aiohttp
-    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/{badge_id}.json{FB_AUTH}"
+    url = f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/badges/{pid}/{badge_id}/nft.json{FB_AUTH}"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as r:
                 cur = await r.json()
-            if isinstance(cur, dict) and cur.get('nft'):
-                return  # уже 'pending' или 'minted' — не трогаем
-            async with session.patch(url, json={'nft': 'pending', 'nftMarkedAt': now_ms}) as r2:
+            cur = cur if isinstance(cur, dict) else {}
+            patch = {str(t): 'pending' for t in tiers if str(t) not in cur}
+            if not patch:
+                return
+            async with session.patch(url, json=patch) as r2:
                 if r2.status not in (200, 204):
                     print(f"[badges] nft mark {pid} {badge_id} PATCH {r2.status}")
     except Exception as e:
@@ -9339,11 +9342,10 @@ async def badgesmigrate_command(message: types.Message):
 
 @dp.message(Command('nftqueue'))
 async def nftqueue_command(message: types.Message):
-    """Список "кому положен NFT" — значки с nft:'pending' (см. mark_nft_eligible/
-    award_named_badge), только у проверенных (/verify) игроков, с их кошельком. Разметка
-    делает чеканку руками (как заявки на вывод) до появления автоматической — см. план
-    в памяти. Команда НИЧЕГО не чеканит и не отправляет сама, только показывает список;
-    отметить выданным — /nftsent (отдельная команда, добавится вместе с чеканкой)."""
+    """Список "кому положен NFT" — значки с nft/{tier}:'pending' (см. mark_nft_eligible/
+    award_named_badge), с кошельком, если он есть у /verify-игрока (для настоящего адреса
+    смотри /nftmint — он читает withdrawals_log напрямую). Команда НИЧЕГО не чеканит,
+    только показывает список."""
     if message.from_user.id != ADMIN_ID:
         return
     import aiohttp
@@ -9376,8 +9378,10 @@ async def nftqueue_command(message: types.Message):
                     for key, occ in occs.items():
                         if isinstance(occ, dict) and occ.get('nft') == 'pending':
                             rows.append((uid, f"{named_id} ({key})", wallet))
-            elif isinstance(bdata, dict) and bdata.get('nft') == 'pending':
-                rows.append((uid, f"{bid} ур.{bdata.get('tier')}", wallet))
+            elif isinstance(bdata, dict) and isinstance(bdata.get('nft'), dict):
+                for tier_s, status in bdata['nft'].items():
+                    if status == 'pending':
+                        rows.append((uid, f"{bid} ур.{tier_s}", wallet))
 
     if not rows:
         await message.answer("Пока никому не положено (нет значков со статусом pending).")
@@ -9403,27 +9407,59 @@ async def nftqueue_command(message: types.Message):
 
 NFT_IMG_BASE = "https://bazilik87-prog.github.io/fish-farm/img/badges_nft/"  # 2000×2000-версии (16.11)
 
-# Название/описание для чеканки — те же тексты, что в BADGE_DEFS/NAMED_BADGE_DEFS в index.html,
-# но только для уровня/значка, который реально чеканится (см. NFT_ELIGIBLE_TIER).
+# Базовое название/описание серии (без уровня) — для чеканки NFT. С 16.11 (решение Саши
+# "все картинки должны быть NFT") чеканится КАЖДЫЙ уровень каждой серии, включая
+# Путешественника/Первопроходца/Капитана/Большую рыбалку.
 NFT_BADGE_META = {
-    'fisher':    ('Рыбак — золото', 'Значок FishFarm «Рыбак» (золото): поймано 5 000 000+ рыб за всё время.'),
-    'rich':      ('Богач — золото', 'Значок FishFarm «Богач» (золото): заработано 10 000 000+ монет за всё время.'),
-    'sturgeon':  ('Охотник за Осетриной — золото', 'Значок FishFarm «Охотник за Осетриной» (золото): поймано 50 000+ редких Осетрин.'),
-    'worker':    ('Трудяга — золото', 'Значок FishFarm «Трудяга» (золото): 365 дней выполнены все 5 ежедневных заданий.'),
-    'boot':      ('Сапожник — золото', 'Значок FishFarm «Сапожник» (золото): 5000 раз выпал приз лотереи «Дырявый сапог».'),
-    'deposit':   ('Вкладчик — золото', 'Значок FishFarm «Вкладчик» (золото): закрыто 100 банковских вкладов.'),
-    'logist':    ('Логист — золото', 'Значок FishFarm «Логист» (золото): собрано 250 000 доставок.'),
-    'patron':    ('Меценат — золото', 'Значок FishFarm «Меценат» (золото): потрачено 5000 ⭐ Stars.'),
-    'premium':   ('Premium — золото', 'Значок FishFarm «Premium» (золото): куплено 12 месяцев Premium-подписки.'),
-    'gambler':   ('Азартный — золото', 'Значок FishFarm «Азартный» (золото): сделано 25 000 круток лотереи.'),
-    'earner':    ('Добытчик — золото', 'Значок FishFarm «Добытчик» (золото): выведено $250 (USDT) за всё время.'),
-    'friends':   ('Душа компании — золото', 'Значок FishFarm «Душа компании» (золото): 500 приглашённых друзей поймали 500+ рыб.'),
-    'prize':     ('Призёр — золото', 'Значок FishFarm «Призёр» (золото): 50 призовых мест в турнире недели.'),
-    'clanfight': ('Клановый боец — золото', 'Значок FishFarm «Клановый боец» (золото): сыграно 250 клановых битв.'),
-    'storm':     ('Штормовой торговец — золото', 'Значок FishFarm «Штормовой торговец» (золото): 2500 продаж рыбы в дождь/шторм.'),
-    'payout':    ('Первая выплата', 'Значок FishFarm «Первая выплата»: первый успешный вывод USDT.'),
-    'jackpot':   ('Везунчик', 'Значок FishFarm «Везунчик»: выигран джекпот лотереи.'),
+    'fisher':    ('Рыбак', 'Значок FishFarm «Рыбак» — считается общее число пойманных рыб за всё время.'),
+    'rich':      ('Богач', 'Значок FishFarm «Богач» — считается общая сумма заработанных монет за всё время.'),
+    'traveler':  ('Путешественник', 'Значок FishFarm «Путешественник» — за открытие новой локации.'),
+    'sturgeon':  ('Охотник за Осетриной', 'Значок FishFarm «Охотник за Осетриной» — считается, сколько раз поймана редкая Осетрина.'),
+    'worker':    ('Трудяга', 'Значок FishFarm «Трудяга» — считается, за сколько дней выполнены все 5 ежедневных заданий.'),
+    'boot':      ('Сапожник', 'Значок FishFarm «Сапожник» — считается, сколько раз в лотерее выпал приз «Дырявый сапог».'),
+    'deposit':   ('Вкладчик', 'Значок FishFarm «Вкладчик» — считается, сколько банковских вкладов закрыто.'),
+    'logist':    ('Логист', 'Значок FishFarm «Логист» — считается, сколько доставок собрано.'),
+    'pioneer':   ('Первопроходец', 'Значок FishFarm «Первопроходец» — за раннюю регистрацию в игре.'),
+    'patron':    ('Меценат', 'Значок FishFarm «Меценат» — считается общая сумма ⭐ Stars, потраченных в игре.'),
+    'premium':   ('Premium', 'Значок FishFarm «Premium» — считается, сколько месяцев Premium-подписки куплено.'),
+    'gambler':   ('Азартный', 'Значок FishFarm «Азартный» — считается общее число круток лотереи.'),
+    'earner':    ('Добытчик', 'Значок FishFarm «Добытчик» — считается общая сумма выведенных USDT за всё время.'),
+    'payout':    ('Первая выплата', 'Значок FishFarm «Первая выплата» — первый успешный вывод USDT.'),
+    'jackpot':   ('Везунчик', 'Значок FishFarm «Везунчик» — выигран джекпот лотереи.'),
+    'friends':   ('Душа компании', 'Значок FishFarm «Душа компании» — считается, сколько друзей поймали 500+ рыб.'),
+    'prize':     ('Призёр', 'Значок FishFarm «Призёр» — считается, сколько призовых мест занято в турнире недели.'),
+    'clanfight': ('Клановый боец', 'Значок FishFarm «Клановый боец» — считается, сколько клановых битв сыграно.'),
+    'captain':   ('Капитан', 'Значок FishFarm «Капитан» — клан достиг уровня под руководством этого капитана.'),
+    'bigfish':   ('Большая рыбалка', 'Значок FishFarm «Большая рыбалка» — участие или призовое место.'),
+    'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько продаж сделано в дождь/шторм.'),
 }
+
+# Названия уровней — как badgeTierName() в index.html, но на стороне бота (для NFT).
+NFT_TIER_LABELS = {
+    'traveler': ['Река', 'Тропики', 'Глубины', 'Космос'],
+    'pioneer':  ['в первых 5000', 'в первой 1000'],
+    'captain':  ['клан ур.3', 'клан ур.5', 'клан ур.10'],
+    'bigfish':  ['участник', 'призёр (топ-3)'],
+}
+_NFT_GENERIC_TIER_LABELS = ['', 'бронза', 'серебро', 'золото', 'платина', 'алмаз']
+
+
+def nft_tier_label(badge_id, tier):
+    arr = NFT_TIER_LABELS.get(badge_id)
+    if arr:
+        return arr[tier - 1] if 1 <= tier <= len(arr) else str(tier)
+    return _NFT_GENERIC_TIER_LABELS[tier] if 0 <= tier < len(_NFT_GENERIC_TIER_LABELS) else str(tier)
+
+
+def nft_name_desc(badge_id, tier):
+    """(название, описание) для чеканки конкретного уровня. None, если серии нет в NFT_BADGE_META."""
+    base = NFT_BADGE_META.get(badge_id)
+    if not base:
+        return None
+    name_ru, desc_ru = base
+    if badge_id in ('payout', 'jackpot'):
+        return name_ru, desc_ru
+    return f"{name_ru} — {nft_tier_label(badge_id, tier)}", desc_ru
 
 NAMED_BADGE_META = {
     'tour_place_1': ('Турнир недели — 1 место', 'Медаль FishFarm за 1 место в турнире недели — отдельная за каждую неделю.'),
@@ -9534,13 +9570,16 @@ async def nftmint_command(message: types.Message):
                             items.append((uid, 'named', named_id, None, key, path, ndef[0], ndef[1],
                                           f"{NFT_IMG_BASE}{named_id}.png", date_s))
             else:
-                if isinstance(bdata, dict) and bdata.get('nft') == 'pending':
-                    meta = NFT_BADGE_META.get(bid)
-                    if not meta:
+                nft_map = bdata.get('nft') if isinstance(bdata, dict) else None
+                if not isinstance(nft_map, dict) or bid not in NFT_BADGE_META:
+                    continue
+                for tier_s, status in nft_map.items():
+                    if status != 'pending':
                         continue
-                    tier = bdata.get('tier')
-                    path = f"badges/{pid}/{bid}.json"
-                    items.append((uid, 'tier', bid, tier, None, path, meta[0], meta[1],
+                    tier = int(tier_s)
+                    name, desc = nft_name_desc(bid, tier)
+                    path = f"badges/{pid}/{bid}/nft/{tier_s}.json"
+                    items.append((uid, 'tier', bid, tier, None, path, name, desc,
                                   f"{NFT_IMG_BASE}{bid}_{tier}.png", ''))
 
     if not items:
@@ -9583,8 +9622,8 @@ async def nftmint_command(message: types.Message):
                 uid, kind, bid, tier, key, path, nm, desc, img, date_s = it
                 if kind == 'tier':
                     req_id = f"t{uid}_{bid}_{tier}"
-                    attrs = [{"trait_type": "Серия", "value": NFT_BADGE_META[bid][0].split(' — ')[0]},
-                             {"trait_type": "Уровень", "value": "Золото" if tier == 3 else str(tier)}]
+                    attrs = [{"trait_type": "Серия", "value": NFT_BADGE_META[bid][0]},
+                             {"trait_type": "Уровень", "value": nft_tier_label(bid, tier)}]
                 else:
                     req_id = f"n{uid}_{bid}_{key}"
                     attrs = [{"trait_type": "Медаль", "value": nm}]
@@ -9593,10 +9632,16 @@ async def nftmint_command(message: types.Message):
                         nm = f"{nm} ({date_s})"  # дата видна и в названии NFT, не только в атрибуте
                 try:
                     resp = await mint_nft_badge(session, req_id, addr, nm, desc, img, attrs)
-                    patch = {'nft': 'minted', 'nftMintedAt': int(time_module.time() * 1000),
-                              'nftAddress': resp.get('address'), 'nftUrl': resp.get('url')}
-                    async with session.patch(f"{base}/{path}{FB_AUTH}", json=patch):
-                        pass
+                    if kind == 'tier':
+                        # path — лист badges/{pid}/{bid}/nft/{tier}.json (простая строка-статус,
+                        # чтобы /nftqueue/nftbackfill могли сравнивать её как строку).
+                        async with session.put(f"{base}/{path}{FB_AUTH}", json='minted'):
+                            pass
+                    else:
+                        patch = {'nft': 'minted', 'nftMintedAt': int(time_module.time() * 1000),
+                                  'nftAddress': resp.get('address'), 'nftUrl': resp.get('url')}
+                        async with session.patch(f"{base}/{path}{FB_AUTH}", json=patch):
+                            pass
                     minted.append((uid, nm))
                 except Exception as e:
                     failed.append((uid, nm, str(e)))
@@ -9620,11 +9665,13 @@ async def nftmint_command(message: types.Message):
 
 @dp.message(Command('nftbackfill'))
 async def nftbackfill_command(message: types.Message):
-    """Разовая (но безопасно повторяемая) задним числом простановка nft:'pending' у уже
-    выданных значков, которые достигли NFT-порога ДО того, как появился mark_nft_eligible
-    (16.11) — иначе они никогда не попадут в /nftqueue/nftmint, хотя уровень подходит.
-    Трогает только записи, где поля nft ещё нет вообще — уже начеканенные/в очереди не
-    задевает. Без «да» — только подсчёт."""
+    """Разовая (но безопасно повторяемая) задним числом простановка nft/{tier}:'pending' у
+    уже выданных значков, которые достигли своего уровня ДО того, как этот уровень вообще
+    стал NFT-значимым (16.11 — "все картинки должны быть NFT", плюс миграция старого
+    формата nft:'minted'/'pending' (одна строка на весь значок, до 16.11) в новый
+    nft:{tier:status} — старый статус сохраняется под тем уровнем, на котором был
+    записан (bdata['tier']), остальные уровни 1..max получают 'pending'. Для обычных
+    серий заполняет ВСЕ уровни от 1 до уже достигнутого максимума. Без «да» — подсчёт."""
     if message.from_user.id != ADMIN_ID:
         return
     confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
@@ -9634,7 +9681,7 @@ async def nftbackfill_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
                 all_badges = await r.json() or {}
-            to_patch = []  # (path, label)
+            to_patch = []  # (path, label, kind: 'tier_full'|'named', value_for_tier_full)
             for pid, data in (all_badges or {}).items():
                 if not isinstance(data, dict) or not pid.startswith('tg_'):
                     continue
@@ -9649,22 +9696,37 @@ async def nftbackfill_command(message: types.Message):
                             for key, occ in occs.items():
                                 if isinstance(occ, dict) and not occ.get('nft'):
                                     to_patch.append((f"badges/{pid}/named/{named_id}/{key}.json",
-                                                      f"ID {uid} — {named_id} ({key})"))
+                                                      f"ID {uid} — {named_id} ({key})", 'named', None))
                     else:
-                        req = NFT_ELIGIBLE_TIER.get(bid)
-                        if not req or not isinstance(bdata, dict):
+                        if bid not in NFT_BADGE_META or not isinstance(bdata, dict):
                             continue
-                        tier = int(bdata.get('tier') or 0)
-                        if tier >= req and not bdata.get('nft'):
-                            to_patch.append((f"badges/{pid}/{bid}.json", f"ID {uid} — {bid} ур.{tier}"))
+                        max_tier = int(bdata.get('tier') or 0)
+                        if max_tier <= 0:
+                            continue
+                        existing = bdata.get('nft')
+                        if isinstance(existing, dict):
+                            nft_map = dict(existing)
+                        elif isinstance(existing, str):
+                            nft_map = {str(max_tier): existing}  # старый формат — статус относился к max_tier
+                        else:
+                            nft_map = {}
+                        added = False
+                        for t in range(1, max_tier + 1):
+                            if str(t) not in nft_map:
+                                nft_map[str(t)] = 'pending'
+                                added = True
+                        if added or isinstance(existing, str):  # менялась структура — надо перезаписать
+                            new_tiers = [t for t in range(1, max_tier + 1) if str(t) not in (existing if isinstance(existing, dict) else {})]
+                            label = f"ID {uid} — {bid} ур.{','.join(map(str, new_tiers)) or max_tier}"
+                            to_patch.append((f"badges/{pid}/{bid}/nft.json", label, 'tier_full', nft_map))
 
             if not to_patch:
                 await message.answer("Нечего досчитывать — у всех подходящих значков уже есть метка nft.")
                 return
             if not confirm:
-                lines = [f"Найдено задним числом: {len(to_patch)} значков без метки nft (подходят по уровню).",
-                         "Чтобы проставить pending по-настоящему: /nftbackfill да"]
-                text = "\n".join(lines + [l for _, l in to_patch[:50]])
+                lines = [f"Найдено задним числом: {len(to_patch)} записей (значок×уровень/медаль) для обновления метки nft.",
+                         "Чтобы проставить по-настоящему: /nftbackfill да"]
+                text = "\n".join(lines + [l for _, l, _, _ in to_patch[:50]])
                 if len(text) > 3500:
                     await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftbackfill_preview.txt'))
                 else:
@@ -9673,14 +9735,19 @@ async def nftbackfill_command(message: types.Message):
 
             now_ms = int(time_module.time() * 1000)
             done = 0
-            for path, _label in to_patch:
+            for path, _label, kind, value in to_patch:
                 try:
-                    async with session.patch(f"{base}/{path}{FB_AUTH}", json={'nft': 'pending', 'nftMarkedAt': now_ms}) as r2:
-                        if r2.status in (200, 204):
-                            done += 1
+                    if kind == 'tier_full':
+                        async with session.put(f"{base}/{path}{FB_AUTH}", json=value) as r2:
+                            if r2.status in (200, 204):
+                                done += 1
+                    else:
+                        async with session.patch(f"{base}/{path}{FB_AUTH}", json={'nft': 'pending', 'nftMarkedAt': now_ms}) as r2:
+                            if r2.status in (200, 204):
+                                done += 1
                 except Exception as e:
                     print(f"[nftbackfill] {path}: {e}")
-            await message.answer(f"✅ Проставлено pending: {done} из {len(to_patch)}. Проверь /nftqueue.")
+            await message.answer(f"✅ Обновлено записей: {done} из {len(to_patch)}. Проверь /nftqueue.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
