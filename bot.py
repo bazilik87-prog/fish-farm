@@ -12811,9 +12811,12 @@ async def playerinfo_command(message: types.Message):
 
         # NFT-доход (17.11) — кошелёк и количество берём из того же sv (кэш nftCount,
         # обновляется раз в NFT_HOLDINGS_CHECK_INTERVAL_MS), привязку смотрим отдельно,
-        # т.к. это другой узел (linked_wallets, не saves).
-        async with session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as _lw_resp:
-            _lw = await _lw_resp.json()
+        # т.к. это другой узел (linked_wallets, не saves). Своя сессия — к этому месту
+        # функции исходная `session` (из `async with aiohttp.ClientSession()` выше) уже
+        # закрыта, использовать её тут давало "Session is closed" (поймано вживую 17.11).
+        async with aiohttp.ClientSession() as _lw_session:
+            async with _lw_session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as _lw_resp:
+                _lw = await _lw_resp.json()
         _lw_wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
         if _lw_wallet:
             nft_count = int(sv.get('nftCount') or 0)
