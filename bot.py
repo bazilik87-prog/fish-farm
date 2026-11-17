@@ -9729,10 +9729,20 @@ def _fmt_date_msk(ts_ms):
 
 
 async def get_player_wallet_address(session, base, user_id, wl=None):
-    """Настоящий адрес кошелька (не ключ wallet_key) — последний, на который этот игрок
-    выводил деньги, по публичному withdrawals_log. Нужен для чеканки NFT (ownerAddress
-    в Getgems принимает только реальный адрес, а verified_players/{uid}/wallets хранит
-    только производный ключ)."""
+    """Настоящий адрес кошелька для чеканки NFT (ownerAddress в Getgems принимает только
+    реальный адрес). С 17.11 сначала смотрим kошелёк, привязанный через TonConnect
+    (linked_wallets/{pid}) — он надёжнее (игрок сам подтвердил в своём приложении кошелька),
+    и нормализован в обычный UQ.../EQ... формат. Если не привязан — старый способ: последний
+    адрес из публичного withdrawals_log (мог быть вписан вручную при выводе и быть неверным —
+    это как раз случай с junk-адресами у тестовых аккаунтов)."""
+    pid = f"tg_{user_id}"
+    try:
+        async with session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as r:
+            lw = await r.json()
+        if isinstance(lw, dict) and lw.get('wallet'):
+            return lw['wallet']
+    except Exception as e:
+        print(f"[get_player_wallet_address] linked_wallets {user_id}: {e}")
     if wl is None:
         async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
             wl = await r.json() or {}
