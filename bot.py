@@ -9952,7 +9952,12 @@ async def nftmint_command(message: types.Message):
             # ниже), а не по числу успешных чеканок — так учитываются и штуки, оплаченные, но
             # сорвавшиеся где-то между запросом и подтверждением. Пишем в /finance автоматически,
             # без ручного /addexpense (16.11, по просьбе Саши).
+            # Пауза перед проверкой "после" — чеканка асинхронная (сам mint-запрос отвечает
+            # 'in_queue' раньше, чем транзакция реально спишется с газового кошелька), без
+            # неё разница в балансе получалась ~0 и запись в /finance тихо не срабатывала
+            # (поймано вживую 17.11 — Саша заметил, что чеканка для мапитома не записалась).
             if minted and balance_before is not None:
+                await asyncio.sleep(20)
                 balance_after = await _gas_balance_ton()
                 if balance_after is not None:
                     spent_ton = balance_before - balance_after
@@ -12803,6 +12808,19 @@ async def playerinfo_command(message: types.Message):
             lines.append(f"💎 Premium: активен до {until_dt.strftime('%d.%m.%Y %H:%M')} МСК")
         else:
             lines.append("💎 Premium: не активен")
+
+        # NFT-доход (17.11) — кошелёк и количество берём из того же sv (кэш nftCount,
+        # обновляется раз в NFT_HOLDINGS_CHECK_INTERVAL_MS), привязку смотрим отдельно,
+        # т.к. это другой узел (linked_wallets, не saves).
+        async with session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as _lw_resp:
+            _lw = await _lw_resp.json()
+        _lw_wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
+        if _lw_wallet:
+            nft_count = int(sv.get('nftCount') or 0)
+            nft_per_day = round(nft_count * NFT_INCOME_RATE_PER_SEC * 86400 * 1000) / 1000
+            lines.append(f"🖼 NFT на кошельке: {nft_count} (+{nft_per_day:g} монет/сутки) — {_lw_wallet}")
+        else:
+            lines.append("🖼 NFT: кошелёк не привязан (TonConnect)")
 
         # Энергия — раньше не показывалась здесь вообще, хотя sv её и так уже содержит.
         # Из-за этого расследование жалоб вида "оплатил заполнение энергии, не сработало"
