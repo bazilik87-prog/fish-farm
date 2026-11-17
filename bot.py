@@ -8662,6 +8662,8 @@ async def process_actions(request):
             log_daily_reward = 0.0
             log_quest_reward = 0.0
             log_comeback_reward = 0.0
+            log_nft_earned = 0.0
+            log_nft_count = 0
             quest_bonus_granted = False  # для значка "Трудяга" — считаем только реально начисленные дни
             for save_attempt in range(6):
                 if save_attempt == 0 and sv_etag:
@@ -8685,6 +8687,8 @@ async def process_actions(request):
                 log_daily_reward = 0.0
                 log_quest_reward = 0.0
                 log_comeback_reward = 0.0
+                log_nft_earned = 0.0
+                log_nft_count = 0
                 quest_bonus_granted = False
                 save_base_coins = float(fresh_sv.get('coins', 0) or 0)  # для точного диагностического
                 # лога ниже — раньше там ошибочно использовался sv (снимок из НАЧАЛА запроса,
@@ -8728,7 +8732,9 @@ async def process_actions(request):
                     nft_earned = round(fresh_nft_count * NFT_INCOME_RATE_PER_SEC * nft_elapsed_sec * 100) / 100
                     if nft_earned > 0:
                         coins = round((coins + nft_earned) * 100) / 100
+                        log_nft_earned = nft_earned
                 other_fields['nftIncomeTs'] = now_ms
+                log_nft_count = fresh_nft_count  # может обновиться чуть ниже, если сработала проверка блокчейна
 
                 # Раз в NFT_HOLDINGS_CHECK_INTERVAL_MS (лениво, на игрока) переспрашиваем
                 # блокчейн, сколько NFT сейчас реально на привязанном кошельке — остальное
@@ -8747,6 +8753,7 @@ async def process_actions(request):
                     if new_count is not None:
                         other_fields['nftCount'] = new_count
                         other_fields['nftCheckedAt'] = now_ms
+                        log_nft_count = new_count
                     # new_count is None (сбой TON Center) — не трогаем ни nftCount, ни
                     # nftCheckedAt, следующая попытка будет уже на следующем /actions.
 
@@ -9062,6 +9069,8 @@ async def process_actions(request):
         'rare': rare_fish_public(now_ms),
         'ulocs': list(ulocs),  # 26.10: игра сверяет открытые локации (см. applyActionsResult)
         'newBadges': new_badges,  # [{'id':'fisher','tier':2}, ...] — новые значки за этот запрос, для уведомления
+        'nftEarned': log_nft_earned,  # сколько начислено от NFT именно в этом запросе — для уведомления (17.11)
+        'nftCount': log_nft_count,    # сколько NFT сейчас на привязанном кошельке — для карточки в Настройках
         **response_truck
     }, headers=CORS)
 

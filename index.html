@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-17.4">
+<meta name="ff-build" content="2026-11-17.5">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -997,7 +997,7 @@ function questVisit() {
 
 // ── Состояние ─────────────────────────────────────────
 var state = {
-  coins:0,caught:0,tapPower:0.1,autoPerMin:0,
+  coins:0,caught:0,tapPower:0.1,autoPerMin:0,nftCount:0,
   currentLoc:'pond',unlockedLocs:['pond'],
   unlockedFish:{pond:['Карась']},caughtFish:{},liveFish:[],
   transport:'bike',delivery:null,delivery2:null,unlockedTransports:['bike'],
@@ -2074,7 +2074,7 @@ function showNotif(msg, dead) {
                   msg.indexOf('🧂') >= 0 || msg.indexOf('🎁') >= 0 ||
                   msg.indexOf('🧑‍✈️') >= 0 || msg.indexOf('🚀') >= 0 || msg.indexOf('👥') >= 0 ||
                   msg.indexOf('🏆') >= 0 || msg.indexOf('🎰') >= 0 || msg.indexOf('💎') >= 0 ||
-                  msg.indexOf('🏦') >= 0 || dead);
+                  msg.indexOf('🏦') >= 0 || msg.indexOf('🖼') >= 0 || dead);
   if (important) {
     var time = new Date();
     var hm = ('0'+time.getHours()).slice(-2)+':'+('0'+time.getMinutes()).slice(-2);
@@ -4749,6 +4749,7 @@ var BOT_USERNAME = 'fish_farmings_bot';
 // строго на привязанный адрес. Подключение через TonConnect уже само по себе
 // требует подтверждения в приложении кошелька игрока — в отличие от текстового
 // поля, адрес нельзя подделать, просто вписав чужой.
+var NFT_INCOME_RATE_PER_SEC = 0.00002;  // зеркалит NFT_INCOME_RATE_PER_SEC в bot.py — только для показа оценки, само начисление всегда серверное
 var tonConnectUI = null;
 var linkedWalletAddr = null;
 var walletNftLoaded = false;
@@ -7459,8 +7460,16 @@ function renderWalletNftScreen() {
   if (!walletNftLoaded) {
     body = '<div style="text-align:center;color:#90caf9;font-size:13px;padding:20px">'+t('Загрузка...','Loading...')+'</div>';
   } else if (linkedWalletAddr) {
+    var nftCount = state.nftCount || 0;
+    var perDay = Math.round(nftCount * NFT_INCOME_RATE_PER_SEC * 86400 * 1000) / 1000;
     body = '<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Привязанный кошелёк','Linked wallet')+':<br><b style="color:#fff;word-break:break-all">'+linkedWalletAddr+'</b></div>'
-      +'<div style="font-size:11px;color:#6a8bbd;margin-bottom:10px">'+t('Доход от NFT-значков на этом кошельке появится здесь, когда функция будет готова.','Income from NFT badges on this wallet will appear here once the feature is ready.')+'</div>'
+      +'<div class="st-grid" style="margin-bottom:10px">'
+        +'<div><b class="gold">'+nftCount+'</b><span>'+t('NFT на кошельке','NFTs on wallet')+'</span></div>'
+        +'<div><b class="gold">+'+perDay+'</b><span>'+t('монет / сутки','coins / day')+'</span></div>'
+      +'</div>'
+      +'<div style="font-size:11px;color:#6a8bbd;margin-bottom:10px">'+(nftCount>0
+        ? t('Доход копится постоянно, даже если не заходить в игру. Количество NFT проверяется у блокчейна раз в несколько часов.','Income accrues continuously, even while you\'re away. The NFT count is checked on-chain every few hours.')
+        : t('Пока на этом кошельке нет наших NFT — доход появится, как только они там окажутся.','This wallet doesn\'t have any of our NFTs yet — income will start once it does.'))+'</div>'
       +'<button class="btn btn-full" onclick="connectTonWallet()">🔄 '+t('Сменить кошелёк','Change wallet')+'</button>';
   } else {
     body = '<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Подключи TON-кошелёк — в будущем это даст доход от NFT-значков FishFarm, которые на нём лежат.','Connect your TON wallet — in the future this will give income from FishFarm NFT badges held on it.')+'</div>'
@@ -7722,6 +7731,12 @@ function applyActionsResult(res, sentAt, batch) {
       var lapLabel = (d.repeat && b.lap>1) ? ' ×'+b.lap : '';
       showNotif('🏅 '+t('Новый значок: ','New badge: ')+d.icon+' '+t(d.nameRu,d.nameEn)+tierLabel+lapLabel+'!');
     });
+  }
+  if (typeof res.nftCount === 'number') state.nftCount = res.nftCount;
+  if (res.nftEarned > 0) {
+    // res.coins (уже присвоено в state.coins выше) включает nftEarned — тут только уведомление.
+    showNotif('🖼 '+t('NFT-доход: +🪙','NFT income: +🪙')+fmt(res.nftEarned));
+    if (settingsSubpage === 'walletnft') renderWalletNftScreen();
   }
   if (res.claimed && res.claimed.total > 0) {
     (res.claimed.details||[]).forEach(function(d){
