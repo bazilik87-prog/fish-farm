@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-17.1">
+<meta name="ff-build" content="2026-11-17.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4542,7 +4542,7 @@ function renderBank() {
           ? '<button class="btn btn-green btn-full" onclick="connectTonWallet()">🔗 '+t('Подключить кошелёк','Connect wallet')+'</button>'
           : t('Загрузка...','Loading...'))
         +'</div>')
-    +'<button class="bk-go" onclick="exchangeCoins()" '+(coins<1||!linkedWalletAddr?'disabled':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>'+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+fee+' '+starsWord(fee)+'</span></button>'
+    +'<button class="bk-go" onclick="exchangeCoins()" '+(coins<1?'disabled':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>'+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+fee+' '+starsWord(fee)+'</span></button>'
     +'<div class="bk-note" style="text-align:center">📌 '+t('USDT (TON) приходит на кошелёк в течение 24 часов после оплаты','USDT (TON) arrives in your wallet within 24 hours after payment')+'</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
     +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 '+t('Напиши боту эту команду:','Send this command to the bot:')+'</div>'
