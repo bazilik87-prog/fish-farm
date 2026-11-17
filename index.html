@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-16.1">
+<meta name="ff-build" content="2026-11-17.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4499,6 +4499,7 @@ function buyCoinPack(packId) {
 }
 
 function renderBank() {
+  if (!walletNftLoaded) { sendLinkWallet(null); }
   var coins = Math.floor(state.coins);
   var startVal = Math.min(1000, coins);
   var rate = 100000*maxUnlockedMult();
@@ -4532,8 +4533,16 @@ function renderBank() {
       ? '<div class="bk-warn">🌿 '+t('С Пруда можно вывести всего до ','From the Pond you can withdraw up to ')+POND_WITHDRAW_LIFETIME_CAP.toLocaleString('ru-RU')+t(' монет за всё время. Дальше — открой 🏞 Реку!',' coins in total. After that — unlock the 🏞 River!')+'</div>'
       : '')
     +'<div class="bk-lbl" style="margin:14px 4px 6px">'+t('Твой TON кошелёк (USDT)','Your TON wallet (USDT)')+'</div>'
-    +'<input id="ex-wallet" class="bk-wallet" type="text" placeholder="UQ... '+t('или','or')+' EQ...">'
-    +'<button class="bk-go" onclick="exchangeCoins()" '+(coins<1?'disabled':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>'+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+fee+' '+starsWord(fee)+'</span></button>'
+    +(linkedWalletAddr
+      ? '<div class="bk-wallet" style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +'<span style="word-break:break-all;font-size:12px">'+linkedWalletAddr+'</span>'
+        +'<button class="btn" style="flex:none;padding:6px 10px;font-size:11px" onclick="connectTonWallet()">🔄 '+t('Сменить','Change')+'</button></div>'
+      : '<div class="bk-wallet" style="text-align:center">'
+        +(walletNftLoaded
+          ? '<button class="btn btn-green btn-full" onclick="connectTonWallet()">🔗 '+t('Подключить кошелёк','Connect wallet')+'</button>'
+          : t('Загрузка...','Loading...'))
+        +'</div>')
+    +'<button class="bk-go" onclick="exchangeCoins()" '+(coins<1||!linkedWalletAddr?'disabled':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>'+t('Обменять за','Exchange for')+' <span id="bank-fee-btn-text">'+fee+' '+starsWord(fee)+'</span></button>'
     +'<div class="bk-note" style="text-align:center">📌 '+t('USDT (TON) приходит на кошелёк в течение 24 часов после оплаты','USDT (TON) arrives in your wallet within 24 hours after payment')+'</div>'
     +'<div id="bank-fallback" style="display:none;background:#1a2a0a;border-radius:12px;padding:14px;margin-top:10px">'
     +'<div style="font-size:13px;font-weight:600;color:#6ddc6d;margin-bottom:8px">📱 '+t('Напиши боту эту команду:','Send this command to the bot:')+'</div>'
@@ -4628,15 +4637,17 @@ function setBankMax() {
   if(input){input.value=Math.min(maxWithdrawCap(),Math.floor(state.coins));updateBankPreview();}
 }
 function exchangeCoins() {
-  var ai=document.getElementById('ex-amount'), wi=document.getElementById('ex-wallet');
+  var ai=document.getElementById('ex-amount');
   var amount=Math.max(1,Math.min(Math.floor(state.coins),parseInt(ai?ai.value:0)||0));
-  var wallet=wi?wi.value.trim():'';
+  // Кошелёк — только привязанный через TonConnect (16.11): сервер всё равно его не примет
+  // из этого поля, он сам смотрит linked_wallets/{pid}, так что проверяем то же самое здесь,
+  // чтобы не гонять создание счёта впустую.
+  var wallet=linkedWalletAddr||'';
   var maxWithdraw=maxWithdrawCap();
   if(amount<1000){showNotif(t('❌ Минимальная сумма вывода — 1,000 монет!','❌ Minimum withdrawal — 1,000 coins!'));return;}
   if(amount>maxWithdraw){showNotif(t('❌ Максимальная сумма за один вывод — ','❌ Maximum per withdrawal — ')+maxWithdraw.toLocaleString('ru-RU')+t(' монет!',' coins!'));return;}
   if(amount<1||state.coins<1){showNotif(t('Недостаточно монет!','Not enough coins!'));return;}
-  if(!wallet||wallet.length<10){showNotif(t('Введи TON кошелёк!','Enter your TON wallet!'));return;}
-  if(wallet.indexOf('UQ')!==0&&wallet.indexOf('EQ')!==0){showNotif(t('Кошелёк должен начинаться с UQ или EQ','Wallet must start with UQ or EQ'));return;}
+  if(!wallet){showNotif(t('Сначала подключи TON-кошелёк кнопкой выше!','Connect your TON wallet with the button above first!'));return;}
   showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
   var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
   var username = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? (tg.initDataUnsafe.user.username||'') : '';
@@ -4649,6 +4660,7 @@ function exchangeCoins() {
   }).then(function(res){
     if(!res.ok && res.data && res.data.code==='pond_limit') { showNotif('🌿 '+res.data.error); return; }
     if(!res.ok && res.data && res.data.code==='wallet_taken') { showNotif('🚫 '+res.data.error); return; }
+    if(!res.ok && res.data && res.data.code==='wallet_not_linked') { showNotif('🔗 '+res.data.error); return; }
     if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
     var data = res.data;
     if(data.link && tg && tg.openInvoice) {
@@ -4764,12 +4776,18 @@ function connectTonWallet() {
   if (!tonConnectUI) { showNotif(t('⚠️ TonConnect не загрузился, попробуй позже', '⚠️ TonConnect failed to load, try later')); return; }
   tonConnectUI.openModal();
 }
+// Обновляет экраны, которые показывают привязанный кошелёк (Настройки→Кошелёк и NFT, Банк),
+// если они сейчас открыты — после загрузки/смены привязки.
+function _refreshWalletDependentUI() {
+  if (settingsSubpage === 'walletnft') renderWalletNftScreen();
+  if (currentTab === 'bank') renderBank();
+}
 // address===null — просто узнать текущую привязку (ничего не меняет на сервере), иначе — привязать новую.
 function sendLinkWallet(address, cb) {
   if (!tg || !tg.initData || typeof BOT_API_URL === 'undefined') {
     walletNftLoaded = true;
     if (cb) cb();
-    if (settingsSubpage === 'walletnft') renderWalletNftScreen();
+    _refreshWalletDependentUI();
     return;
   }
   var body = { init_data: tg.initData };
@@ -4785,8 +4803,8 @@ function sendLinkWallet(address, cb) {
       showNotif('⚠️ ' + res.error);
     }
     if (cb) cb();
-    if (settingsSubpage === 'walletnft') renderWalletNftScreen();
-  }).catch(function () { walletNftLoaded = true; if (cb) cb(); if (settingsSubpage === 'walletnft') renderWalletNftScreen(); });
+    _refreshWalletDependentUI();
+  }).catch(function () { walletNftLoaded = true; if (cb) cb(); _refreshWalletDependentUI(); });
 }
 initTonConnect();
 // Вставь свои данные из Firebase Console

@@ -1165,9 +1165,30 @@ async def create_invoice(request):
     try:
         if action == 'exchange':
             coins   = int(data.get('coins', 0))
-            wallet  = str(data.get('wallet', '')).strip()
             user_id = real_user_id  # берём из проверенной подписи, а не из тела запроса
             username = str(data.get('username', '')).strip()
+            # Вывод строго на кошелёк, привязанный через TonConnect (16.11, решение Саши) —
+            # адрес из запроса игры больше НЕ используется, только то, что сервер сам знает
+            # про этот pid (linked_wallets/{pid}, см. link_wallet). Без привязки — вывод
+            # заблокирован, а не просто предупреждение: иначе получится два разных источника
+            # правды про "чей это кошелёк", и правило «один кошелёк — один игрок» перестанет
+            # что-либо гарантировать.
+            try:
+                import aiohttp as _lw_aiohttp
+                async with _lw_aiohttp.ClientSession() as _lw_session:
+                    async with _lw_session.get(
+                        f"https://fishfarm-3a4f8-default-rtdb.firebaseio.com/linked_wallets/tg_{user_id}.json{FB_AUTH}"
+                    ) as _lw_r:
+                        _lw = await _lw_r.json()
+            except Exception:
+                _lw = None
+            wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
+            if not wallet:
+                is_ru = str(real_user_verified.get('language_code') or '').startswith('ru')
+                msg = ('Сначала подключи TON-кошелёк: Настройки → «Кошелёк и NFT».'
+                       if is_ru else
+                       'Connect your TON wallet first: Settings → "Wallet & NFT".')
+                return web.json_response({'error': msg, 'code': 'wallet_not_linked'}, status=400, headers=CORS)
             loc_mult = await get_location_mult(user_id)
             # Пруд (loc_mult == 1) — отдельный пониженный потолок по просьбе. Река —
             # исключение, потолок оставлен как на (старом) Пруду по отдельной просьбе, остальные
