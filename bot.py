@@ -501,6 +501,38 @@ AUTO_PER_LEVEL = {'net': 0.1, 'boat': 0.3, 'sonar': 0.5}  # автодоход �
 OFFLINE_INCOME_MAX_SEC = 72 * 3600                  # автодоход за отсутствие копится максимум 3 суток (с 15.10.2026)
 ENERGY_REGEN_SEC = 126                              # 1 энергия каждые 126 секунд
 
+# Доход от NFT-значков на привязанном TON-кошельке (17.11, решения Саши): 0.00002 монет/сек
+# за КАЖДУЮ NFT нашей коллекции на кошельке (считаем копии, не уникальные типы — иначе
+# рынок NFT не имеет смысла, см. обсуждение). В отличие от обычного автодохода — БЕЗ
+# потолка в днях (копится всегда, даже если не заходить месяцами) и НЕ идёт в totalEarned
+# (как купленные монеты COIN_PACKS) — это не игровой заработок, а пассивный доход от
+# владения, не должен влиять на турнир недели/значок "Богач".
+NFT_INCOME_RATE_PER_SEC = 0.00002
+NFT_HOLDINGS_CHECK_INTERVAL_MS = 6 * 3600 * 1000    # как часто спрашивать блокчейн (лениво, на игрока)
+
+
+async def check_nft_holdings_count(wallet):
+    """Сколько NFT нашей коллекции лежит на кошельке — напрямую у TON Center (toncenter.com),
+    Firebase тут не участвует. None при сбое сети — тогда вызывающий код не трогает
+    закэшированное значение (не обнуляет доход из-за временной недоступности API).
+    collection_address можно передать и в "дружеской" форме (EQ...) — TON Center сам понимает."""
+    if not wallet or not GETGEMS_COLLECTION:
+        return None
+    import aiohttp
+    url = ("https://toncenter.com/api/v3/nft/items"
+           f"?owner_address={wallet}&collection_address={GETGEMS_COLLECTION}&limit=1000")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                if r.status != 200:
+                    return None
+                data = await r.json()
+        items = data.get('nft_items') if isinstance(data, dict) else None
+        return len(items) if isinstance(items, list) else None
+    except Exception as e:
+        print(f"[nft_income] check_nft_holdings_count: {e}")
+        return None
+
 
 def energy_now(prev, regen_sec, max_energy):
     """Энергия с регеном по времени. С 11.11.2026 (решение Саши) энергия может быть СВЕРХ потолка — приз
@@ -4160,6 +4192,9 @@ async def link_wallet(request):
         async with aiohttp.ClientSession() as session:
             await session.put(f"{base}/linked_wallets/{pid}.json{FB_AUTH}",
                                json={'wallet': wallet, 'linkedAt': int(time_module.time() * 1000)})
+            # Сбрасываем nftCheckedAt, чтобы доход от NFT (см. NFT_INCOME_RATE_PER_SEC)
+            # проверился на СЛЕДУЮЩЕМ /actions, а не ждал до NFT_HOLDINGS_CHECK_INTERVAL_MS.
+            await session.patch(f"{base}/saves/{pid}.json{FB_AUTH}", json={'nftCheckedAt': 0})
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
     return web.json_response({'ok': True, 'wallet': wallet}, headers=CORS)
@@ -8644,6 +8679,39 @@ async def process_actions(request):
                     coins = round((coins + fresh_auto_earned) * 100) / 100
                     total_earned = round((total_earned + fresh_auto_earned) * 100) / 100
                     log_auto_earned = fresh_auto_earned
+
+                # Доход от NFT-значков (17.11) — БЕЗ потолка по времени (в отличие от
+                # fresh_auto_earned выше), в totalEarned НЕ идёт. nftIncomeTs — отдельные
+                # часы от lastSeen, чтобы не задним числом не начислить за период, когда
+                # NFT ещё не было (бутстрап при первом появлении поля — elapsed=0).
+                fresh_nft_income_ts = fresh_sv.get('nftIncomeTs') or now_ms
+                nft_elapsed_sec = max(0, (now_ms - fresh_nft_income_ts) / 1000)
+                fresh_nft_count = int(fresh_sv.get('nftCount') or 0)
+                if fresh_nft_count > 0 and nft_elapsed_sec > 0:
+                    nft_earned = round(fresh_nft_count * NFT_INCOME_RATE_PER_SEC * nft_elapsed_sec * 100) / 100
+                    if nft_earned > 0:
+                        coins = round((coins + nft_earned) * 100) / 100
+                other_fields['nftIncomeTs'] = now_ms
+
+                # Раз в NFT_HOLDINGS_CHECK_INTERVAL_MS (лениво, на игрока) переспрашиваем
+                # блокчейн, сколько NFT сейчас реально на привязанном кошельке — остальное
+                # время используем то, что уже лежит в nftCount, без лишнего похода наружу
+                # на КАЖДЫЙ /actions. Сразу после /link_wallet этот момент искусственно
+                # обнуляется (см. там), чтобы не ждать до 6 часов после первой привязки.
+                fresh_nft_checked_at = fresh_sv.get('nftCheckedAt') or 0
+                if now_ms - fresh_nft_checked_at > NFT_HOLDINGS_CHECK_INTERVAL_MS:
+                    try:
+                        async with session.get(f"{base}/linked_wallets/{pid}.json{FB_AUTH}") as _lw_r:
+                            _lw = await _lw_r.json()
+                    except Exception:
+                        _lw = None
+                    _lw_wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
+                    new_count = await check_nft_holdings_count(_lw_wallet) if _lw_wallet else 0
+                    if new_count is not None:
+                        other_fields['nftCount'] = new_count
+                        other_fields['nftCheckedAt'] = now_ms
+                    # new_count is None (сбой TON Center) — не трогаем ни nftCount, ни
+                    # nftCheckedAt, следующая попытка будет уже на следующем /actions.
 
                 # Автозакрытие созревших вкладов — тем же принципом: список берём заново из
                 # fresh_sv (не из snapshot начала запроса), поверх него накатываем
