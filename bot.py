@@ -412,7 +412,7 @@ async def notify_support_group(text, reply_markup=None):
             return
 
 
-async def log_finance(ftype, category, amount_usd, note='', stars=None, session=None):
+async def log_finance(ftype, category, amount_usd, note='', stars=None, ton=None, session=None):
     """
     Пишет одну строку в finance_log — учёт реального дохода/расхода бизнеса в USD,
     источник данных для /finance. ftype: 'income' | 'expense', amount_usd — всегда
@@ -439,6 +439,11 @@ async def log_finance(ftype, category, amount_usd, note='', stars=None, session=
         }
         if stars is not None:
             entry['stars'] = stars
+        if ton is not None:
+            # Курс TON/USD пляшет сильнее, чем ⭐ — помимо оценки в $ (amountUsd, по
+            # TON_USD_RATE) храним ещё и реальную сумму в TON, чтобы можно было прикинуть
+            # по текущему курсу самому, не доверяя устаревшей константе (16.11, просьба Саши).
+            entry['ton'] = round(float(ton), 5)
         if own_session:
             async with aiohttp.ClientSession() as s:
                 await s.post(f"{base}/finance_log.json{FB_AUTH}", json=entry)
@@ -2634,6 +2639,11 @@ WEEKLY_TOURNAMENT_PRIZES = [150, 100, 50]
 # ровно такой для КАЖДОЙ покупки (зависит от пакета/региона), это оценочная константа
 # для бухгалтерии, а не биржевой курс — можно поправить, если Telegram изменит ставку.
 STAR_TO_USD = 0.013
+
+# Курс TON→USD для автоматической записи расхода на чеканку NFT в /finance (16.11) —
+# такая же оценочная константа, как STAR_TO_USD: курс TON плавает, но для бухгалтерии
+# достаточно ориентира, который Саша сам поправляет, когда курс заметно уходит.
+TON_USD_RATE = 1.05
 
 # In-memory кэш активного раунда — только для того, чтобы _bf_track_catch на КАЖДОМ
 # /actions-запросе КАЖДОГО игрока не ходил в Firebase проверять, участвует ли он в
@@ -9730,6 +9740,18 @@ async def nftmint_command(message: types.Message):
                 await message.answer("\n".join(lines))
                 return
 
+            async def _gas_balance_ton():
+                try:
+                    async with session.get(
+                        f"https://api.getgems.io/public-api/minting/{GETGEMS_COLLECTION}/wallet-balance",
+                        headers={"authorization": GETGEMS_API_KEY}
+                    ) as r:
+                        bal = await r.json()
+                    return int((bal or {}).get('response', {}).get('balance', 0) or 0) / 1e9
+                except Exception:
+                    return None
+
+            balance_before = await _gas_balance_ton()
             minted, failed, already = [], [], []
             for it, addr in resolved:
                 uid, kind, bid, tier, key, path, nm, desc, img, date_s = it
@@ -9779,6 +9801,20 @@ async def nftmint_command(message: types.Message):
                     else:
                         failed.append((uid, nm, err))
                 await asyncio.sleep(0.6)
+
+            # Реальный расход за этот запуск — по факту изменения баланса газового кошелька
+            # (не по оценке "~0.023 TON/штука" — на практике реальный расход оказался заметно
+            # ниже), а не по числу успешных чеканок — так учитываются и штуки, оплаченные, но
+            # сорвавшиеся где-то между запросом и подтверждением. Пишем в /finance автоматически,
+            # без ручного /addexpense (16.11, по просьбе Саши).
+            if minted and balance_before is not None:
+                balance_after = await _gas_balance_ton()
+                if balance_after is not None:
+                    spent_ton = balance_before - balance_after
+                    if spent_ton > 0:
+                        await log_finance('expense', 'getgems', spent_ton * TON_USD_RATE, ton=spent_ton,
+                                           note=f"чеканка NFT: {len(minted)} новых, {spent_ton:.4f} TON",
+                                           session=session)
 
             lines = [f"✅ Начеканено: {len(minted)}"]
             for uid, nm in minted:
@@ -10962,6 +10998,7 @@ async def finance_command(message: types.Message):
 
     log = log or {}
     income_by_cat, expense_by_cat = {}, {}
+    income_ton_by_cat, expense_ton_by_cat = {}, {}
     total_income = total_expense = 0.0
     for entry in log.values():
         if not isinstance(entry, dict):
@@ -10970,27 +11007,35 @@ async def finance_command(message: types.Message):
         if ts < cutoff or (cutoff_end is not None and ts >= cutoff_end):
             continue
         amt = float(entry.get('amountUsd', 0) or 0)
+        ton_amt = entry.get('ton')
         cat = entry.get('category', '?')
         if entry.get('type') == 'income':
             income_by_cat[cat] = income_by_cat.get(cat, 0) + amt
             total_income += amt
+            if ton_amt is not None:
+                income_ton_by_cat[cat] = income_ton_by_cat.get(cat, 0) + float(ton_amt)
         elif entry.get('type') == 'expense':
             expense_by_cat[cat] = expense_by_cat.get(cat, 0) + amt
             total_expense += amt
+            if ton_amt is not None:
+                expense_ton_by_cat[cat] = expense_ton_by_cat.get(cat, 0) + float(ton_amt)
 
-    def _fmt(by_cat):
+    def _fmt(by_cat, ton_by_cat=None):
         lines_ = []
         for cat, amt in sorted(by_cat.items(), key=lambda x: -x[1]):
             label = FINANCE_CATEGORY_LABELS.get(cat, cat)
-            lines_.append(f"  {label} — ${amt:,.2f}")
+            # Сумма в $ — по курсу TON_USD_RATE на момент записи (оценочно, курс пляшет).
+            # Сумма в TON — настоящая, без пересчёта, чтобы прикинуть по курсу на сегодня самому.
+            ton_suffix = f" ({ton_by_cat[cat]:,.4f} TON)" if ton_by_cat and cat in ton_by_cat else ""
+            lines_.append(f"  {label} — ${amt:,.2f}{ton_suffix}")
         return lines_ or ["  (нет данных)"]
 
     lines = [f"💰 <b>Финансовый отчёт — {period_label}</b>", ""]
     lines.append(f"📈 Доход: ${total_income:,.2f}")
-    lines.extend(_fmt(income_by_cat))
+    lines.extend(_fmt(income_by_cat, income_ton_by_cat))
     lines.append("")
     lines.append(f"📉 Расход: ${total_expense:,.2f}")
-    lines.extend(_fmt(expense_by_cat))
+    lines.extend(_fmt(expense_by_cat, expense_ton_by_cat))
     lines.append("")
     net = total_income - total_expense
     sign = "✅" if net >= 0 else "⚠️"
