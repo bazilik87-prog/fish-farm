@@ -917,6 +917,38 @@ async def change_pond_withdrawn(user_id, delta):
     return 'error'
 
 
+def normalize_ton_address(wallet):
+    """TonConnect отдаёт адрес в "сыром" виде ("0:хеш64", с двоеточием) — а весь остальной
+    код (payload вида "ex:{user_id}:{coins}:{wallet}:{username}", отображение в заявках на
+    вывод) режет строки ПО ДВОЕТОЧИЮ, считая, что в адресе его быть не может (так и было —
+    обычный UQ.../EQ... формат двоеточий не содержит). Без конвертации двоеточие в адресе
+    сдвигает разбор payload, и в заявку на вывод попадает обрывок хеша вместо username,
+    а кошелёк — пустой "0" (поймано вживую 17.11, реальный игрок). Переводим "сырой" адрес
+    в обычный невозвратный ("UQ...") перед тем, как вообще куда-то его класть."""
+    w = str(wallet or '').strip()
+    if ':' not in w:
+        return w  # уже обычный формат (или не похоже на адрес вообще) — не трогаем
+    try:
+        wc_s, hash_hex = w.split(':', 1)
+        wc = int(wc_s)
+        h = bytes.fromhex(hash_hex)
+        if len(h) != 32:
+            return w
+        wc_byte = wc & 0xFF  # -1 (мастерчейн) -> 0xFF, 0 -> 0x00
+        data = bytes([0x51, wc_byte]) + h  # 0x51 — tag невозвратного (UQ) адреса, не testnet
+        crc = 0
+        for byte in data:
+            crc ^= byte << 8
+            for _ in range(8):
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+        full = data + crc.to_bytes(2, 'big')
+        import base64 as _b64
+        return _b64.urlsafe_b64encode(full).decode()
+    except Exception as e:
+        print(f"[normalize_ton_address] {wallet}: {e}")
+        return w
+
+
 def wallet_key(wallet):
     """Один и тот же TON-кошелёк пишут по-разному (UQ…/EQ…, bounceable или нет) — ключ по самому
     адресу: «воркчейн_хеш». Если строка не похожа на адрес — очищенная строка (для ключа Firebase)."""
@@ -1221,6 +1253,9 @@ async def create_invoice(request):
                        if is_ru else
                        'Connect your TON wallet first: Settings → "Wallet & NFT".')
                 return web.json_response({'error': msg, 'code': 'wallet_not_linked'}, status=400, headers=CORS)
+            # normalize_ton_address — защита и для уже привязанных ДО фикса 17.11 кошельков
+            # (хранились в "сыром" виде с двоеточием, ломали разбор payload "ex:...").
+            wallet = normalize_ton_address(wallet)
             loc_mult = await get_location_mult(user_id)
             # Пруд (loc_mult == 1) — отдельный пониженный потолок по просьбе. Река —
             # исключение, потолок оставлен как на (старом) Пруду по отдельной просьбе, остальные
@@ -4165,7 +4200,7 @@ async def link_wallet(request):
     if not user_id:
         return web.json_response({'error': 'unauthorized'}, status=401, headers=CORS)
 
-    wallet = str(data.get('wallet', '')).strip()
+    wallet = normalize_ton_address(data.get('wallet', ''))
     import aiohttp
     base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
     pid = f"tg_{user_id}"
@@ -4177,7 +4212,9 @@ async def link_wallet(request):
                     cur = await r.json()
         except Exception as e:
             return web.json_response({'error': str(e)}, status=500, headers=CORS)
-        return web.json_response({'ok': True, 'wallet': (cur or {}).get('wallet')}, headers=CORS)
+        # normalize_ton_address тут тоже на случай, если кошелёк сохранился в "сыром" виде
+        # до этого фикса (17.11) — чинит отображение задним числом, без отдельной миграции.
+        return web.json_response({'ok': True, 'wallet': normalize_ton_address((cur or {}).get('wallet'))}, headers=CORS)
 
     other = await wallet_owner_other(user_id, wallet)
     if other:
