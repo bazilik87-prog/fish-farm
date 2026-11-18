@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-18.1">
+<meta name="ff-build" content="2026-11-18.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2472,7 +2472,9 @@ var BADGE_DEFS = {
               tierNamesRu:['участник','призёр (топ-3)'], tierNamesEn:['participant','prize winner (top-3)'],
               descRu:'Первый уровень — за участие в «Большой рыбалке», второй — за призовое место (топ-3).', descEn:'First tier for taking part in Big Fishing, second for placing in the top 3.'},
   storm:     {repeat:true, icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[100,500,2500], unitRu:'продаж в дождь/шторм', unitEn:'sales during rain/storm',
-              descRu:'Считается, сколько продаж рыбы совершено во время дождя или шторма.', descEn:'Counts how many fish sales you made during rain or a storm.'}
+              descRu:'Считается, сколько продаж рыбы совершено во время дождя или шторма.', descEn:'Counts how many fish sales you made during rain or a storm.'},
+  millionaire: {icon:'💼', nameRu:'Миллионер', nameEn:'Millionaire', tiers:[1000000,3000000,7000000,15000000,30000000], unitRu:'пиковый баланс монет', unitEn:'peak coin balance',
+              descRu:'Считается максимальный баланс монет НА РУКАХ, который у тебя когда-либо был (не общий заработок) — остаётся, даже если потом потратишь.', descEn:'Counts the highest coin balance you ever held at once (not total earned) — stays even if you later spend it all.'}
 };
 // Именные (повторяемые) медали — отдельно от обычных значков, badges/{pid}/named/{id}/{key}.
 // У каждого может быть несколько экземпляров (разные недели/битвы) — показываем счётчик.

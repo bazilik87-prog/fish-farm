@@ -4156,6 +4156,8 @@ async def badges_list(request):
                 stats = await r2.json()
             async with session.get(f"{base}/saves/{pid}/lotteryStats.json{FB_AUTH}") as r3:
                 lottery_stats = await r3.json()
+            async with session.get(f"{base}/saves/{pid}/peakCoins.json{FB_AUTH}") as r4:
+                peak_coins = await r4.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
     # Текущие значения "счётных" серий — чтобы игра могла показать "сейчас X из нужных Y",
@@ -4169,6 +4171,8 @@ async def badges_list(request):
             values[badge_id] = v
     values['gambler'] = _lottery_total_spins(lottery_stats)
     values['boot'] = _lottery_boot_count(lottery_stats)
+    if isinstance(peak_coins, (int, float)):
+        values['millionaire'] = peak_coins
     return web.json_response({'ok': True, 'badges': badges or {}, 'values': values}, headers=CORS)
 
 
@@ -6020,6 +6024,8 @@ BADGE_DEFS = {
     'captain':   {'thresholds': [3, 5, 10]},              # уровень клана, достигнутый будучи капитаном
     'bigfish':   {'thresholds': [1, 2]},                  # 1=участие, 2=приз (топ-3)
     'storm':     {'thresholds': [100, 500, 2500]},        # продаж рыбы в дождь/шторм
+    'millionaire': {'thresholds': [1000000, 3000000, 7000000, 15000000, 30000000]},  # ПИКОВЫЙ баланс
+    # монет НА РУКАХ (не "Заработано") — см. peakCoins в process_actions. 5 уровней (18.11).
 }
 
 # Поле в badge_stats/{pid} -> id серии значков, которую оно двигает.
@@ -8707,6 +8713,7 @@ async def process_actions(request):
                 log_auto_earned = 0.0
                 log_deposit_interest = 0.0
                 log_deposit_closures = 0
+                new_peak_coins = 0.0  # значок "Миллионер" — пиковый баланс, см. ниже у merged.update
                 log_daily_reward = 0.0
                 log_quest_reward = 0.0
                 log_comeback_reward = 0.0
@@ -8909,6 +8916,13 @@ async def process_actions(request):
                                 merged_upg[loc_k] = {}
                             cur_fresh_level = merged_upg[loc_k].get(upg_k, 0)
                             merged_upg[loc_k][upg_k] = max(cur_fresh_level, final_level)
+                # Значок "Миллионер" — пиковый баланс НА РУКАХ (не "Заработано"), поэтому
+                # нельзя просто расти вместе с coins: баланс может и падать (траты). Храним
+                # отдельно максимум когда-либо достигнутого coins, растёт только вверх —
+                # у новых игроков peakCoins отсутствует, бутстрапится текущим балансом без
+                # задней даты (18.11).
+                fresh_peak_coins = float(fresh_sv.get('peakCoins', 0) or 0)
+                new_peak_coins = max(fresh_peak_coins, coins)
                 merged.update({
                     "coins": coins,
                     "caught": caught,
@@ -8921,6 +8935,7 @@ async def process_actions(request):
                     "upgLevels": merged_upg,
                     "deposits": deposits,
                     "loc": cur_loc,  # теперь пишет только сервер (см. switch_loc) — не клиент напрямую
+                    "peakCoins": new_peak_coins,
                     **other_fields,
                     **bonus_fields
                 })
@@ -8999,6 +9014,12 @@ async def process_actions(request):
                     tt = max(0, len(merged.get('ulocs') or []) - 1)
                     if tt:
                         r = await award_badge(pid, 'traveler', tt, now_ms)
+                        if r:
+                            new_badges.append(r)
+                if new_peak_coins >= BADGE_DEFS['millionaire']['thresholds'][0]:
+                    mt = _badge_tier_for(new_peak_coins, BADGE_DEFS['millionaire']['thresholds'])
+                    if mt:
+                        r = await award_badge(pid, 'millionaire', mt, now_ms)
                         if r:
                             new_badges.append(r)
                 if quest_bonus_granted:
@@ -9842,6 +9863,8 @@ NFT_BADGE_META = {
                   'Big Fishing', 'FishFarm "Big Fishing" badge — for taking part or placing in the top 3.'),
     'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько продаж сделано в дождь/шторм.',
                   'Storm Trader', 'FishFarm "Storm Trader" badge — counts fish sales made during rain or storm.'),
+    'millionaire': ('Миллионер', 'Значок FishFarm «Миллионер» — за пиковый баланс монет на руках (не за всё заработанное).',
+                     'Millionaire', 'FishFarm "Millionaire" badge — for the highest coin balance ever held at once (not total earned).'),
 }
 
 # Названия уровней (RU, EN) — как badgeTierName() в index.html, но на стороне бота (для NFT).
