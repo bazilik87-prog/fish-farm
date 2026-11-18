@@ -9487,6 +9487,70 @@ async def start(message: types.Message):
 GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры: +50% к улову на 30 мин, ×2 скорость доставки на 1 ч
 
 
+@dp.message(Command('revokebadge'))
+async def revokebadge_command(message: types.Message):
+    """Отобрать конкретный значок у игрока целиком (badges/{pid}/{badge_id} удаляется).
+    Для нечестно нафармленных значков (см. /depositcheck, правка 18.11 про "Вкладчика").
+    Без "да" — только показывает, что там сейчас (уровень/круги/статус NFT по уровням),
+    НИЧЕГО не удаляет. ВАЖНО: если NFT по какому-то уровню уже 'minted' — удаление метки
+    в Firebase не сжигает и не отзывает саму NFT в блокчейне (она уже у игрока на кошельке),
+    об этом команда явно предупредит отдельной строкой — решать, что делать с ней, отдельно.
+    Использование: /revokebadge @username deposit [да]"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 3:
+        await message.answer("Использование: <code>/revokebadge @username badge_id</code>, затем "
+                              "<code>/revokebadge @username badge_id да</code>", parse_mode="HTML")
+        return
+    target = args[1].lstrip('@')
+    badge_id = args[2].lower()
+    confirm = len(args) >= 4 and args[3].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            uid = None
+            if target.isdigit():
+                uid = target
+            else:
+                async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as r:
+                    lb = await r.json() or {}
+                for v in (lb or {}).values():
+                    if isinstance(v, dict) and str(v.get('username', '')).lower() == target.lower():
+                        uid = str(v.get('userId'))
+                        break
+            if not uid:
+                await message.answer(f"❌ Игрок {target} не найден.")
+                return
+            pid = f"tg_{uid}"
+            url = f"{base}/badges/{pid}/{badge_id}.json{FB_AUTH}"
+            async with session.get(url) as r:
+                cur = await r.json()
+            if not isinstance(cur, dict) or not cur.get('tier'):
+                await message.answer(f"У {target} нет значка «{badge_id}» — нечего отбирать.")
+                return
+            tier = int(cur.get('tier') or 0)
+            laps = cur.get('laps') if isinstance(cur.get('laps'), dict) else {}
+            nft_map = cur.get('nft') if isinstance(cur.get('nft'), dict) else {}
+            minted_tiers = [k for k, v in nft_map.items() if v == 'minted']
+            ru_tier, _ = nft_tier_label(badge_id, tier)
+            lines = [f"👤 {target} — значок «{badge_id}», уровень {tier} ({ru_tier})",
+                     f"Круги: {laps or 'нет данных'}"]
+            if minted_tiers:
+                lines.append(f"⚠️ По уровням {minted_tiers} NFT уже ВЫЧЕКАНЕНА в блокчейне — "
+                              f"удаление метки здесь её не отзывает, она уже на кошельке игрока.")
+            if not confirm:
+                lines.append(f"\nЧтобы отобрать по-настоящему: /revokebadge {target} {badge_id} да")
+                await message.answer("\n".join(lines))
+                return
+            await session.delete(url)
+            await message.answer("✅ Значок «" + badge_id + "» у " + target + " отобран." +
+                                  (f"\n⚠️ Напоминаю: NFT по уровням {minted_tiers} всё ещё у него на кошельке." if minted_tiers else ""))
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('badgeholders'))
 async def badgeholders_command(message: types.Message):
     """Кто уже получил конкретный значок (и на каком уровне) — /badgeholders deposit.
