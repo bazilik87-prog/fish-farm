@@ -8546,7 +8546,9 @@ async def process_actions(request):
                 deposits_added.remove(found)
             else:
                 deposits_closed_ids.add(dep_id)
-            badge_counter_deltas['deposits'] = badge_counter_deltas.get('deposits', 0) + 1
+            # Значок "Вкладчик" сюда НЕ пишем (18.11) — досрочное закрытие (без процентов,
+            # можно мгновенно пачкой) не должно засчитываться наравне с настоящим вкладом,
+            # дожитым до срока (см. log_deposit_closures в автозакрытии созревших ниже).
 
         elif a_type == 'buy_upgrade':
             upg_id = act.get('upg')
@@ -8677,6 +8679,8 @@ async def process_actions(request):
             # остаются значения именно той попытки, что реально записалась.
             log_auto_earned = 0.0
             log_deposit_interest = 0.0
+            log_deposit_closures = 0  # 18.11: значок "Вкладчик" — только вклады, ДОЖИВШИЕ до
+            # срока (см. ниже), не досрочные (см. close_deposit — тот инкремент убран оттуда).
             log_daily_reward = 0.0
             log_quest_reward = 0.0
             log_comeback_reward = 0.0
@@ -8702,6 +8706,7 @@ async def process_actions(request):
                 # в лог, а не сумма по всем retry.
                 log_auto_earned = 0.0
                 log_deposit_interest = 0.0
+                log_deposit_closures = 0
                 log_daily_reward = 0.0
                 log_quest_reward = 0.0
                 log_comeback_reward = 0.0
@@ -8800,6 +8805,7 @@ async def process_actions(request):
                         interest = round(dep_amount * rate * (dep.get('termDays', 0) / DEPOSIT_YEAR_DAYS) * 100) / 100
                         coins = round((coins + dep_amount + interest) * 100) / 100
                         log_deposit_interest = round((log_deposit_interest + interest) * 100) / 100
+                        log_deposit_closures += 1  # значок "Вкладчик" — только за дожитые до срока
                         # Проценты по вкладу — не "заработок" в игровом смысле (тапы/автодоход),
                         # поэтому в totalEarned не идут — так было и в старой версии этого кода.
                     else:
@@ -8997,6 +9003,8 @@ async def process_actions(request):
                             new_badges.append(r)
                 if quest_bonus_granted:
                     badge_counter_deltas['dailyAll5'] = badge_counter_deltas.get('dailyAll5', 0) + 1
+                if log_deposit_closures:
+                    badge_counter_deltas['deposits'] = badge_counter_deltas.get('deposits', 0) + log_deposit_closures
                 if badge_counter_deltas:
                     new_counts = await bump_badge_stats(pid, badge_counter_deltas)
                     new_badges += await check_counter_badges(pid, new_counts, now_ms)
