@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-17.6">
+<meta name="ff-build" content="2026-11-18.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -7691,6 +7691,7 @@ function applyActionsResult(res, sentAt, batch) {
   if (res.upgLevels) state.upgLevels = res.upgLevels;
   if (res.rare) applyRareFromServer(res.rare);
   if (Array.isArray(res.ulocs) && res.ulocs.length && !(window._lastUnlockAt && sentAt < window._lastUnlockAt)) syncUnlockedLocs(res.ulocs);
+  if (Array.isArray(res.unlockedTransports) && res.unlockedTransports.length && !(window._lastTransportBuyAt && sentAt < window._lastTransportBuyAt)) syncUnlockedTransports(res.unlockedTransports);
   if (typeof res.energy === 'number') state.energy = res.energy;
   /* Серия ежедневного бонуса — серверная (с 04.11 приходит в каждом ответе). Ответ на запрос, ушедший ДО
      нажатия «Забрать», ещё не знает о бонусе — его цифры пропускаем. Сумму показываем со слов сервера:
@@ -8467,6 +8468,7 @@ function buyTransport(id) {
   if (!tr||state.coins<tr.cost||state.unlockedTransports.indexOf(id)>=0) return;
   state.coins=Math.round((state.coins-tr.cost)*100)/100;
   state.unlockedTransports.push(id); state.transport=id;
+  window._lastTransportBuyAt = Date.now();
   queueAction({type:'buy_transport', transport: id});
   flushActions();
   showNotif(t('🎉 Куплен ','🎉 Bought ')+tr.emoji+' '+trName(tr.id)+'!');
@@ -8497,6 +8499,14 @@ function syncUnlockedLocs(serverLocs) {
     showNotif(t('⚠️ Локация не открылась: на сервере не хватило монет. Открой её ещё раз.','⚠️ The location did not unlock: not enough coins on the server. Please unlock it again.'), true);
   }
   renderLocBar(); updateUI(); save();
+}
+function syncUnlockedTransports(serverTransports) {
+  var lost = state.unlockedTransports.filter(function(id){ return serverTransports.indexOf(id) < 0; });
+  var gained = serverTransports.filter(function(id){ return state.unlockedTransports.indexOf(id) < 0; });
+  if (!lost.length && !gained.length) return;
+  state.unlockedTransports = serverTransports.slice();
+  if (state.unlockedTransports.indexOf(state.transport) < 0) state.transport = 'bike';
+  if (currentTab === 'market') renderMarket();
 }
 function unlockLoc(id) {
   var loc=getLoc(id); if (!loc||loc.unlocked||state.coins<loc.cost) return;
