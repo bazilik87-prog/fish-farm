@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-19.2">
+<meta name="ff-build" content="2026-11-19.4">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1922,6 +1922,10 @@ function fridgeOn() { return (state.boosts.fridge||0) > Date.now(); }
 function liveLifeMult() { return fridgeOn() ? 3 : 1; }
 function filetLifeMs() { return fridgeOn() ? 21600000 : 10800000; }
 function driedLifeMs() { return fridgeOn() ? 43200000 : 21600000; }
+// 19.11: раньше партия, готовая к следующему шагу (засолена → жди "Сушить", разделана →
+// жди "Упаковать"), лежала и ждала сколько угодно без порчи — нечестно по сравнению с
+// остальной рыбой, которая всегда портится. Даём 1.5ч на клик, иначе партия пропадает.
+var PACK_WAIT_MS = 5400000;
 // Включили холодильник — уже лежащий товар тоже получает продлённый срок
 function applyFridgeToStock() {
   var now = Date.now(), i;
@@ -2921,7 +2925,7 @@ function renderKitchen() {
           +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(sdone?'#FFD700':'#1565c0')+';height:6px;border-radius:4px;width:'+spct+'%"></div>'
           +'</div>'
-          +(sdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к сушке!','Ready to dry!')+'</div>':'')
+          +(sdone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((ss.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Сушить"!','h — press "Dry"!')+'</div>':'')
           +'</div>';
       }
       html += '</div>';
@@ -2947,7 +2951,7 @@ function renderKitchen() {
           +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(cdone?'#FFD700':'#e91e63')+';height:6px;border-radius:4px;width:'+cpct+'%"></div>'
           +'</div>'
-          +(cdone?'<div style="font-size:11px;color:#FFD700;margin-top:4px">✅ '+t('Готово к упаковке!','Ready to pack!')+'</div>':'')
+          +(cdone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((cs.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Упаковать"!','h — press "Pack"!')+'</div>':'')
           +'</div>';
       }
       html += '</div>';
@@ -3283,6 +3287,16 @@ function checkSalting() {
       changed=true;
     }
   }
+  // 19.11: не нажал "Сушить" за 1.5ч после готовности — партия портится.
+  var spoiledSalt=[], keptSalt=[];
+  for (var si=0;si<state.salting.length;si++) {
+    var ssl=state.salting[si];
+    if (now>=ssl.endsAt+PACK_WAIT_MS) spoiledSalt.push(ssl); else keptSalt.push(ssl);
+  }
+  if (spoiledSalt.length) {
+    state.salting=keptSalt; changed=true;
+    showNotif(t('🧂 Испортилось: ','🧂 Spoiled: ')+spoiledSalt.length+t(' партий засолки — не успел нажать "Сушить"!',' salted batches — didn\'t pack in time!'),true);
+  }
   if (changed) { save(); }
   if (currentTab==='kitchen') renderKitchen();
 }
@@ -3296,6 +3310,16 @@ function checkCutting() {
       showNotif('🔪 '+slot.emoji+' '+fishName(slot.name)+' '+t('разделана — зайди на кухню!','cut — check the kitchen!'));
       changed=true;
     }
+  }
+  // 19.11: не нажал "Упаковать" за 1.5ч после готовности — партия портится.
+  var spoiledCut=[], keptCut=[];
+  for (var ci=0;ci<(state.cutting||[]).length;ci++) {
+    var csl=state.cutting[ci];
+    if (now>=csl.endsAt+PACK_WAIT_MS) spoiledCut.push(csl); else keptCut.push(csl);
+  }
+  if (spoiledCut.length) {
+    state.cutting=keptCut; changed=true;
+    showNotif(t('🔪 Испортилось: ','🔪 Spoiled: ')+spoiledCut.length+t(' разделанных партий — не успел упаковать!',' cut batches — didn\'t pack in time!'),true);
   }
   // Проверяем упаковку — когда заканчивается, сразу запускаем таймер срока годности
   for (var j=0;j<(state.filets||[]).length;j++) {
@@ -7314,7 +7338,9 @@ function showNamedBadgeDetail(id) {
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(nd.descRu,nd.descEn)+'</div>'
     + '<div style="background:#162238;border-radius:10px;padding:12px;font-size:12px;text-align:center;margin-bottom:14px">'
     + (count>0 ? '<div style="color:#6ddc6d;font-weight:600;margin-bottom:8px">✅ '+t('Получено раз: ','Times earned: ')+count+'</div>'+listHtml
-                : '<div style="color:#90caf9">🔒 '+t('Ещё не получено','Not earned yet')+'</div>')
+                : '<div style="color:#90caf9">🔒 '+t('Ещё не получено','Not earned yet')
+                  + (id==='event_gta6' && typeof badgesValues[id]==='number' ? '<br>'+fmtXp(badgesValues[id])+' / 1000 '+t('рыб за сегодня','fish today') : '')
+                  + '</div>')
     + '</div>'
     + '<button onclick="closeBadgeModal()" style="width:100%;padding:12px;background:#1565c0;border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">'+t('Закрыть','Close')+'</button>'
     + '</div>';

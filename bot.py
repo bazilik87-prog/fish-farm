@@ -4160,6 +4160,12 @@ async def badges_list(request):
                 peak_coins = await r4.json()
             async with session.get(f"{base}/stars_payments/{pid}.json{FB_AUTH}") as r5:
                 stars_payments = await r5.json()
+            gta6_caught = gta6_baseline = None
+            if EVENT_GTA6_START_MS <= int(time_module.time() * 1000) < EVENT_GTA6_END_MS:
+                async with session.get(f"{base}/saves/{pid}/caught.json{FB_AUTH}") as r6:
+                    gta6_caught = await r6.json()
+                async with session.get(f"{base}/saves/{pid}/gta6Baseline.json{FB_AUTH}") as r7:
+                    gta6_baseline = await r7.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
     # Текущие значения "счётных" серий — чтобы игра могла показать "сейчас X из нужных Y",
@@ -4184,6 +4190,13 @@ async def badges_list(request):
         entries = [p for p in stars_payments.values() if isinstance(p, dict)]
         values['patron'] = sum(float(p.get('amount') or 0) for p in entries)
         values['premium'] = sum(1 for p in entries if p.get('label') == 'Premium подписка')
+    # Именная медаль "1000 рыб за день GTA 6" — у именных медалей (в отличие от обычных
+    # значков) своего прогресс-бара вообще нет, экран детали показывал только "не
+    # получено" без цифры (поймано вживую 19.11). gta6Baseline отсутствует, если игрок
+    # ещё не действовал сегодня — тогда честно 0, а не весь caught.
+    if isinstance(gta6_caught, (int, float)):
+        base_val = gta6_baseline if isinstance(gta6_baseline, (int, float)) else gta6_caught
+        values['event_gta6'] = max(0, gta6_caught - base_val)
     return web.json_response({'ok': True, 'badges': badges or {}, 'values': values}, headers=CORS)
 
 
