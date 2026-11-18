@@ -6319,6 +6319,16 @@ async def award_named_badge(pid, badge_id, occurrence_key, meta, now_ms):
         return None
 
 
+# Разовое событие на день выхода GTA 6 (19.11.2026, решение Саши): кто поймает 1000 рыб
+# ИМЕННО за этот день — получает отдельную NFT "в стиле" (не копия брендинга Rockstar —
+# своя тематическая картинка, без логотипов/персонажей чужой игры, во избежание прав).
+# gta6Baseline — улов игрока на момент первого действия ПОСЛЕ начала события (бутстрап,
+# как и везде, без задней даты); событие разовое, occurrence_key фиксирован — одна NFT
+# на игрока максимум.
+EVENT_GTA6_START_MS = 1795035600000  # 19.11.2026 00:00 МСК
+EVENT_GTA6_END_MS = 1795122000000    # 20.11.2026 00:00 МСК (исключительно)
+EVENT_GTA6_CATCH_GOAL = 1000
+
 REFERRAL_ACTIVE_CATCHES = 500  # реферальный бонус +100/+100 — когда друг поймал столько рыб
 _REF_ACTIVE_CHECKED = set()    # pid, для которых в этом процессе уже проверяли бонус (без лишних запросов)
 FISH_PER_PACK = 10  # пачка филе/сушёной делается из 10 рыб (startCutting/startDrying в index.html)
@@ -6573,6 +6583,10 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True, allow_free=True):
         {'kind': 'energy', 'amount': LOTTERY_ENERGY_PRIZE, 'label': f'⚡ +{LOTTERY_ENERGY_PRIZE} энергии', 'weight': 10},
         {'kind': 'luck', 'amount': LOTTERY_LUCK_MIN, 'label': f'🎣 Удачная рыбалка на {LOTTERY_LUCK_MIN} мин', 'weight': 6},
         {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 10},
+        # 19.11.2026 (решение Саши): отдельная настоящая NFT как приз лотереи — очень
+        # редкий (вес 2 из общих 162), в очередь на чеканку вручную, как и NFT за значки
+        # (см. award_named_badge/lottery_nft_of, /nftqueue, /nftmint подхватывают сами).
+        {'kind': 'nft', 'amount': 1, 'label': '🖼 Редкая NFT! Жди личного сообщения.', 'weight': 2},
     ]
     if allow_free:
         prizes.append({'kind': 'free_spin', 'amount': 1, 'label': '🎟 Бесплатная крутка', 'weight': 4})
@@ -6645,6 +6659,30 @@ def lottery_jackpot_of(prize):
         if p.get('kind') == 'jackpot':
             return p
     return None
+
+
+def lottery_nft_of(prize):
+    for p in lottery_prize_list(prize):
+        if p.get('kind') == 'nft':
+            return p
+    return None
+
+
+async def handle_lottery_nft_win(pid, username, user_id, now_ms):
+    """Выпала NFT в лотерее (kind='nft') — кладём в ту же очередь, что и NFT за значки
+    (badges/{pid}/named/lottery_nft/{ts}, nft:'pending' выставляется самим
+    award_named_badge), подхватывается существующими /nftqueue и /nftmint без доп. правок.
+    Личное сообщение игроку не шлём отдельно — приз уже виден в результате крутки
+    (label), только короткое уведомление вам, чтобы не забыть почеканить."""
+    try:
+        await award_named_badge(pid, 'lottery_nft', str(now_ms), {}, now_ms)
+    except Exception as e:
+        print(f"[lottery] nft prize {pid}: {e}")
+    if ADMIN_ID:
+        try:
+            await bot.send_message(ADMIN_ID, f"🖼 Выпала NFT в лотерее! 👤 @{username} (ID {user_id})\nДобавлено в очередь — /nftqueue, /nftmint.")
+        except Exception:
+            pass
 
 
 async def lottery_max_energy(session, base, pid, sv, now_ms, user_id):
@@ -6814,6 +6852,8 @@ async def apply_lottery_prize(pid, prize, mult, grow_jackpot, username='Игро
                     if jput.status == 412:
                         continue
                     break
+        if lottery_nft_of(prize):
+            await handle_lottery_nft_win(pid, username, _uid_of(None, pid), now_ms)
 
 
 async def get_market_prices():
@@ -7520,6 +7560,8 @@ async def lottery_spin(request):
                         if jput.status == 412:
                             continue
                         break
+            if lottery_nft_of(prize):
+                await handle_lottery_nft_win(pid, username, _uid_of(None, pid), now_ms)
     except Exception as e:
         if clan_spin_period and not spin_committed:
             async with aiohttp.ClientSession() as rel_session:
@@ -8698,6 +8740,7 @@ async def process_actions(request):
             log_deposit_interest = 0.0
             log_deposit_closures = 0  # 18.11: значок "Вкладчик" — только вклады, ДОЖИВШИЕ до
             # срока (см. ниже), не досрочные (см. close_deposit — тот инкремент убран оттуда).
+            log_gta6_won = False  # разовое событие 19.11 — см. EVENT_GTA6_* выше
             log_daily_reward = 0.0
             log_quest_reward = 0.0
             log_comeback_reward = 0.0
@@ -8725,6 +8768,7 @@ async def process_actions(request):
                 log_deposit_interest = 0.0
                 log_deposit_closures = 0
                 new_peak_coins = 0.0  # значок "Миллионер" — пиковый баланс, см. ниже у merged.update
+                log_gta6_won = False
                 log_daily_reward = 0.0
                 log_quest_reward = 0.0
                 log_comeback_reward = 0.0
@@ -8934,6 +8978,18 @@ async def process_actions(request):
                 # задней даты (18.11).
                 fresh_peak_coins = float(fresh_sv.get('peakCoins', 0) or 0)
                 new_peak_coins = max(fresh_peak_coins, coins)
+                # Событие дня выхода GTA 6 (19.11.2026, разовое) — 1000 рыб ИМЕННО в этот день.
+                # Бутстрап той же схемой, что и везде: baseline = улов ДО catches этого запроса
+                # (fresh_sv.get('caught'), не итоговый caught), чтобы ловли из ЭТОГО же запроса
+                # тоже засчитывались, а не терялись при первом же действии после начала события.
+                gta6_fields = {}
+                if EVENT_GTA6_START_MS <= now_ms < EVENT_GTA6_END_MS:
+                    fresh_gta6_baseline = fresh_sv.get('gta6Baseline')
+                    if fresh_gta6_baseline is None:
+                        fresh_gta6_baseline = float(fresh_sv.get('caught', 0) or 0)
+                        gta6_fields['gta6Baseline'] = fresh_gta6_baseline
+                    if caught - fresh_gta6_baseline >= EVENT_GTA6_CATCH_GOAL:
+                        log_gta6_won = True
                 merged.update({
                     "coins": coins,
                     "caught": caught,
@@ -8947,6 +9003,7 @@ async def process_actions(request):
                     "deposits": deposits,
                     "loc": cur_loc,  # теперь пишет только сервер (см. switch_loc) — не клиент напрямую
                     "peakCoins": new_peak_coins,
+                    **gta6_fields,
                     **other_fields,
                     **bonus_fields
                 })
@@ -9033,6 +9090,20 @@ async def process_actions(request):
                         r = await award_badge(pid, 'millionaire', mt, now_ms)
                         if r:
                             new_badges.append(r)
+                if log_gta6_won:
+                    r = await award_named_badge(pid, 'event_gta6', 'gta6_2026_11_19', {}, now_ms)
+                    if r:
+                        new_badges.append(r)
+                        try:
+                            await bot.send_message(real_user_id,
+                                "🎉 Поймано 1000 рыб за день выхода GTA 6! Эксклюзивная NFT добавлена в очередь на чеканку 🖼")
+                        except Exception:
+                            pass
+                        if ADMIN_ID:
+                            try:
+                                await bot.send_message(ADMIN_ID, f"🎮 Событие GTA 6: ID {real_user_id} поймал 1000 рыб за день! В очереди — /nftqueue.")
+                            except Exception:
+                                pass
                 if quest_bonus_granted:
                     badge_counter_deltas['dailyAll5'] = badge_counter_deltas.get('dailyAll5', 0) + 1
                 if log_deposit_closures:
@@ -9929,6 +10000,10 @@ NAMED_BADGE_META = {
                          'Big Fishing — 3rd place', 'FishFarm medal for 3rd place in Big Fishing — a separate one each round.'),
     'clanwin_1': ('Победа в клановой битве', 'Медаль FishFarm за победу в клановой битве — отдельная за каждую победу.',
                   'Clan battle win', 'FishFarm medal for a clan battle win — a separate one each victory.'),
+    'lottery_nft': ('Счастливый билет', 'Редкая NFT FishFarm, выпавшая призом в лотерее — отдельная за каждый выигрыш.',
+                     'Lucky Ticket', 'A rare FishFarm NFT won as a lottery prize — a separate one each win.'),
+    'event_gta6': ('1000 рыб за день GTA 6', 'Разовая NFT FishFarm за 1000 рыб, пойманных 19.11.2026 — в честь выхода GTA 6.',
+                   '1000 Fish on GTA 6 Day', 'A one-time FishFarm NFT for catching 1000 fish on 19.11.2026 — celebrating the GTA 6 launch.'),
 }
 
 
