@@ -9540,12 +9540,25 @@ async def revokebadge_command(message: types.Message):
             if minted_tiers:
                 lines.append(f"⚠️ По уровням {minted_tiers} NFT уже ВЫЧЕКАНЕНА в блокчейне — "
                               f"удаление метки здесь её не отзывает, она уже на кошельке игрока.")
+            # Для "накопительных" серий (update_badge_laps) сам значок — это только кэш
+            # поверх счётчика в badge_stats/{pid}/{field}. Если стереть ТОЛЬКО значок,
+            # а счётчик оставить как есть (у "Вкладчика" он уже дорос до 100+ от прокрутки),
+            # значок тут же выдастся заново на первом же подходящем событии (например,
+            # следующий честно дозревший вклад) — счётчик делится на порог и мгновенно
+            # пересчитывает тот же уровень. Поэтому сбрасываем и его тоже (поймано вживую
+            # 19.11 — "deposit" вернулся сам через минуты после отзыва).
+            counter_field = next((f for f, b in _BADGE_COUNTER_TO_SERIES.items() if b == badge_id), None)
             if not confirm:
+                if counter_field:
+                    lines.append(f"(при отзыве счётчик badge_stats.{counter_field} тоже будет сброшен в 0)")
                 lines.append(f"\nЧтобы отобрать по-настоящему: /revokebadge {target} {badge_id} да")
                 await message.answer("\n".join(lines))
                 return
             await session.delete(url)
-            await message.answer("✅ Значок «" + badge_id + "» у " + target + " отобран." +
+            if counter_field:
+                await session.delete(f"{base}/badge_stats/{pid}/{counter_field}.json{FB_AUTH}")
+            await message.answer("✅ Значок «" + badge_id + "» у " + target + " отобран" +
+                                  (f" (счётчик {counter_field} тоже сброшен)." if counter_field else ".") +
                                   (f"\n⚠️ Напоминаю: NFT по уровням {minted_tiers} всё ещё у него на кошельке." if minted_tiers else ""))
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
