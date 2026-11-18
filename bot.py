@@ -8015,6 +8015,20 @@ async def process_actions(request):
             ulocs_changed = True
             continue
 
+        if a_type == 'switch_loc':
+            # Текущая локация игрока — теперь ТОЛЬКО через этот action (сервер сам
+            # помнит, где физически находится игрок), не прямой записью клиента в
+            # saves/{pid}.loc. Раньше ремонт/соль-ножи (ниже) брали мультипликатор
+            # цены просто из того, что ПРИСЛАНО в конкретном action'е (act.get('loc')) —
+            # переключись клиентом на Пруд, почини/закупись по дешёвке, переключись
+            # обратно. Транспорт общий на всех локациях, поэтому ремонт не может
+            # законно стоить по-разному в зависимости от того, где стоишь в момент
+            # нажатия (честно сознался сам игрок, 18.11).
+            target_loc = act.get('loc')
+            if target_loc in ulocs:
+                cur_loc = target_loc
+            continue
+
         loc = act.get('loc', 'pond')
         if loc not in LOCATION_MULT or loc not in ulocs:
             rejected += 1
@@ -8398,7 +8412,9 @@ async def process_actions(request):
             if salt_qty + knife_qty > capacity:
                 rejected += 1
                 continue
-            cost = round((salt_qty * 1 + knife_qty * 3) * mult * (1 - clan_bonus['suppliesPct'] / 100) * 100) / 100
+            # Тот же принцип, что в repair_transport: цена по cur_loc (подтверждённой
+            # серверу локации), не по act.loc этого конкретного запроса (18.11).
+            cost = round((salt_qty * 1 + knife_qty * 3) * LOCATION_MULT.get(cur_loc, 1) * (1 - clan_bonus['suppliesPct'] / 100) * 100) / 100
             if cost > 0 and coins < cost:
                 rejected += 1
                 continue
@@ -8449,9 +8465,11 @@ async def process_actions(request):
                 rejected += 1
                 continue
             # Раньше ремонт стоил одинаково на всех локациях — по просьбе должен расти
-            # вместе с текущей локацией, как апгрейды/соль/ножи (mult уже посчитан выше
-            # из act.get('loc'), для той локации, где игрок физически находится сейчас).
-            repair_cost = round(base_repair_cost * mult)
+            # вместе с текущей локацией, как апгрейды/соль/ножи. Множитель берём из
+            # cur_loc (подтверждённая серверу локация, см. switch_loc выше), НЕ из mult
+            # этого же action'а — транспорт общий на всех локациях, поэтому цена не
+            # должна зависеть от того, что написано именно в ЭТОМ запросе (18.11).
+            repair_cost = round(base_repair_cost * LOCATION_MULT.get(cur_loc, 1))
             if coins < repair_cost:
                 rejected += 1
                 continue
@@ -8896,6 +8914,7 @@ async def process_actions(request):
                     "lastSeen": now_ms,
                     "upgLevels": merged_upg,
                     "deposits": deposits,
+                    "loc": cur_loc,  # теперь пишет только сервер (см. switch_loc) — не клиент напрямую
                     **other_fields,
                     **bonus_fields
                 })
