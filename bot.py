@@ -9557,6 +9557,79 @@ async def badgesmigrate_command(message: types.Message):
                          f"💎 Меценат выдан: {patron_n}\n👑 Premium выдан: {premium_n}")
 
 
+@dp.message(Command('captainbackfill'))
+async def captainbackfill_command(message: types.Message):
+    """Разовая (безопасно повторяемая) задним числом выдача значка "Капитан" — его
+    сознательно НЕ восстанавливает /badgesmigrate (см. его докстринг): обычно нельзя
+    надёжно узнать, под каким капитаном клан прошёл каждый уровень, если капитан менялся.
+    Эта команда проще и безопаснее: смотрит ТЕКУЩЕГО капитана и ТЕКУЩИЙ эффективный
+    уровень клана, выдаёт по порогам BADGE_DEFS['captain'] (3/5/10), если ещё не выдан.
+    Риск — если капитан в клане менялся, новый капитан получит кредит за рост, который
+    мог быть (частично) не при нём; это не вредно (просто чуть щедро) и лучше текущего
+    положения, где реальные капитаны воообще ничего не получают (повод — @Upasigospod,
+    клан «1719», капитан с основания 29.09, 18.11.2026)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/clans.json{FB_AUTH}") as r:
+                all_clans = await r.json() or {}
+            async with session.get(f"{base}/clan_xp.json{FB_AUTH}") as r:
+                all_xp = await r.json() or {}
+
+            to_award = []  # (captain_pid, label, tier)
+            for cid, c in (all_clans or {}).items():
+                if not isinstance(c, dict):
+                    continue
+                captain_id = c.get('captainId')
+                if not captain_id:
+                    continue
+                xd = (all_xp or {}).get(cid) if isinstance(all_xp, dict) else None
+                xd = xd if isinstance(xd, dict) else {}
+                level = clan_effective_level_of(xd)
+                tier = _badge_tier_for(level, BADGE_DEFS['captain']['thresholds'])
+                if tier <= 0:
+                    continue
+                captain_pid = f"tg_{captain_id}"
+                try:
+                    async with session.get(f"{base}/badges/{captain_pid}/captain.json{FB_AUTH}") as r2:
+                        cur = await r2.json()
+                except Exception:
+                    cur = None
+                cur_tier = int((cur or {}).get('tier', 0) or 0)
+                if tier > cur_tier:
+                    name = c.get('name', cid)
+                    to_award.append((captain_pid, f"ID {captain_id} — клан «{name}» ур.{level} (значок {cur_tier}→{tier})", tier))
+
+            if not to_award:
+                await message.answer("Все действующие капитаны уже с нужным значком — досчитывать нечего.")
+                return
+            if not confirm:
+                lines = [f"Найдено капитанов без значка нужного уровня: {len(to_award)}.",
+                         "Чтобы выдать по-настоящему: /captainbackfill да"]
+                text = "\n".join(lines + [l for _, l, _ in to_award[:50]])
+                if len(text) > 3500:
+                    await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='captainbackfill_preview.txt'))
+                else:
+                    await message.answer(text)
+                return
+
+            now_ms = int(time_module.time() * 1000)
+            done = 0
+            for captain_pid, _label, tier in to_award:
+                try:
+                    if await award_badge(captain_pid, 'captain', tier, now_ms):
+                        done += 1
+                except Exception as e:
+                    print(f"[captainbackfill] {captain_pid}: {e}")
+            await message.answer(f"✅ Значок «Капитан» выдан: {done} из {len(to_award)}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('nftqueue'))
 async def nftqueue_command(message: types.Message):
     """Список "кому положен NFT" — значки с nft/{tier}:'pending' (см. mark_nft_eligible/
