@@ -9845,9 +9845,11 @@ async def badgesmigrate_command(message: types.Message):
 @dp.message(Command('nftqueue'))
 async def nftqueue_command(message: types.Message):
     """Список "кому положен NFT" — значки с nft/{tier}:'pending' (см. mark_nft_eligible/
-    award_named_badge), с кошельком, если он есть у /verify-игрока (для настоящего адреса
-    смотри /nftmint — он читает withdrawals_log напрямую). Команда НИЧЕГО не чеканит,
-    только показывает список."""
+    award_named_badge). Кошелёк ищем тем же способом, что и настоящая чеканка (/nftmint) —
+    get_player_wallet_address (сначала linked_wallets через TonConnect, потом withdrawals_log) —
+    раньше тут смотрели только старый /verify-список, из-за чего привязанный через
+    TonConnect кошелёк не был виден в превью, хотя чеканка его бы честно нашла (разошлись
+    картинки — mapitom, 19.11). Команда НИЧЕГО не чеканит, только показывает список."""
     if message.from_user.id != ADMIN_ID:
         return
     import aiohttp
@@ -9856,34 +9858,33 @@ async def nftqueue_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
                 all_badges = await r.json() or {}
-            async with session.get(f"{base}/verified_players.json{FB_AUTH}") as r:
-                verified = await r.json() or {}
+            async with session.get(f"{base}/withdrawals_log.json{FB_AUTH}") as r:
+                wl = await r.json() or {}
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
 
     rows = []  # (uid, label, wallet)
-    for pid, data in (all_badges or {}).items():
-        if not isinstance(data, dict) or not pid.startswith('tg_'):
-            continue
-        uid = pid[3:]
-        vp = verified.get(uid) if isinstance(verified, dict) else None
-        wallets = list((vp or {}).get('wallets') or {}) if isinstance(vp, dict) else []
-        wallet = wallets[0] if wallets else None
-        for bid, bdata in data.items():
-            if bid == 'named':
-                if not isinstance(bdata, dict):
-                    continue
-                for named_id, occs in bdata.items():
-                    if not isinstance(occs, dict):
+    async with aiohttp.ClientSession() as session:
+        for pid, data in (all_badges or {}).items():
+            if not isinstance(data, dict) or not pid.startswith('tg_'):
+                continue
+            uid = pid[3:]
+            wallet = await get_player_wallet_address(session, base, uid, wl=wl)
+            for bid, bdata in data.items():
+                if bid == 'named':
+                    if not isinstance(bdata, dict):
                         continue
-                    for key, occ in occs.items():
-                        if isinstance(occ, dict) and occ.get('nft') == 'pending':
-                            rows.append((uid, f"{named_id} ({key})", wallet))
-            elif isinstance(bdata, dict) and isinstance(bdata.get('nft'), dict):
-                for tier_s, status in bdata['nft'].items():
-                    if status == 'pending':
-                        rows.append((uid, f"{bid} ур.{_nft_tier_from_key(tier_s)}", wallet))
+                    for named_id, occs in bdata.items():
+                        if not isinstance(occs, dict):
+                            continue
+                        for key, occ in occs.items():
+                            if isinstance(occ, dict) and occ.get('nft') == 'pending':
+                                rows.append((uid, f"{named_id} ({key})", wallet))
+                elif isinstance(bdata, dict) and isinstance(bdata.get('nft'), dict):
+                    for tier_s, status in bdata['nft'].items():
+                        if status == 'pending':
+                            rows.append((uid, f"{bid} ур.{_nft_tier_from_key(tier_s)}", wallet))
 
     if not rows:
         await message.answer("Пока никому не положено (нет значков со статусом pending).")
@@ -9895,7 +9896,7 @@ async def nftqueue_command(message: types.Message):
     for uid, label, wallet in ready:
         lines.append(f"ID {uid} — {label} → {wallet}")
     if no_wallet:
-        lines.append(f"\n⚠️ Без кошелька (не /verify или нет записанного адреса) — {len(no_wallet)} чел., им NFT пока не отправить:")
+        lines.append(f"\n⚠️ Без кошелька (не привязан через TonConnect и нет в истории выводов) — {len(no_wallet)} чел., им NFT пока не отправить:")
         for uid, label, _ in no_wallet:
             lines.append(f"ID {uid} — {label}")
 
