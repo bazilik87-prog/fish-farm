@@ -10150,13 +10150,21 @@ async def nftmint_command(message: types.Message):
         async with aiohttp.ClientSession() as session:
             resolved = []
             no_wallet = []
+            bad_wallet = []
             for it in items:
                 uid = it[0]
                 addr = await get_player_wallet_address(session, base, uid, wl=wl)
-                if addr:
-                    resolved.append((it, addr))
-                else:
+                if not addr:
                     no_wallet.append(it)
+                elif wallet_key(addr).startswith('x_'):
+                    # Не похоже на настоящий TON-адрес (wallet_key уже делает ту же проверку
+                    # декодированием base64 — тот же признак, что виден в /nftqueue как "x_...").
+                    # Раньше такие просто летели в Getgems и падали с "value is invalid" —
+                    # пропускаем сразу, без похода в их API (повод — мусорные тестовые
+                    # кошельки @elbanderass/@diskontisrael, 19.11).
+                    bad_wallet.append(it)
+                else:
+                    resolved.append((it, addr))
 
             if not confirm:
                 async with session.get(
@@ -10173,6 +10181,10 @@ async def nftmint_command(message: types.Message):
                 if no_wallet:
                     lines.append(f"\n⚠️ Без кошелька — {len(no_wallet)} чел. (не /verify или нет вывода), им пока не отправить:")
                     for it in no_wallet[:30]:
+                        lines.append(f"ID {it[0]} — {it[6]}")
+                if bad_wallet:
+                    lines.append(f"\n🚫 Кошелёк не похож на настоящий (пропускаются, не трогая Getgems) — {len(bad_wallet)}:")
+                    for it in bad_wallet[:30]:
                         lines.append(f"ID {it[0]} — {it[6]}")
                 await message.answer("\n".join(lines))
                 return
@@ -10269,6 +10281,10 @@ async def nftmint_command(message: types.Message):
                 lines.append(f"\n❌ Ошибки (остались 'pending', можно повторить /nftmint да): {len(failed)}")
                 for uid, nm, err in failed:
                     lines.append(f"ID {uid} — {nm}: {err}")
+            if bad_wallet:
+                lines.append(f"\n🚫 Пропущено (кошелёк не похож на настоящий, Getgems не трогали) — {len(bad_wallet)}:")
+                for it in bad_wallet[:30]:
+                    lines.append(f"ID {it[0]} — {it[6]}")
             text = "\n".join(lines)
             if len(text) > 3500:
                 await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftmint.txt'))
