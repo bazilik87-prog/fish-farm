@@ -8952,6 +8952,7 @@ async def process_actions(request):
                     "firstName": tg_user.get('first_name') or '',
                     "premiumUntil": premium_until,
                     "purchasedCoins": round(float(merged.get('purchasedCoins') or 0)),  # для /audit
+                    "nftCount": log_nft_count,  # дубликат saves/{pid}/nftCount — чтобы /players не читал saves каждого игрока
                 })
             except Exception:
                 pass  # лидерборд не должен ронять сам запрос игрока
@@ -14194,7 +14195,9 @@ async def players_command(message: types.Message):
             else:
                 last_seen = 'неизвестно'
             total_earned = p.get('totalEarned', 0)
-            lines.append(f"{i}. {loc} {identity} | total_earned:{total_earned:,} | coins:{coins:,} | caught:{caught} | last:{last_seen}")
+            nft_count = int(p.get('nftCount') or 0)
+            nft_part = f" | nft:{nft_count}" if nft_count else ""
+            lines.append(f"{i}. {loc} {identity} | total_earned:{total_earned:,} | coins:{coins:,} | caught:{caught}{nft_part} | last:{last_seen}")
         now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
         header = f"FishFarm — Список игроков\nДата: {now}\nВсего: {len(players)}\n{'='*40}\n\n"
         content = header + "\n".join(lines)
