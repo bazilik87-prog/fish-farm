@@ -9487,6 +9487,61 @@ async def start(message: types.Message):
 GIFT_BOOSTS = ('luckyRod', 'turboSpeed')  # подарочные бустеры: +50% к улову на 30 мин, ×2 скорость доставки на 1 ч
 
 
+@dp.message(Command('badgeholders'))
+async def badgeholders_command(message: types.Message):
+    """Кто уже получил конкретный значок (и на каком уровне) — /badgeholders deposit.
+    Читает badges.json целиком (один раз, как /badgesmigrate), фильтрует по badge_id.
+    Для "накопительных" серий (update_badge_laps) показывает ещё laps — сколько раз
+    пройден порог каждого уровня, это и есть РЕАЛЬНОЕ число засчитанных событий."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer("Использование: <code>/badgeholders deposit</code>\n"
+                              "ID значков — см. BADGE_DEFS в коде.", parse_mode="HTML")
+        return
+    badge_id = args[1].lower()
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
+                all_badges = await r.json() or {}
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as r:
+                lb = await r.json() or {}
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    rows = []
+    for pid, data in (all_badges or {}).items():
+        if not isinstance(data, dict) or not pid.startswith('tg_'):
+            continue
+        bdata = data.get(badge_id)
+        if not isinstance(bdata, dict):
+            continue
+        tier = int(bdata.get('tier') or 0)
+        if tier <= 0:
+            continue
+        uid = pid[3:]
+        username = ((lb or {}).get(pid) or {}).get('username') if isinstance(lb, dict) else None
+        identity = f"@{username}" if username else f"ID:{uid}"
+        laps = bdata.get('laps') if isinstance(bdata.get('laps'), dict) else {}
+        laps_str = ', '.join(f"ур.{k}×{v}" for k, v in sorted(laps.items())) if laps else ''
+        rows.append((tier, f"{identity} — уровень {tier}" + (f" ({laps_str})" if laps_str else '')))
+
+    if not rows:
+        await message.answer(f"Ни у кого нет значка «{badge_id}».")
+        return
+    rows.sort(key=lambda x: -x[0])
+    lines = [f"Значок «{badge_id}» есть у {len(rows)} игроков:"] + [r[1] for r in rows]
+    text = "\n".join(lines)
+    if len(text) > 3500:
+        await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename=f'badgeholders_{badge_id}.txt'))
+    else:
+        await message.answer(text)
+
+
 @dp.message(Command('badgesmigrate'))
 async def badgesmigrate_command(message: types.Message):
     """Разовая (но безопасно повторяемая — award_badge/update_badge_laps не задваивают)
