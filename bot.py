@@ -9630,6 +9630,78 @@ async def captainbackfill_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('friendsbackfill'))
+async def friendsbackfill_command(message: types.Message):
+    """Разовая (безопасно повторяемая) задним числом досчитка значка "Душа компании" —
+    его сознательно НЕ восстанавливает /badgesmigrate: счётчик friendsActive раньше рос
+    только ЖИВЬЁМ, в момент, когда реферал пересекал REFERRAL_ACTIVE_CATCHES (500) рыб
+    (реферальный бонус). Рефералы, пересёкшие порог ДО появления этого счётчика, остались
+    незасчитанными — хотя их улов (растёт только вверх) сейчас виден в leaderboard. Здесь
+    пересчитываем заново: для каждого реферера берём ЕГО рефералов (referrals/by/{uid}),
+    считаем, сколько из них СЕЙЧАС не забанены и поймали 500+ — update_badge_laps сам не
+    занижает уже выданное (повод — тот же разговор, что про /captainbackfill, 18.11)."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/referrals/by.json{FB_AUTH}") as r:
+                refs_by = await r.json() or {}
+            lb = await get_leaderboard_cached(session, base, max_age_ms=0)
+            caught_by_uid = {str(v.get('userId')): float(v.get('caught', 0) or 0)
+                              for v in (lb or {}).values() if isinstance(v, dict) and v.get('userId')}
+
+            to_award = []  # (referrer_pid, label, value)
+            for referrer_uid, refs in (refs_by or {}).items():
+                if not isinstance(refs, dict) or not refs:
+                    continue
+                qualifying = 0
+                for ref_uid in refs:
+                    if caught_by_uid.get(str(ref_uid), 0) < REFERRAL_ACTIVE_CATCHES:
+                        continue
+                    if await user_is_banned(ref_uid):
+                        continue
+                    qualifying += 1
+                if qualifying <= 0:
+                    continue
+                referrer_pid = f"tg_{referrer_uid}"
+                try:
+                    async with session.get(f"{base}/badges/{referrer_pid}/friends.json{FB_AUTH}") as r2:
+                        cur = await r2.json()
+                except Exception:
+                    cur = None
+                cur_laps = int(((cur or {}).get('laps') or {}).get('1') or 0)
+                if qualifying // BADGE_DEFS['friends']['thresholds'][0] > cur_laps:
+                    to_award.append((referrer_pid, f"ID {referrer_uid} — {qualifying} друзей с 500+ рыб", qualifying))
+
+            if not to_award:
+                await message.answer("У всех реферeров уже посчитано — досчитывать нечего.")
+                return
+            if not confirm:
+                lines = [f"Найдено реферeров с недосчитанными друзьями: {len(to_award)}.",
+                         "Чтобы записать по-настоящему: /friendsbackfill да"]
+                text = "\n".join(lines + [l for _, l, _ in to_award[:50]])
+                if len(text) > 3500:
+                    await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='friendsbackfill_preview.txt'))
+                else:
+                    await message.answer(text)
+                return
+
+            now_ms = int(time_module.time() * 1000)
+            done = 0
+            for referrer_pid, _label, qualifying in to_award:
+                try:
+                    if await update_badge_laps(referrer_pid, 'friends', qualifying, now_ms):
+                        done += 1
+                except Exception as e:
+                    print(f"[friendsbackfill] {referrer_pid}: {e}")
+            await message.answer(f"✅ Значок «Душа компании» обновлён: {done} из {len(to_award)}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('nftqueue'))
 async def nftqueue_command(message: types.Message):
     """Список "кому положен NFT" — значки с nft/{tier}:'pending' (см. mark_nft_eligible/
