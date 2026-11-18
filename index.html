@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-19.4">
+<meta name="ff-build" content="2026-11-19.5">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1231,7 +1231,7 @@ var tapTimes = [];
 var _lastScaredAnimAt = 0;
 var scareFactor = 1.0;
 var MAX_TPS = 5;
-var MASH_TPS = 6;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники
+var MASH_TPS = 3;   // нажатий в секунду (включая отсечённые), после которых рыба пугается до паники — 19.11, понижено с 6
 // Защита от автокликера (09.10.2026). tapAttempts — ВСЕ нажатия за секунду (до фильтра 200 мс:
 // раньше «паника» была недостижима — принятых тапов не бывает больше 5/с). tapIntervals — паузы
 // между принятыми тапами серии: у человека они «гуляют», у автокликера почти одинаковые.
