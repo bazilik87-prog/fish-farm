@@ -4158,6 +4158,8 @@ async def badges_list(request):
                 lottery_stats = await r3.json()
             async with session.get(f"{base}/saves/{pid}/peakCoins.json{FB_AUTH}") as r4:
                 peak_coins = await r4.json()
+            async with session.get(f"{base}/stars_payments/{pid}.json{FB_AUTH}") as r5:
+                stars_payments = await r5.json()
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500, headers=CORS)
     # Текущие значения "счётных" серий — чтобы игра могла показать "сейчас X из нужных Y",
@@ -4173,6 +4175,15 @@ async def badges_list(request):
     values['boot'] = _lottery_boot_count(lottery_stats)
     if isinstance(peak_coins, (int, float)):
         values['millionaire'] = peak_coins
+    # patron/premium — показываем ПОЛНУЮ историю из stars_payments/{pid}, не badge_stats
+    # (starsSpent/premiumMonths там растут только живыми платежами с 13.11, когда эти
+    # счётчики появились — платежи ДО этой даты в них никогда не попадали, из-за чего
+    # уровень значка мог быть верно досчитан через /badgesmigrate, а прогресс на экране
+    # всё равно показывал "0" или заниженную сумму. Повод — @mapitom, 18.11).
+    if isinstance(stars_payments, dict) and stars_payments:
+        entries = [p for p in stars_payments.values() if isinstance(p, dict)]
+        values['patron'] = sum(float(p.get('amount') or 0) for p in entries)
+        values['premium'] = sum(1 for p in entries if p.get('label') == 'Premium подписка')
     return web.json_response({'ok': True, 'badges': badges or {}, 'values': values}, headers=CORS)
 
 
