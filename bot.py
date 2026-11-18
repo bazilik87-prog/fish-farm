@@ -17284,11 +17284,20 @@ async def main():
         await web.TCPSite(runner, '0.0.0.0', PORT).start()
         print(f"API запущен на порту {PORT}")
 
-        try:
-            await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True, request_timeout=10)
-            print(f"Webhook установлен: {webhook_url}")
-        except Exception as e:
-            print(f"Не удалось установить webhook: {e}")
+        # Одна попытка с таймаутом 10с — мало: если Telegram/сеть на старте чуть притормозили
+        # (например, несколько деплоев подряд за пару минут), webhook молча не ставился, и
+        # бот оставался "живым", но глухим ко всем командам до СЛЕДУЮЩЕГО перезапуска — никакого
+        # фолбэка на long-polling тут нет (19.11, реальный случай — Саша не мог достучаться
+        # даже до /broadcaststop). Несколько попыток подряд вместо одной.
+        for _wh_attempt in range(5):
+            try:
+                await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True, request_timeout=10)
+                print(f"Webhook установлен: {webhook_url}")
+                break
+            except Exception as e:
+                print(f"Не удалось установить webhook (попытка {_wh_attempt + 1}/5): {e}")
+                if _wh_attempt < 4:
+                    await asyncio.sleep(3)
 
         print("Бот запущен!")
         asyncio.create_task(price_regeneration_loop())
