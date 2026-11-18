@@ -9987,6 +9987,63 @@ async def nftmint_command(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@dp.message(Command('nftlbsync'))
+async def nftlbsync_command(message: types.Message):
+    """Разовая (безопасно повторяемая) синхронизация leaderboard/{pid}/nftCount из
+    saves/{pid}/nftCount — после добавления этого поля в /players (18.11) оно у игрока
+    появляется в leaderboard только на его СЛЕДУЮЩЕМ /actions. Эта команда досчитывает
+    его сразу для всех, кто уже заходил раньше. Читает только поле nftCount у каждого
+    (не весь сейв — дёшево по трафику), пишет только тем, у кого оно реально отличается."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as r:
+                lb = await r.json() or {}
+            to_patch = []  # (pid, label, new_count)
+            for pid, p in lb.items():
+                if not isinstance(p, dict):
+                    continue
+                lb_count = int(p.get('nftCount') or 0)
+                try:
+                    async with session.get(f"{base}/saves/{pid}/nftCount.json{FB_AUTH}") as r2:
+                        save_count = await r2.json()
+                except Exception:
+                    continue
+                save_count = int(save_count or 0)
+                if save_count != lb_count:
+                    username = p.get('username', '')
+                    identity = f"@{username}" if username else pid
+                    to_patch.append((pid, f"{identity}: {lb_count} → {save_count}", save_count))
+
+            if not to_patch:
+                await message.answer("Все записи уже синхронизированы, досчитывать нечего.")
+                return
+            if not confirm:
+                lines = [f"Найдено расхождений: {len(to_patch)}.", "Чтобы записать по-настоящему: /nftlbsync да"]
+                text = "\n".join(lines + [l for _, l, _ in to_patch[:50]])
+                if len(text) > 3500:
+                    await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftlbsync_preview.txt'))
+                else:
+                    await message.answer(text)
+                return
+
+            done = 0
+            for pid, _label, new_count in to_patch:
+                try:
+                    async with session.patch(f"{base}/leaderboard/{pid}.json{FB_AUTH}", json={'nftCount': new_count}) as r3:
+                        if r3.status in (200, 204):
+                            done += 1
+                except Exception as e:
+                    print(f"[nftlbsync] {pid}: {e}")
+            await message.answer(f"✅ Обновлено записей: {done} из {len(to_patch)}.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command('nftbackfill'))
 async def nftbackfill_command(message: types.Message):
     """Разовая (но безопасно повторяемая) задним числом простановка nft/{tier}:'pending' у
