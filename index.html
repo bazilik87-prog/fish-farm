@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-20.2">
+<meta name="ff-build" content="2026-11-20.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -7417,6 +7417,7 @@ function renderPremiumCard() {
       +'✅ '+t('Бесплатная крутка лотереи в день','One free lottery spin per day')+'<br>'
       +'✅ '+t('Бесплатное открытие вклада (вместо ⭐1)','Free deposit opening (instead of ⭐1)')+'<br>'
       +'✅ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
+      +'<button class="btn btn-full st-prem-buy" style="margin-top:10px;background:linear-gradient(135deg,#ff9800,#f57c00)" onclick="buyPremium45()">🎁 '+t('Докупить ещё 45 дней за ⭐400','Add 45 more days for ⭐400')+'</button>'
       +'</div>';
   }
   return '<div class="card st-prem">'
@@ -7433,6 +7434,8 @@ function renderPremiumCard() {
     +'✨ '+t('Бесплатное открытие вклада (вместо ⭐1)','Free deposit opening (instead of ⭐1)')+'<br>'
     +'✨ 👑 '+t('у имени в лидерборде','next to name on leaderboard')+'</div>'
     +'<button class="btn btn-full st-prem-buy" onclick="buyPremium()">👑 '+t('Оформить за ⭐300/мес','Subscribe for ⭐300/mo')+'</button>'
+    +'<button class="btn btn-full st-prem-buy" style="margin-top:8px;background:linear-gradient(135deg,#ff9800,#f57c00)" onclick="buyPremium45()">🎁 '+t('45 дней за ⭐400 — 5 дней бесплатно!','45 days for ⭐400 — 5 days free!')+'</button>'
+    +'<div style="font-size:10px;color:#90caf9;text-align:center;margin-top:4px">'+t('Разовая покупка, без автопродления — добавляется к текущему сроку','One-time purchase, no auto-renewal — adds to your current time')+'</div>'
     +'</div>';
 }
 function buyPremium() {
@@ -7452,6 +7455,32 @@ function buyPremium() {
       tg.openInvoice(invLink, function(status){
         if(status==='paid') {
           showNotif(t('👑 Premium активируется в течение минуты!','👑 Premium activates within a minute!'));
+          setTimeout(checkPremiumStatus, 3000);
+          setTimeout(function(){ if(currentTab==='settings') renderSettings(); }, 3500);
+        }
+      });
+    } else if (data.error) {
+      showNotif(t('Ошибка сервера: ','Server error: ')+data.error);
+    } else { showNotif(t('Ошибка: нет ссылки на оплату','Error: no payment link')); }
+  }).catch(function(e){ showNotif(t('Ошибка: ','Error: ')+e.message); });
+}
+function buyPremium45() {
+  showNotif(t('⏳ Создаём счёт...','⏳ Creating invoice...'));
+  var userId = tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+  fetch(BOT_API_URL+'/invoice', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'subscribe45',user_id:userId,init_data:tg&&tg.initData||''})
+  }).then(function(r){
+    return r.json().then(function(data){ return {ok:r.ok, status:r.status, data:data}; });
+  }).then(function(res){
+    if(!res.ok) { showNotif(t('Ошибка сервера (','Server error (')+res.status+'): '+(res.data&&res.data.error||t('неизвестная ошибка','unknown error'))); return; }
+    var data = res.data;
+    if(data.link && tg && tg.openInvoice) {
+      var invLink = data.link.replace('https://telegram.me/', 'https://t.me/');
+      tg.openInvoice(invLink, function(status){
+        if(status==='paid') {
+          showNotif(t('🎁 45 дней Premium добавлены!','🎁 45 days of Premium added!'));
           setTimeout(checkPremiumStatus, 3000);
           setTimeout(function(){ if(currentTab==='settings') renderSettings(); }, 3500);
         }

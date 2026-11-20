@@ -290,6 +290,8 @@ def scaled_boost_price(boost_id, base_price, location_order):
     extra_steps = max(0, location_order - 2)
     return base_price + step * extra_steps
 PREMIUM_PRICE = 300  # ⭐/месяц
+PREMIUM_PRICE_45 = 400  # ⭐/45 дней, разовая покупка без автопродления (19.11, решение Саши)
+PREMIUM_DAYS_45 = 45
 # Покупка монет за ⭐ (решение Саши, 06.10.2026, вариант «купленные монеты выводятся»):
 # пакет -> (цена в ⭐, монет на Пруду). Монеты умножаются на множитель ЛУЧШЕЙ открытой
 # локации — тогда в долларах вывода пакет стоит одинаково везде. Безубыточно было бы
@@ -1476,6 +1478,24 @@ async def create_invoice(request):
                     prices=[LabeledPrice(label="Premium — 30 дней", amount=PREMIUM_PRICE)],
                     provider_token="",
                 )
+            return web.json_response({'link': link}, headers=CORS)
+
+        elif action == 'subscribe45':
+            # 19.11, решение Саши: разовая покупка Premium на 45 дней за 400⭐ («5 дней
+            # бесплатно» по сравнению с 1.5× обычной месячной цены). БЕЗ subscription_period —
+            # Telegram Stars поддерживает автопродление ТОЛЬКО с периодом ровно 2592000с
+            # (30 дней), другое число для автопродления технически невозможно. Прибавляется
+            # к уже оставшемуся сроку (successful_payment, payload 'sub45:').
+            user_id = real_user_id
+            payload = f"sub45:{user_id}"
+            link = await bot.create_invoice_link(
+                title="FishFarm Premium — 45 дней",
+                description="Premium на 45 дней (разово, без автопродления): те же привилегии, что и у месячной подписки",
+                payload=payload,
+                currency="XTR",
+                prices=[LabeledPrice(label="Premium — 45 дней", amount=PREMIUM_PRICE_45)],
+                provider_token="",
+            )
             return web.json_response({'link': link}, headers=CORS)
 
         elif action == 'buy_referral':
@@ -15519,7 +15539,7 @@ async def successful_payment(message: types.Message):
         label = BOOST_LABELS.get(payload.split(':')[1], payload) if payload.startswith('bo:') else \
                 ('Обмен на USDT' if payload.startswith('ex:') else
                  'Покупка монет' if payload.startswith('cn:') else
-                 'Premium подписка' if payload.startswith('sub:') else
+                 'Premium подписка' if payload.startswith('sub:') or payload.startswith('sub45:') else
                  'Слот клана' if payload.startswith('cs:') else
                  'Создание турнира клана' if payload.startswith('ctc:') else
                  'Взнос в турнир клана' if payload.startswith('ctp:') else
@@ -16238,6 +16258,55 @@ async def successful_payment(message: types.Message):
                     "✅ One free lottery spin per day\n"
                     "✅ Crown next to your name on the leaderboard\n\n"
                     "The subscription renews automatically every 30 days.")
+            )
+        except Exception:
+            pass
+
+    elif payload.startswith('sub45:'):
+        # 19.11: разовая покупка 45 дней Premium (400⭐, "5 дней бесплатно") — в отличие
+        # от 'sub:' НЕ сбрасывает срок на "сейчас+45", а ПРИБАВЛЯЕТ к уже оставшемуся,
+        # чтобы покупка заранее не сжигала уже оплаченное время (решение Саши). Без
+        # автопродления — Telegram Stars не поддерживает подписку с периодом, отличным
+        # от ровно 30 дней (see PREMIUM_PRICE_45).
+        parts = payload.split(':')
+        user_id = parts[1] if len(parts) > 1 else str(message.from_user.id)
+        import aiohttp, time
+        try:
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            now_ms45 = int(time.time() * 1000)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/premium/tg_{user_id}.json{FB_AUTH}") as pr45:
+                    cur_until45 = await pr45.json()
+                cur_until45 = cur_until45 if isinstance(cur_until45, (int, float)) else 0
+                until45 = max(now_ms45, cur_until45) + PREMIUM_DAYS_45 * 24 * 3600 * 1000
+                await session.put(f"{base}/premium/tg_{user_id}.json{FB_AUTH}", json=until45)
+        except Exception as e:
+            await _alert_payment_fulfillment_failed(user_id, "Premium — 45 дней", str(e))
+        try:
+            _prem45_pid = f"tg_{user_id}"
+            _prem45_counts = await bump_badge_stats(_prem45_pid, {'premiumMonths': 1})
+            await check_counter_badges(_prem45_pid, _prem45_counts, int(time_module.time() * 1000))
+        except Exception as e:
+            print(f"[badges] premium45 {user_id}: {e}")
+        try:
+            await message.answer(
+                t(message.from_user,
+                    "🎁 Premium на 45 дней добавлен к твоему сроку!\n\n"
+                    "✅ +25% к автодоходу\n"
+                    "✅ Бесплатный ежедневный ремонт транспорта\n"
+                    "✅ Комиссия банка снижена до ⭐3\n"
+                    "✅ Защита стрика ежедневного бонуса\n"
+                    "✅ Бесплатная крутка лотереи раз в день\n"
+                    "✅ Корона рядом с именем в лидерборде\n\n"
+                    "Это разовая покупка — по истечении срока продлить нужно будет самому.",
+                    "🎁 45 days of Premium added to your time!\n\n"
+                    "✅ +25% to auto-income\n"
+                    "✅ Free daily transport repair\n"
+                    "✅ Bank fee reduced to ⭐3\n"
+                    "✅ Daily bonus streak protection\n"
+                    "✅ One free lottery spin per day\n"
+                    "✅ Crown next to your name on the leaderboard\n\n"
+                    "This is a one-time purchase — you'll need to renew it yourself once it runs out.")
             )
         except Exception:
             pass
