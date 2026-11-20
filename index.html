@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-20.1">
+<meta name="ff-build" content="2026-11-20.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -1919,6 +1919,7 @@ function calcStats() {
 // 🧊 Холодильник (бустер, 24 ч): живая рыба живёт ×3, филе и сушёная хранятся ×2.
 var FRIDGE_MS = 86400000;
 function fridgeOn() { return (state.boosts.fridge||0) > Date.now(); }
+function freezerOn() { return (state.boosts.freezer||0) > Date.now(); } // 19.11: защищает от порчи засолки/разделки за 1.5ч
 function liveLifeMult() { return fridgeOn() ? 3 : 1; }
 function filetLifeMs() { return fridgeOn() ? 21600000 : 10800000; }
 function driedLifeMs() { return fridgeOn() ? 43200000 : 21600000; }
@@ -2925,7 +2926,10 @@ function renderKitchen() {
           +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(sdone?'#FFD700':'#1565c0')+';height:6px;border-radius:4px;width:'+spct+'%"></div>'
           +'</div>'
-          +(sdone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((ss.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Сушить"!','h — press "Dry"!')+'</div>':'')
+          +(sdone?(freezerOn()
+              ? '<div style="font-size:11px;color:#6ddc6d">❄️ '+t('Защищено Морозильником','Protected by Freezer')+'</div>'
+              : '<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((ss.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Сушить"!','h — press "Dry"!')+'</div>')
+            :'')
           +'</div>';
       }
       html += '</div>';
@@ -2951,7 +2955,10 @@ function renderKitchen() {
           +'<div style="background:#272c47;border-radius:4px;height:6px">'
           +'<div style="background:'+(cdone?'#FFD700':'#e91e63')+';height:6px;border-radius:4px;width:'+cpct+'%"></div>'
           +'</div>'
-          +(cdone?'<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((cs.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Упаковать"!','h — press "Pack"!')+'</div>':'')
+          +(cdone?(freezerOn()
+              ? '<div style="font-size:11px;color:#6ddc6d">❄️ '+t('Защищено Морозильником','Protected by Freezer')+'</div>'
+              : '<div style="font-size:11px;color:#ff9944">⏳ '+t('Истекает через ','Expires in ')+Math.max(0,Math.round((cs.endsAt+PACK_WAIT_MS-now)/3600000*10)/10)+t('ч — нажми "Упаковать"!','h — press "Pack"!')+'</div>')
+            :'')
           +'</div>';
       }
       html += '</div>';
@@ -3287,11 +3294,12 @@ function checkSalting() {
       changed=true;
     }
   }
-  // 19.11: не нажал "Сушить" за 1.5ч после готовности — партия портится.
+  // 19.11: не нажал "Сушить" за 1.5ч после готовности — партия портится (кроме как при
+  // включённом Морозильнике — бустер ❄️, решение Саши 19.11).
   var spoiledSalt=[], keptSalt=[];
   for (var si=0;si<state.salting.length;si++) {
     var ssl=state.salting[si];
-    if (now>=ssl.endsAt+PACK_WAIT_MS) spoiledSalt.push(ssl); else keptSalt.push(ssl);
+    if (!freezerOn() && now>=ssl.endsAt+PACK_WAIT_MS) spoiledSalt.push(ssl); else keptSalt.push(ssl);
   }
   if (spoiledSalt.length) {
     state.salting=keptSalt; changed=true;
@@ -3311,11 +3319,12 @@ function checkCutting() {
       changed=true;
     }
   }
-  // 19.11: не нажал "Упаковать" за 1.5ч после готовности — партия портится.
+  // 19.11: не нажал "Упаковать" за 1.5ч после готовности — партия портится (кроме как при
+  // включённом Морозильнике).
   var spoiledCut=[], keptCut=[];
   for (var ci=0;ci<(state.cutting||[]).length;ci++) {
     var csl=state.cutting[ci];
-    if (now>=csl.endsAt+PACK_WAIT_MS) spoiledCut.push(csl); else keptCut.push(csl);
+    if (!freezerOn() && now>=csl.endsAt+PACK_WAIT_MS) spoiledCut.push(csl); else keptCut.push(csl);
   }
   if (spoiledCut.length) {
     state.cutting=keptCut; changed=true;
@@ -3916,6 +3925,12 @@ function renderBoosts() {
       timeLeft: fridgeOn() ? Math.ceil((b.fridge-now)/60000) : 0
     },
     {
+      id:'freezer', name:t('Морозильник','Freezer'), emoji:'❄️', price:scaledBoostPrice(5,1),
+      desc:t('24 часа: засоленная и разделанная рыба не портится, пока ждёт следующего шага','24 hours: salted and cut fish won\'t spoil while waiting for the next step'),
+      active: freezerOn(),
+      timeLeft: freezerOn() ? Math.ceil((b.freezer-now)/60000) : 0
+    },
+    {
       id:'clanBoost', name:t('Угостить клан','Treat your clan'), emoji:'🎁', price:clanBoostPrice(),
       desc:t('+20% к шансу улова ВСЕМУ клану на 1 час. Клан получит сообщение, кто угостил','+20% catch chance for your WHOLE clan for 1 hour. The clan gets a message who treated them'),
       active: clanBoostOn(),
@@ -4412,6 +4427,10 @@ function activateBoost(id, growJackpot) {
   if (id==='fridge') {
     activateFridge(FRIDGE_MS);
     showNotif(t('🧊 Холодильник включён на 24 часа! Рыба и заготовки хранятся дольше.','🧊 Fridge on for 24 hours! Fish and products keep longer.'));
+  }
+  if (id==='freezer') {
+    state.boosts.freezer = Math.max(now, state.boosts.freezer||0) + 86400000;
+    showNotif(t('❄️ Морозильник включён на 24 часа! Засолка и разделка не портятся.','❄️ Freezer on for 24 hours! Salted/cut batches won\'t spoil.'));
   }
   if (id==='umbrella') {
     showNotif(t('☂️ Погода закреплена на 10 минут — сменить её никто не сможет!','☂️ Weather locked for 10 minutes — nobody can change it!'), true);
@@ -7574,14 +7593,14 @@ function showInstructions() {
     +'1️⃣ '+t('Накопи 10 рыб одного вида','Collect 10 fish of one kind')+'<br>'
     +'2️⃣ '+t('Купи соль на рынке (при отправке доставки выбери соль на обратный путь)','Buy salt at the market (choose salt for the return trip when sending delivery)')+'<br>'
     +'3️⃣ '+t('Засоли рыбу 🧂 — занимает 30 минут','Salt the fish 🧂 — takes 30 minutes')+'<br>'
-    +'<span style="color:#ff9944">⏳ '+t('После готовности есть 1.5 часа, чтобы нажать «Сушить» — не успеешь, партия испортится!','Once ready you have 1.5 hours to press "Dry" — miss it and the batch spoils!')+'</span><br>'
+    +'<span style="color:#ff9944">⏳ '+t('После готовности есть 1.5 часа, чтобы нажать «Сушить» — не успеешь, партия испортится! Бустер ❄️ Морозильник снимает это ограничение на 24 часа.','Once ready you have 1.5 hours to press "Dry" — miss it and the batch spoils! The ❄️ Freezer booster removes this limit for 24 hours.')+'</span><br>'
     +'4️⃣ '+t('Запусти сушку 🌡 — время зависит от вида рыбы','Start drying 🌡 — time depends on fish type')+'<br>'
     +'5️⃣ '+t('Собери пакет 📦 — продай на рынке (срок годности 6 часов)','Collect the pack 📦 — sell at the market (expires in 6 hours)')+'<br><br>'
     +'<u>'+t('Филе:','Filet:')+'</u><br>'
     +'1️⃣ '+t('Накопи 10 рыб одного вида','Collect 10 fish of one kind')+'<br>'
     +'2️⃣ '+t('Купи нож 🔪 на рынке (обратный путь, как соль)','Buy a knife 🔪 at the market (return trip, like salt)')+'<br>'
     +'3️⃣ '+t('Разделай рыбу — занимает 2 часа','Cut the fish — takes 2 hours')+'<br>'
-    +'<span style="color:#ff9944">⏳ '+t('После готовности есть 1.5 часа, чтобы нажать «Упаковать» — не успеешь, партия испортится!','Once ready you have 1.5 hours to press "Pack" — miss it and the batch spoils!')+'</span><br>'
+    +'<span style="color:#ff9944">⏳ '+t('После готовности есть 1.5 часа, чтобы нажать «Упаковать» — не успеешь, партия испортится! Бустер ❄️ Морозильник снимает это ограничение на 24 часа.','Once ready you have 1.5 hours to press "Pack" — miss it and the batch spoils! The ❄️ Freezer booster removes this limit for 24 hours.')+'</span><br>'
     +'4️⃣ '+t('Запусти упаковку — время зависит от вида рыбы','Start packing — time depends on fish type')+'<br>'
     +'5️⃣ '+t('Собери филе — продай на рынке (срок годности 3 часа)','Collect the filet — sell at the market (expires in 3 hours)')+'<br><br>'
     +'<b style="color:#fff">'+t('🧂 Соль','🧂 Salt')+'</b><br>'+t('Покупается при отправке доставки на рынке. На обратном пути транспорт привозит соль. Цена зависит от локации: Пруд 1🪙 · Река 2🪙 · Тропики 5🪙 · Глубины 15🪙 · Космос 50🪙','Bought when sending delivery at the market. On the way back the transport brings salt. Price depends on location: Pond 1🪙 · River 2🪙 · Tropics 5🪙 · Deep 15🪙 · Space 50🪙')+'<br><br>'
@@ -7664,6 +7683,7 @@ function showInstructions() {
     +'📦 '+t('Мгновенная упаковка (⭐1→1→2→3→5) — вся текущая упаковка филе завершается мгновенно','Instant packing (⭐1→1→2→3→5) — all current filet packing finishes instantly')+'<br>'
     +'🚀 '+t('Мгновенная доставка (⭐1→1→2→3→5) — все активные доставки (твоя + водителя) завершаются мгновенно','Instant delivery (⭐1→1→2→3→5) — all active deliveries (yours + driver) finish instantly')+'<br>'
     +'🧊 '+t('Холодильник (⭐2→2→3→4→5) — на 24 часа: живая рыба живёт 3 ч вместо 1, филе и сушёная хранятся вдвое дольше','Fridge (⭐2→2→3→4→5) — for 24 hours: live fish lasts 3h instead of 1, filet and dried keep twice as long')+'<br>'
+    +'❄️ '+t('Морозильник (⭐5→5→6→7→5) — на 24 часа: засоленная и разделанная рыба не портится, пока ждёт следующего шага (1.5ч)','Freezer (⭐5→5→6→7→5) — for 24 hours: salted and cut fish won\'t spoil while waiting for the next step (1.5h)')+'<br>'
     +'🎁 '+t('Угостить клан (⭐10→10→15→20→30) — +20% к шансу улова всему клану на 1 час','Treat your clan (⭐10→10→15→20→30) — +20% catch chance for the whole clan for 1 hour')+'<br>'
     +'☂️ '+t('Зонт (⭐3→3→4→5→6) — закрепляет текущую погоду на 10 минут, сменить её никто не сможет. Смена погоды стоит ⭐1→1→2→3→5','Umbrella (⭐3→3→4→5→6) — locks the current weather for 10 minutes, nobody can change it. Weather change costs ⭐1→1→2→3→5')+'<br>'
     +'🔧 '+t('Ремонт всего транспорта (⭐2→2→4→6→10) — чинит велосипед, мопед, машину и грузовик разом до 100%','Repair all transport (⭐2→2→4→6→10) — repairs bike, moped, car and truck all at once to 100%')+'<br>'

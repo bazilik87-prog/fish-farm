@@ -180,6 +180,7 @@ BOOST_NAMES = {
     'weather_storm':   'Weather Change - Storm for 30 minutes',
     'weather_perfect': 'Weather Change - Perfect Fishing for 30 minutes',
     'fridge':          'Fridge - fish and products keep longer for 24 hours',
+    'freezer':         "Freezer - salted/cut fish won't spoil waiting for the next step, for 24 hours",
     'umbrella':        'Umbrella - lock the current weather for 10 minutes',
     'clanBoost':       'Treat your clan - +20pct catch for the whole clan for 1 hour',
 }
@@ -200,12 +201,14 @@ BOOST_LABELS = {
     'weather_storm':   '⛈ Погода: Шторм',
     'weather_perfect': '🌟 Погода: Отличный клёв',
     'fridge':          '🧊 Холодильник (24ч)',
+    'freezer':         '❄️ Морозильник (24ч)',
     'umbrella':        '☂️ Зонт (погода закреплена на 10 мин)',
     'clanBoost':       '🎁 Угостить клан (+20% улова, 1ч)',
 }
 # Цена в Stars за буст — по умолчанию 1, для отдельных бустов можно переопределить
 BOOST_PRICES = {
     'fridge': 2,
+    'freezer': 5,  # 19.11, решение Саши — защита от порчи засолки/разделки за 1.5ч
     'umbrella': 3,
     'repairAll': 2,
     'truckRental': 5,
@@ -221,7 +224,7 @@ SCALING_BOOST_STEP = {
     # Смена погоды (13.10.2026, решение Саши): раньше везде 1⭐, теперь растёт с локацией, как обычные бусты.
     'weather_sunny': 1, 'weather_cloudy': 1, 'weather_rain': 1, 'weather_storm': 1, 'weather_perfect': 1,
     # Бустеры 13.10.2026: Холодильник ⭐2→2→3→4→5, Зонт ⭐3→3→4→5→6
-    'fridge': 1, 'umbrella': 1,
+    'fridge': 1, 'freezer': 1, 'umbrella': 1,
 }
 # В Космосе (order=5) цена не по формуле база+step*3, а заданное вручную значение —
 # обычные бусты ⭐5, ремонт ⭐10 (просьба Sasha).
@@ -230,6 +233,8 @@ SPACE_PRICE_OVERRIDE = {
     'turboPack': 5, 'instantDelivery': 5,
     'repairAll': 10,
     'weather_sunny': 5, 'weather_cloudy': 5, 'weather_rain': 5, 'weather_storm': 5, 'weather_perfect': 5,
+    'freezer': 5,  # совпадает с клиентским SPACE_PRICE_OVERRIDE_NORMAL — иначе на Космосе
+    # формула база+step*3 дала бы 8⭐, а кнопка в игре показывала бы 5⭐ (расхождение цены).
 }
 # Бусты с нелинейной прогрессией цены — фиксированная таблица по order (1..5):
 # Пруд/Река 5⭐, Тропики 10⭐, Глубины 15⭐, Космос 25⭐.
