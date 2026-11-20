@@ -10284,19 +10284,32 @@ async def nftmint_command(message: types.Message):
             # ниже), а не по числу успешных чеканок — так учитываются и штуки, оплаченные, но
             # сорвавшиеся где-то между запросом и подтверждением. Пишем в /finance автоматически,
             # без ручного /addexpense (16.11, по просьбе Саши).
-            # Пауза перед проверкой "после" — чеканка асинхронная (сам mint-запрос отвечает
-            # 'in_queue' раньше, чем транзакция реально спишется с газового кошелька), без
-            # неё разница в балансе получалась ~0 и запись в /finance тихо не срабатывала
-            # (поймано вживую 17.11 — Саша заметил, что чеканка для мапитома не записалась).
+            # Несколько попыток перепроверить баланс (20.11, было одной попыткой через 20с —
+            # транзакция в блокчейне не всегда успевает подтвердиться за это время, delta
+            # получалась 0 и запись тихо пропускалась без всякого сообщения — поймано вживую
+            # 20.11, Саша заметил расхождение в /finance). Если так и не дождались — алерт
+            # админу с цифрами, чтобы добавить расход вручную через /addexpense, а не тишина.
             if minted and balance_before is not None:
-                await asyncio.sleep(20)
-                balance_after = await _gas_balance_ton()
-                if balance_after is not None:
-                    spent_ton = balance_before - balance_after
-                    if spent_ton > 0:
-                        await log_finance('expense', 'getgems', spent_ton * TON_USD_RATE, ton=spent_ton,
-                                           note=f"чеканка NFT: {len(minted)} новых, {spent_ton:.4f} TON",
-                                           session=session)
+                spent_ton = None
+                for _attempt in range(4):  # 20с + 15с + 15с + 15с = до 65с на подтверждение
+                    await asyncio.sleep(20 if _attempt == 0 else 15)
+                    balance_after = await _gas_balance_ton()
+                    if balance_after is not None and balance_before - balance_after > 0:
+                        spent_ton = balance_before - balance_after
+                        break
+                if spent_ton is not None:
+                    await log_finance('expense', 'getgems', spent_ton * TON_USD_RATE, ton=spent_ton,
+                                       note=f"чеканка NFT: {len(minted)} новых, {spent_ton:.4f} TON",
+                                       session=session)
+                else:
+                    try:
+                        await bot.send_message(ADMIN_ID,
+                            f"⚠️ Чеканка NFT ({len(minted)} шт.) прошла, но расход в /finance не записался "
+                            f"автоматически — не удалось подтвердить списание с газового кошелька за 65с "
+                            f"(баланс до: {balance_before:.4f} TON). Проверь баланс кошелька и добавь расход "
+                            f"вручную: /addexpense getgems СУММА_В_USD")
+                    except Exception:
+                        pass
 
             lines = [f"✅ Начеканено: {len(minted)}"]
             for uid, nm in minted:
