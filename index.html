@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-20.3">
+<meta name="ff-build" content="2026-11-20.5">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2444,7 +2444,7 @@ var BADGE_DEFS = {
   boot:      {repeat:true, icon:'👢', nameRu:'Сапожник', nameEn:'Cobbler', tiers:[250,1000,5000], unitRu:'сапог выпало в лотерее', unitEn:'"boot" lottery prizes',
               descRu:'Считается, сколько раз в лотерее выпадал пустой приз «👢 Дырявый сапог».', descEn:'Counts how many times the lottery gave you the empty "👢 Torn Boot" prize.'},
   deposit:   {repeat:true, icon:'🏦', nameRu:'Вкладчик', nameEn:'Depositor', tiers:[5,25,100], unitRu:'закрыто вкладов', unitEn:'deposits closed',
-              descRu:'Считается, сколько банковских вкладов было закрыто — и досрочно, и по сроку.', descEn:'Counts how many bank deposits you closed — both early and on term.'},
+              descRu:'Считается, сколько банковских вкладов было закрыто по сроку (досрочное закрытие не считается).', descEn:'Counts how many bank deposits you closed on term (early closures don\'t count).'},
   logist:    {repeat:true, icon:'🚚', nameRu:'Логист', nameEn:'Logistician', tiers:[5000,50000,250000], unitRu:'доставок собрано', unitEn:'deliveries collected',
               descRu:'Считается, сколько доставок (водитель/транспорт) было собрано.', descEn:'Counts how many deliveries (driver/transport) you collected.'},
   pioneer:   {icon:'🧭', nameRu:'Первопроходец', nameEn:'Pioneer', tiers:[5000,1000], reverse:true,
@@ -2476,8 +2476,8 @@ var BADGE_DEFS = {
   bigfish:   {icon:'🎣', nameRu:'Большая рыбалка', nameEn:'Big Fishing', tiers:[1,2],
               tierNamesRu:['участник','призёр (топ-3)'], tierNamesEn:['participant','prize winner (top-3)'],
               descRu:'Первый уровень — за участие в «Большой рыбалке», второй — за призовое место (топ-3).', descEn:'First tier for taking part in Big Fishing, second for placing in the top 3.'},
-  storm:     {repeat:true, icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[100,500,2500], unitRu:'продаж в дождь/шторм', unitEn:'sales during rain/storm',
-              descRu:'Считается, сколько продаж рыбы совершено во время дождя или шторма.', descEn:'Counts how many fish sales you made during rain or a storm.'},
+  storm:     {repeat:true, icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[1000,5000,25000], unitRu:'рыб продано в дождь/шторм', unitEn:'fish sold during rain/storm',
+              descRu:'Считается, сколько рыбы продано во время дождя или шторма.', descEn:'Counts how many fish you sold during rain or a storm.'},
   millionaire: {icon:'💼', nameRu:'Миллионер', nameEn:'Millionaire', tiers:[1000000,3000000,7000000,15000000,30000000], unitRu:'пиковый баланс монет', unitEn:'peak coin balance',
               descRu:'Считается максимальный баланс монет НА РУКАХ, который у тебя когда-либо был (не общий заработок) — остаётся, даже если потом потратишь.', descEn:'Counts the highest coin balance you ever held at once (not total earned) — stays even if you later spend it all.'}
 };

@@ -6072,7 +6072,9 @@ BADGE_DEFS = {
     'clanfight': {'thresholds': [10, 50, 250]},           # участий в клановых битвах
     'captain':   {'thresholds': [3, 5, 10]},              # уровень клана, достигнутый будучи капитаном
     'bigfish':   {'thresholds': [1, 2]},                  # 1=участие, 2=приз (топ-3)
-    'storm':     {'thresholds': [100, 500, 2500]},        # продаж рыбы в дождь/шторм
+    'storm':     {'thresholds': [1000, 5000, 25000]},     # рыб продано в дождь/шторм (было: продаж-действий,
+    # 20.11 — продажа по 1 рыбке вместо одной пачки давала +1 за действие вне зависимости от
+    # количества, игрок сообщил об эксплойте; теперь считается сама рыба, пороги подняты ×10)
     'millionaire': {'thresholds': [1000000, 3000000, 7000000, 15000000, 30000000]},  # ПИКОВЫЙ баланс
     # монет НА РУКАХ (не "Заработано") — см. peakCoins в process_actions. 5 уровней (18.11).
 }
@@ -8305,7 +8307,7 @@ async def process_actions(request):
             if storm_weather_id is None:
                 storm_weather_id = await get_current_weather_id_cached()
             if storm_weather_id in ('rain', 'storm'):
-                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + 1
+                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + fish_needed
 
         elif a_type == 'collect_delivery':
             # Доставка прибыла — клиент сам обнаруживает это по истечению таймера
@@ -8341,7 +8343,7 @@ async def process_actions(request):
             if storm_weather_id is None:
                 storm_weather_id = await get_current_weather_id_cached()
             if storm_weather_id in ('rain', 'storm'):
-                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + 1
+                badge_counter_deltas['stormSales'] = badge_counter_deltas.get('stormSales', 0) + fish_needed
 
         elif a_type == 'claim_bonuses':
             # Реферальные бонусы и отложенные награды — теперь тоже начисляет только сервер,
@@ -9982,8 +9984,8 @@ NFT_BADGE_META = {
                   'Captain', 'FishFarm "Captain" badge — earned when the clan reaches a level under this captain.'),
     'bigfish':   ('Большая рыбалка', 'Значок FishFarm «Большая рыбалка» — участие или призовое место.',
                   'Big Fishing', 'FishFarm "Big Fishing" badge — for taking part or placing in the top 3.'),
-    'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько продаж сделано в дождь/шторм.',
-                  'Storm Trader', 'FishFarm "Storm Trader" badge — counts fish sales made during rain or storm.'),
+    'storm':     ('Штормовой торговец', 'Значок FishFarm «Штормовой торговец» — считается, сколько рыбы продано в дождь/шторм.',
+                  'Storm Trader', 'FishFarm "Storm Trader" badge — counts fish sold during rain or storm.'),
     'millionaire': ('Миллионер', 'Значок FishFarm «Миллионер» — за пиковый баланс монет на руках (не за всё заработанное).',
                      'Millionaire', 'FishFarm "Millionaire" badge — for the highest coin balance ever held at once (not total earned).'),
 }
