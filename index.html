@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-20.5">
+<meta name="ff-build" content="2026-11-21.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2479,7 +2479,9 @@ var BADGE_DEFS = {
   storm:     {repeat:true, icon:'⛈', nameRu:'Штормовой торговец', nameEn:'Storm Trader', tiers:[1000,5000,25000], unitRu:'рыб продано в дождь/шторм', unitEn:'fish sold during rain/storm',
               descRu:'Считается, сколько рыбы продано во время дождя или шторма.', descEn:'Counts how many fish you sold during rain or a storm.'},
   millionaire: {icon:'💼', nameRu:'Миллионер', nameEn:'Millionaire', tiers:[1000000,3000000,7000000,15000000,30000000], unitRu:'пиковый баланс монет', unitEn:'peak coin balance',
-              descRu:'Считается максимальный баланс монет НА РУКАХ, который у тебя когда-либо был (не общий заработок) — остаётся, даже если потом потратишь.', descEn:'Counts the highest coin balance you ever held at once (not total earned) — stays even if you later spend it all.'}
+              descRu:'Считается максимальный баланс монет НА РУКАХ, который у тебя когда-либо был (не общий заработок) — остаётся, даже если потом потратишь.', descEn:'Counts the highest coin balance you ever held at once (not total earned) — stays even if you later spend it all.'},
+  wholesale: {repeat:true, icon:'📦', nameRu:'Оптовый торговец', nameEn:'Wholesale Trader', tiers:[10000,25000,50000,100000,250000], unitRu:'рыб продано оптом', unitEn:'fish sold wholesale',
+              descRu:'Считается, сколько рыбы продано через оптовую продажу.', descEn:'Counts how much fish you sold through wholesale selling.'}
 };
 // Именные (повторяемые) медали — отдельно от обычных значков, badges/{pid}/named/{id}/{key}.
 // У каждого может быть несколько экземпляров (разные недели/битвы) — показываем счётчик.
