@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-22.2">
+<meta name="ff-build" content="2026-11-22.3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -168,6 +168,9 @@ body{background:#1b243b !important}
 .en-txt{font-size:13px;font-weight:800;color:#fff;min-width:58px;text-align:right}
 .en-txt span{color:#8ea3bd;font-weight:600}
 .en-empty{font-size:11px;color:#ff8a80;margin:4px 0 0 42px}
+.en-fill-btn{width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#FFD700;border:none;color:#1a1a2e;font-size:11px;font-weight:700;line-height:1.1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.en-fill-btn span{font-size:8px;font-weight:600}
+.en-fill-btn:disabled{background:#22365b;color:#4a5c7a;cursor:default}
 #stats{background:#202c47 !important;border:1px solid #2b3858;border-radius:18px;margin:0 10px 8px;padding:10px 4px !important;gap:0 !important}
 .st{background:transparent !important;border-radius:0 !important;padding:2px 2px !important}
 .st+.st{border-left:1px solid #2b3858}
@@ -2156,6 +2159,7 @@ function updateEnergyBar() {
   var pct = Math.min(100, Math.round(state.energy/max*100));
   var color = state.energy<=0 ? '#e53935' : (pct<30 ? 'linear-gradient(90deg,#ff7a45,#ffb347)' : 'linear-gradient(90deg,#2f7fe8,#8fc8ff)');
   el.innerHTML = '<div class="en-row"><div class="en-ico"><svg viewBox="0 0 24 24" fill="#4da3ff"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>'
+    + '<button class="en-fill-btn" onclick="buyBoost(\'energyFull\')" '+(state.energy>=max?'disabled':'')+'>⚡<span>⭐'+customScaledBoostPrice()+'</span></button>'
     + '<div class="en-bar"><div style="background:'+color+';width:'+pct+'%"></div></div>'
     + '<div class="en-txt">'+Math.floor(state.energy)+'<span>/'+max+'</span></div></div>'
     + (state.energy<=0 ? '<div class="en-empty">'+t('Нет энергии — восстанавливается','No energy — recovering')+'</div>' : '');
