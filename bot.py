@@ -6061,7 +6061,7 @@ BADGE_DEFS = {
     'deposit':   {'thresholds': [5, 25, 100]},
     'logist':    {'thresholds': [5000, 50000, 250000]},
     'pioneer':   {'thresholds': []},  # особая логика (номер игрока), см. award_pioneer_badge
-    'patron':    {'thresholds': [500, 2500, 5000]},        # ⭐ потрачено всего (любые платежи)
+    'patron':    {'thresholds': [500, 5000, 25000]},       # ⭐ потрачено всего (любые платежи, пороги подняты 22.11)
     'premium':   {'thresholds': [1, 6, 12]},              # месяцев Premium куплено (1 оплата = 1 месяц)
     'gambler':   {'thresholds': [1000, 10000, 25000]},    # круток лотереи всего
     'earner':    {'thresholds': [25, 100, 250]},          # $ выведено (USDT, по курсу на момент вывода)

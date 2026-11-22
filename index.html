@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-21.3">
+<meta name="ff-build" content="2026-11-22.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2450,7 +2450,7 @@ var BADGE_DEFS = {
   pioneer:   {icon:'🧭', nameRu:'Первопроходец', nameEn:'Pioneer', tiers:[5000,1000], reverse:true,
               tierNamesRu:['в первых 5000','в первой 1000'], tierNamesEn:['among first 5000','among first 1000'],
               descRu:'Показывает, насколько рано ты зарегистрировался в игре — по порядковому номеру игрока. Чем меньше номер, тем раньше пришёл. Не зависит от того, что ты делаешь в игре — только от даты регистрации.', descEn:'Shows how early you joined the game, by your player number. The lower the number, the earlier you joined. Not based on what you do in the game — only your registration date.'},
-  patron:    {repeat:true, icon:'💎', nameRu:'Меценат', nameEn:'Patron', tiers:[500,2500,5000], unitRu:'⭐ потрачено', unitEn:'⭐ spent',
+  patron:    {repeat:true, icon:'💎', nameRu:'Меценат', nameEn:'Patron', tiers:[500,5000,25000], unitRu:'⭐ потрачено', unitEn:'⭐ spent',
               descRu:'Считается общая сумма звёзд ⭐, потраченных в игре на любые покупки (бустеры, Premium, комиссии и т.д.).', descEn:'Counts the total ⭐ Stars spent in the game on anything (boosters, Premium, fees, etc.).'},
   premium:   {repeat:true, icon:'👑', nameRu:'Premium', nameEn:'Premium', tiers:[1,6,12], unitRu:'месяцев Premium куплено', unitEn:'months of Premium bought',
               descRu:'Считается, сколько месяцев Premium-подписки было куплено (включая автопродления).', descEn:'Counts how many months of Premium you bought (including auto-renewals).'},
@@ -2684,7 +2684,8 @@ function renderMarket() {
     html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#FFD700;margin-bottom:6px">'+trD.emoji+' '+t('Доставка в пути...','Delivery in transit...')+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv.count+t(' · Выручка: ',' · Revenue: ')+'🪙'+fmt(dlv.earnings)+'</div>'
       +'<div style="background:#272c47;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#1565c0;height:8px;border-radius:6px;width:'+pct+'%"></div></div>'
-      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left+t('с','s')+'</div></div>';
+      +'<div style="font-size:11px;color:#666;text-align:center;position:relative">'+t('Прибудет через ','Arrives in ')+left+t('с','s')
+      +' <button onclick="buyBoost(\'instantDelivery\')" style="margin-left:4px;padding:1px 7px;font-size:10px;line-height:16px;border-radius:9px;border:none;background:#FFD700;color:#1a1a2e;font-weight:600;cursor:pointer;vertical-align:middle">🚀⭐'+scaledBoostPrice(1,1)+'</button></div></div>';
   }
 
   // Доставка водителя (delivery2)
@@ -2695,7 +2696,8 @@ function renderMarket() {
     html+='<div class="card" style="border:1px solid #6a4fc2"><div style="font-size:13px;font-weight:600;color:#b794f6;margin-bottom:6px">🧑‍✈️ '+tr2.emoji+' '+t('Водитель в пути...','Driver in transit...')+'</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-bottom:6px">'+t('Рыб: ','Fish: ')+dlv2.count+t(' · Твоя выручка: ',' · Your revenue: ')+'🪙'+fmt(dlv2.earnings)+' <span style="color:#666">'+t('(−30% водителю)','(−30% to driver)')+'</span></div>'
       +'<div style="background:#272c47;border-radius:6px;height:8px;margin-bottom:4px"><div style="background:#6a4fc2;height:8px;border-radius:6px;width:'+pct2+'%"></div></div>'
-      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')+'</div></div>';
+      +'<div style="font-size:11px;color:#666;text-align:center">'+t('Прибудет через ','Arrives in ')+left2+t('с','s')
+      +(dlv?'':' <button onclick="buyBoost(\'instantDelivery\')" style="margin-left:4px;padding:1px 7px;font-size:10px;line-height:16px;border-radius:9px;border:none;background:#FFD700;color:#1a1a2e;font-weight:600;cursor:pointer;vertical-align:middle">🚀⭐'+scaledBoostPrice(1,1)+'</button>')+'</div></div>';
   }
 
   // Кнопка найма водителя добавится после вычисления hasFresh/hasDried/hasFilets
