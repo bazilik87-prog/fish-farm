@@ -6659,7 +6659,7 @@ async def load_fish_stats(pid):
 BULK_SELL_RATE = {'fresh': 0.01, 'filet': 0.02, 'dried': 0.03}  # плоская ставка за штуку, * множитель локации
 
 
-def pick_lottery_prize(mult, jackpot, include_jackpot=True, allow_free=True):
+def pick_lottery_prize(mult, jackpot, include_jackpot=True, allow_free=True, allow_nft=True):
     """
     Определяет приз лотереи — точная копия весов из index.html, но теперь единственное
     место, где это решается (сервер), а не клиент. Возвращает dict с полями:
@@ -6695,11 +6695,16 @@ def pick_lottery_prize(mult, jackpot, include_jackpot=True, allow_free=True):
         {'kind': 'energy', 'amount': LOTTERY_ENERGY_PRIZE, 'label': f'⚡ +{LOTTERY_ENERGY_PRIZE} энергии', 'weight': 10},
         {'kind': 'luck', 'amount': LOTTERY_LUCK_MIN, 'label': f'🎣 Удачная рыбалка на {LOTTERY_LUCK_MIN} мин', 'weight': 6},
         {'kind': 'boot', 'amount': 0, 'label': '👢 Дырявый сапог... в следующий раз повезёт!', 'weight': 10},
+    ]
+    if allow_nft:
         # 19.11.2026 (решение Саши): отдельная настоящая NFT как приз лотереи — очень
         # редкий (вес 2 из общих 162), в очередь на чеканку вручную, как и NFT за значки
         # (см. award_named_badge/lottery_nft_of, /nftqueue, /nftmint подхватывают сами).
-        {'kind': 'nft', 'amount': 1, 'label': '🖼 Редкая NFT! Жди личного сообщения.', 'weight': 2},
-    ]
+        # С 24.11 недоступен бесплатным круткам (реклама/Premium) — чеканка стоит реальный
+        # газ TON, а эти крутки ничем не ограничены по числу, так что иначе NFT можно
+        # было бы фармить бесконечно и бесплатно (повод — разбор с Сашей по @Upasigospod,
+        # у которого набралось 2 штуки в основном с рекламных круток).
+        prizes.append({'kind': 'nft', 'amount': 1, 'label': '🖼 Редкая NFT! Жди личного сообщения.', 'weight': 2})
     if allow_free:
         prizes.append({'kind': 'free_spin', 'amount': 1, 'label': '🎟 Бесплатная крутка', 'weight': 4})
     # Пока накопленный джекпот меньше порога — его вообще не добавляем в пул призов,
@@ -6747,14 +6752,15 @@ async def claim_jackpot_prize(session, base, prize, mult):
     return {'kind': 'coins', 'amount': c2, 'label': f'🪙 {c2:,} монет'}
 
 
-async def roll_lottery_prize(session, base, mult, jackpot, include_jackpot=True):
+async def roll_lottery_prize(session, base, mult, jackpot, include_jackpot=True, allow_nft=True):
     """Выбирает приз и сразу забирает джекпот, если выпал. «🎟 Бесплатная крутка» (11.11.2026) — сразу
     крутим ещё раз, второй приз кладём в prize['bonus'] (без новой бесплатной крутки — без цепочек).
-    Начисляются оба одной записью (lottery_apply_prizes)."""
-    prize = await claim_jackpot_prize(session, base, pick_lottery_prize(mult, jackpot, include_jackpot), mult)
+    Начисляются оба одной записью (lottery_apply_prizes). allow_nft=False — см. pick_lottery_prize
+    (крутки за рекламу и бесплатная Premium-крутка NFT выдавать не должны, 24.11)."""
+    prize = await claim_jackpot_prize(session, base, pick_lottery_prize(mult, jackpot, include_jackpot, allow_nft=allow_nft), mult)
     if prize.get('kind') == 'free_spin':
         prize['bonus'] = await claim_jackpot_prize(
-            session, base, pick_lottery_prize(mult, jackpot, include_jackpot, allow_free=False), mult)
+            session, base, pick_lottery_prize(mult, jackpot, include_jackpot, allow_free=False, allow_nft=allow_nft), mult)
     return prize
 
 
@@ -7575,7 +7581,8 @@ async def lottery_spin(request):
                     # накопленным.
                     ad_can_win_jackpot = jackpot >= AD_JACKPOT_WIN_THRESHOLD
                     prize = await roll_lottery_prize(session, base, mult, jackpot,
-                                                     include_jackpot=(via == 'premium' or ad_can_win_jackpot))  # решаем приз один раз, не перевыбираем на retry
+                                                     include_jackpot=(via == 'premium' or ad_can_win_jackpot),
+                                                     allow_nft=(via not in ('ad', 'premium')))  # решаем приз один раз, не перевыбираем на retry
 
                 merged = dict(sv)
                 max_energy = (await lottery_max_energy(session, base, pid, sv, now_ms, real_user_id)
