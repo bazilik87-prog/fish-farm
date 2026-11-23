@@ -2860,6 +2860,63 @@ async def _big_fishing_join_atomic(session, base, user_id, username, name):
     return False, False, None
 
 
+# Шутливое объявление победителя «Большой рыбалки» всем игрокам (решение Саши, 24.11) —
+# тот же дух, что TOURNAMENT_TAUNTS у клановых битв. Специально только настоящим временем
+# и без прилагательных/причастий, согласующихся с победителем, — по роду не ломается ни
+# на RU (глаголы настоящего времени в 3-м лице род не показывают), ни на EN.
+BIG_FISHING_WIN_TAUNTS = [
+    {'ru': "🎣 Итоги «Большой рыбалки»: {winner} забирает {amount}⭐. У остальных, похоже, леска оказалась послабее.",
+     'en': "🎣 Big Fishing results: {winner} takes home {amount}⭐. Looks like everyone else's line just wasn't strong enough."},
+    {'ru': "🏆 {winner} выигрывает «Большую рыбалку» и уносит {amount}⭐ — удочка явно дороже, чем за 500 рублей на Авито.",
+     'en': "🏆 {winner} wins Big Fishing and walks away with {amount}⭐ — that's a rod pricier than anything off AliExpress."},
+    {'ru': "😎 Пока все спали, {winner} ловит рыбу на {amount}⭐. Остальным пора обновить снасть.",
+     'en': "😎 While everyone else was asleep, {winner} was out fishing for {amount}⭐. Maybe it's time to upgrade your gear."},
+    {'ru': "🐟 {winner} вылавливает гору рыбы и забирает {amount}⭐ в придачу! У остальных, похоже, крючки гнутые.",
+     'en': "🐟 {winner} hauls in a mountain of fish and grabs {amount}⭐ on top! Everyone else's hooks must've been bent."},
+    {'ru': "💰 {winner} забирает {amount}⭐ за первое место. Снасть точно не с Алиэкспресса за 200 рублей.",
+     'en': "💰 {winner} takes {amount}⭐ for first place. That gear definitely isn't the $2 special from AliExpress."},
+    {'ru': "🎯 {winner} показывает лучший результат в «Большой рыбалке» и уносит {amount}⭐. Остальным — копить на нормальную удочку.",
+     'en': "🎯 {winner} posts the best result in Big Fishing and walks off with {amount}⭐. Everyone else — time to save up for a real rod."},
+    {'ru': "🔥 {winner} рвёт всех в «Большой рыбалке» и получает {amount}⭐! Теперь можно и лодку купить, а не резиновую уточку.",
+     'en': "🔥 {winner} tears through Big Fishing and pockets {amount}⭐! Time to buy an actual boat instead of a rubber duck."},
+    {'ru': "🥇 {winner} забирает {amount}⭐ — либо руки золотые, либо рыба сама прыгает в сачок.",
+     'en': "🥇 {winner} takes {amount}⭐ — either golden hands, or the fish just jumped straight into the net."},
+    {'ru': "😏 {winner} снова доказывает: главное — вовремя закинуть удочку. {amount}⭐ уже в кармане.",
+     'en': "😏 {winner} proves once again: timing the cast is everything. {amount}⭐ already in the pocket."},
+    {'ru': "🎉 {amount}⭐ улетают к {winner}! Остальным самое время проверить, не дырявая ли у них сеть.",
+     'en': "🎉 {amount}⭐ flies off to {winner}! Everyone else might want to check their net for holes."},
+]
+
+
+async def _broadcast_big_fishing_winner(session, base, number, winner_name, winner_prize):
+    """Шутливая рассылка ВСЕМ зарегистрированным игрокам о победителе раунда — та же схема
+    обхода leaderboard, что и в _broadcast_big_fishing_start. Best-effort, отдельно от
+    личных уведомлений участникам и списка на оплату админу."""
+    import random
+    try:
+        async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
+            data = await resp.json()
+    except Exception:
+        return
+    if not data:
+        return
+    taunt = random.choice(BIG_FISHING_WIN_TAUNTS)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
+    ]])
+    for pid_p, v in data.items():
+        uid = v.get('userId') if isinstance(v, dict) else None
+        if not uid:
+            continue
+        lang = await _player_lang(session, base, pid_p)
+        text = taunt[lang].format(winner=winner_name, amount=winner_prize)
+        try:
+            await bot.send_message(uid, text, reply_markup=keyboard)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+
 async def _broadcast_big_fishing_start(session, base, bf):
     """
     Старт раунда рассылается АБСОЛЮТНО ВСЕМ зарегистрированным игрокам (не только его 50
@@ -3019,6 +3076,11 @@ async def _settle_big_fishing(session, base):
                     await log_finance('expense', 'big_fishing', total_prize_stars * STAR_TO_USD,
                                        note=f"большая рыбалка #{finished_number}, топ-3",
                                        stars=total_prize_stars, session=session)
+                winner = results_list[0]
+                try:
+                    await _broadcast_big_fishing_winner(session, base, finished_number, winner['name'], winner['prize'])
+                except Exception as e:
+                    print(f"[big_fishing] winner broadcast {finished_number}: {e}")
             return finished
     return None
 
