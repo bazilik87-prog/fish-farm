@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-24.1">
+<meta name="ff-build" content="2026-11-24.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4808,6 +4808,10 @@ var BOT_USERNAME = 'fish_farmings_bot';
 // требует подтверждения в приложении кошелька игрока — в отличие от текстового
 // поля, адрес нельзя подделать, просто вписав чужой.
 var NFT_INCOME_RATE_PER_SEC = 0.00001;  // зеркалит NFT_INCOME_RATE_PER_SEC в bot.py — только для показа оценки, само начисление всегда серверное
+// 24.11: зеркалит NFT_INCOME_RATE_OVERRIDES в bot.py — особые тарифы для конкретных значков,
+// тоже только для показа "сколько приносит эта NFT" в экране значков, не для начисления.
+var NFT_INCOME_RATE_OVERRIDES = {event_gta6: 13.666 / 86400};
+function nftRatePerDay(id) { return NFT_INCOME_RATE_OVERRIDES[id] || (NFT_INCOME_RATE_PER_SEC * 86400); }
 var tonConnectUI = null;
 var linkedWalletAddr = null;
 var walletNftLoaded = false;
@@ -7245,9 +7249,10 @@ function renderBadgesScreen() {
         if (progress != null && nextThreshold!=null) sub = progress+' / '+fmtXp(nextThreshold)+' · '+badgeTierName(id, myTier)+lapSuffix;
       }
     }
+    var nftLabel = !locked ? ' <span style="color:#FFD700;font-weight:400">(+'+(Math.round(nftRatePerDay(id)*1000)/1000)+t('/сутки','/day')+')</span>' : '';
     html += '<div onclick="showBadgeDetail(\''+id+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a;cursor:pointer'+(locked?';opacity:.55':'')+'">'
       +'<div style="width:44px;height:44px;flex:none;display:flex;align-items:center;justify-content:center">'+badgeImg(id, showTier, locked)+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:'+(locked?'#9fb3d9':'#fff')+'">'+d.icon+' '+t(d.nameRu,d.nameEn)+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:'+(locked?'#9fb3d9':'#fff')+'">'+d.icon+' '+t(d.nameRu,d.nameEn)+nftLabel+'</div>'
       +'<div style="font-size:11px;color:#90caf9;margin-top:2px">'+sub+'</div></div><i style="color:#5a6f99">›</i>'
       +'</div>';
   });
@@ -7261,9 +7266,10 @@ function renderBadgesScreen() {
     var nd = NAMED_BADGE_DEFS[id];
     var count = Object.keys(namedEarned[id] || {}).length;
     var locked = count === 0;
+    var nftLabel = !locked ? ' <span style="color:#FFD700;font-weight:400">(+'+(Math.round(nftRatePerDay(id)*1000)/1000)+t('/сутки за каждую','/day each')+')</span>' : '';
     html += '<div onclick="showNamedBadgeDetail(\''+id+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #1a2a5a;cursor:pointer'+(locked?';opacity:.55':'')+'">'
       +'<div style="width:44px;height:44px;flex:none;display:flex;align-items:center;justify-content:center">'+namedBadgeImg(id, locked)+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:'+(locked?'#9fb3d9':'#fff')+'">'+nd.icon+' '+t(nd.nameRu,nd.nameEn)+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:'+(locked?'#9fb3d9':'#fff')+'">'+nd.icon+' '+t(nd.nameRu,nd.nameEn)+nftLabel+'</div>'
       +'<div style="font-size:11px;color:#90caf9;margin-top:2px">'+(locked?t('ещё не получено','not earned yet'):(t('получено раз: ','times earned: ')+count))+'</div></div><i style="color:#5a6f99">›</i>'
       +'</div>';
   });
@@ -7327,6 +7333,7 @@ function showBadgeDetail(id) {
     + '<div style="font-size:16px;font-weight:700;color:#FFD700">'+d.icon+' '+t(d.nameRu,d.nameEn)+'</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(d.descRu,d.descEn)+'</div>'
+    + (myTier>0 ? '<div style="font-size:11px;color:#FFD700;text-align:center;margin-bottom:10px">🖼 +'+(Math.round(nftRatePerDay(id)*1000)/1000)+' '+t('монет/сутки за каждую NFT этого значка','coins/day for each NFT of this badge')+'</div>' : '')
     + (tiersHtml ? '<div style="display:flex;gap:4px;margin-bottom:6px">'+tiersHtml+'</div>' : '')
     + (d.repeat ? '<div style="font-size:10px;color:#5a6f99;text-align:center;margin-bottom:10px">'+t('Каждый уровень можно получить заново — просто пройди порог ещё раз','Each tier can be earned again — just pass its threshold once more')+'</div>' : '')
     + '<div style="background:#162238;border-radius:10px;padding:12px;font-size:12px;text-align:center;margin-bottom:14px">'+statusHtml+'</div>'
@@ -7363,6 +7370,7 @@ function showNamedBadgeDetail(id) {
     + '<div style="font-size:16px;font-weight:700;color:#FFD700">'+nd.icon+' '+t(nd.nameRu,nd.nameEn)+'</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(nd.descRu,nd.descEn)+'</div>'
+    + (count>0 ? '<div style="font-size:11px;color:#FFD700;text-align:center;margin-bottom:10px">🖼 +'+(Math.round(nftRatePerDay(id)*1000)/1000)+' '+t('монет/сутки за каждую','coins/day each')+'</div>' : '')
     + '<div style="background:#162238;border-radius:10px;padding:12px;font-size:12px;text-align:center;margin-bottom:14px">'
     + (count>0 ? '<div style="color:#6ddc6d;font-weight:600;margin-bottom:8px">✅ '+t('Получено раз: ','Times earned: ')+count+'</div>'+listHtml
                 : '<div style="color:#90caf9">🔒 '+t('Ещё не получено','Not earned yet')
