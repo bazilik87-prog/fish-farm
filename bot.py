@@ -2888,10 +2888,13 @@ BIG_FISHING_WIN_TAUNTS = [
 ]
 
 
-async def _broadcast_big_fishing_winner(session, base, number, winner_name, winner_prize):
+async def _broadcast_big_fishing_winner(session, base, number, top3):
     """Шутливая рассылка ВСЕМ зарегистрированным игрокам о победителе раунда — та же схема
-    обхода leaderboard, что и в _broadcast_big_fishing_start. Best-effort, отдельно от
-    личных уведомлений участникам и списка на оплату админу."""
+    обхода leaderboard, что и в _broadcast_big_fishing_start. Шутка — только про 1 место
+    (так она остаётся короткой и цепляющей, как и у клановых таунтов), а 2 и 3 места —
+    отдельной строкой под ней без юмора, просто факт (решение Саши 24.11 — им тоже
+    реально платим звёзды, не должны теряться в шутке). Best-effort, отдельно от личных
+    уведомлений участникам и списка на оплату админу."""
     import random
     try:
         async with session.get(f"{base}/leaderboard.json{FB_AUTH}") as resp:
@@ -2901,6 +2904,9 @@ async def _broadcast_big_fishing_winner(session, base, number, winner_name, winn
     if not data:
         return
     taunt = random.choice(BIG_FISHING_WIN_TAUNTS)
+    runners_up = "\n".join(
+        f"{['🥈', '🥉'][i]} {r['name']} — {r['prize']}⭐" for i, r in enumerate(top3[1:3])
+    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🎣 Открыть игру", web_app=WebAppInfo(url=GAME_URL))
     ]])
@@ -2909,7 +2915,9 @@ async def _broadcast_big_fishing_winner(session, base, number, winner_name, winn
         if not uid:
             continue
         lang = await _player_lang(session, base, pid_p)
-        text = taunt[lang].format(winner=winner_name, amount=winner_prize)
+        text = taunt[lang].format(winner=top3[0]['name'], amount=top3[0]['prize'])
+        if runners_up:
+            text += "\n\n" + runners_up
         try:
             await bot.send_message(uid, text, reply_markup=keyboard)
         except Exception:
@@ -3076,9 +3084,8 @@ async def _settle_big_fishing(session, base):
                     await log_finance('expense', 'big_fishing', total_prize_stars * STAR_TO_USD,
                                        note=f"большая рыбалка #{finished_number}, топ-3",
                                        stars=total_prize_stars, session=session)
-                winner = results_list[0]
                 try:
-                    await _broadcast_big_fishing_winner(session, base, finished_number, winner['name'], winner['prize'])
+                    await _broadcast_big_fishing_winner(session, base, finished_number, results_list[:3])
                 except Exception as e:
                     print(f"[big_fishing] winner broadcast {finished_number}: {e}")
             return finished
