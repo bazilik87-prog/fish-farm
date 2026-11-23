@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-22.3">
+<meta name="ff-build" content="2026-11-24.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -7562,7 +7562,11 @@ function renderWalletNftScreen() {
     body = '<div style="text-align:center;color:#90caf9;font-size:13px;padding:20px">'+t('Загрузка...','Loading...')+'</div>';
   } else if (linkedWalletAddr) {
     var nftCount = state.nftCount || 0;
-    var perDay = Math.round(nftCount * NFT_INCOME_RATE_PER_SEC * 86400 * 1000) / 1000;
+    // 24.11: сервер шлёт точную оценку (учитывает особые тарифы отдельных NFT, см.
+    // NFT_INCOME_RATE_OVERRIDES в bot.py) — плоский расчёт остаётся только запасным
+    // вариантом, пока res.nftPerDay ещё ни разу не пришёл (сразу после захода).
+    var perDay = (typeof state.nftPerDay === 'number') ? state.nftPerDay
+      : Math.round(nftCount * NFT_INCOME_RATE_PER_SEC * 86400 * 1000) / 1000;
     body = '<div style="font-size:12px;color:#90caf9;margin-bottom:10px">'+t('Привязанный кошелёк','Linked wallet')+':<br><b style="color:#fff;word-break:break-all">'+linkedWalletAddr+'</b></div>'
       +'<div class="st-grid" style="margin-bottom:10px">'
         +'<div><b class="gold">'+nftCount+'</b><span>'+t('NFT на кошельке','NFTs on wallet')+'</span></div>'
@@ -7838,6 +7842,7 @@ function applyActionsResult(res, sentAt, batch) {
     });
   }
   if (typeof res.nftCount === 'number') state.nftCount = res.nftCount;
+  if (typeof res.nftPerDay === 'number') state.nftPerDay = res.nftPerDay;
   if (res.nftEarned > 0) {
     // res.coins (уже присвоено в state.coins выше) включает nftEarned — тут только уведомление.
     showNotif('🖼 '+t('NFT-доход: +🪙','NFT income: +🪙')+fmt(res.nftEarned));

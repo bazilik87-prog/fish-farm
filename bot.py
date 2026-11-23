@@ -517,14 +517,54 @@ ENERGY_REGEN_SEC = 126                              # 1 энергия кажд�
 NFT_INCOME_RATE_PER_SEC = 0.00001
 NFT_HOLDINGS_CHECK_INTERVAL_MS = 6 * 3600 * 1000    # как часто спрашивать блокчейн (лениво, на игрока)
 
+# 24.11.2026 (решение Саши): отдельные повышенные тарифы для конкретных разовых/лимитированных
+# NFT — пока только "event_gta6" (13.666 монет/сутки вместо обычных 0.864). Остальной список
+# из черновика (NFT_dohod_chernovik.pdf, 21.11) ещё НЕ согласован и не включён сюда — его
+# тарифы не кодировать, пока Саша явно не попросит именно по этому значку. Какая именно NFT
+# на кошельке относится к такому типу — определяем по адресу через nft_item_badge/{ключ}
+# (пишется при каждой чеканке именной медали, см. /nftmint) — остальные типы NFT в этот
+# словарь не входят и продолжают считаться по общему NFT_INCOME_RATE_PER_SEC, как раньше.
+NFT_INCOME_RATE_OVERRIDES = {
+    'event_gta6': 13.666 / 86400,
+}
+
+
+def nft_item_key(addr):
+    """Канонический ключ адреса КОНКРЕТНОЙ NFT (не кошелька игрока) — тот же приём, что и
+    wallet_key/normalize_ton_address для кошельков: Getgems при чеканке и TON Center в
+    nft/items могут отдавать адрес в разном виде (сырой/дружественный), а ключ должен
+    совпадать независимо от формата."""
+    return wallet_key(normalize_ton_address(addr))
+
+
+def nft_daily_income(nft_count, nft_special):
+    """Оценка дохода в монетах/сутки по числу NFT и разбивке по особым типам (nftSpecial) —
+    общая формула для /actions (точный расчёт) и /playerinfo (показ). nft_special — тот же
+    словарь {badge_id: count}, что хранится в saves/{pid}/nftSpecial."""
+    nft_special = nft_special if isinstance(nft_special, dict) else {}
+    special_total = 0
+    per_day = 0.0
+    for bid, rate in NFT_INCOME_RATE_OVERRIDES.items():
+        cnt = int(nft_special.get(bid) or 0)
+        special_total += cnt
+        per_day += cnt * rate * 86400
+    base_count = max(0, int(nft_count or 0) - special_total)
+    per_day += base_count * NFT_INCOME_RATE_PER_SEC * 86400
+    return per_day
+
 
 async def check_nft_holdings_count(wallet):
     """Сколько NFT нашей коллекции лежит на кошельке — напрямую у TON Center (toncenter.com),
-    Firebase тут не участвует. None при сбое сети — тогда вызывающий код не трогает
+    Firebase тут не участвует (кроме чтения индекса nft_item_badge ниже — лёгкий отдельный
+    узел, не saves/leaderboard). None при сбое сети — тогда вызывающий код не трогает
     закэшированное значение (не обнуляет доход из-за временной недоступности API).
-    collection_address можно передать и в "дружеской" форме (EQ...) — TON Center сам понимает."""
+    collection_address можно передать и в "дружеской" форме (EQ...) — TON Center сам понимает.
+    Возвращает (total, special): total — общее число NFT; special — {badge_id: count} только
+    для типов из NFT_INCOME_RATE_OVERRIDES (24.11), определяется по адресу каждой NFT через
+    индекс nft_item_badge. Пустой special, если ни одна не распознана или словарь тарифов пуст —
+    тогда индекс даже не запрашиваем."""
     if not wallet or not GETGEMS_COLLECTION:
-        return None
+        return None, {}
     import aiohttp
     url = ("https://toncenter.com/api/v3/nft/items"
            f"?owner_address={wallet}&collection_address={GETGEMS_COLLECTION}&limit=1000")
@@ -532,13 +572,33 @@ async def check_nft_holdings_count(wallet):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
                 if r.status != 200:
-                    return None
+                    return None, {}
                 data = await r.json()
         items = data.get('nft_items') if isinstance(data, dict) else None
-        return len(items) if isinstance(items, list) else None
+        if not isinstance(items, list):
+            return None, {}
+        total = len(items)
+        special = {}
+        if NFT_INCOME_RATE_OVERRIDES and items:
+            base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{base}/nft_item_badge.json{FB_AUTH}") as r2:
+                        index = await r2.json()
+            except Exception:
+                index = None
+            if isinstance(index, dict):
+                for it in items:
+                    addr_s = it.get('address') if isinstance(it, dict) else None
+                    if not addr_s:
+                        continue
+                    bid = index.get(nft_item_key(addr_s))
+                    if bid in NFT_INCOME_RATE_OVERRIDES:
+                        special[bid] = special.get(bid, 0) + 1
+        return total, special
     except Exception as e:
         print(f"[nft_income] check_nft_holdings_count: {e}")
-        return None
+        return None, {}
 
 
 def energy_now(prev, regen_sec, max_energy):
@@ -8868,6 +8928,7 @@ async def process_actions(request):
             log_comeback_reward = 0.0
             log_nft_earned = 0.0
             log_nft_count = 0
+            log_nft_special = {}
             quest_bonus_granted = False  # для значка "Трудяга" — считаем только реально начисленные дни
             for save_attempt in range(6):
                 if save_attempt == 0 and sv_etag:
@@ -8896,6 +8957,7 @@ async def process_actions(request):
                 log_comeback_reward = 0.0
                 log_nft_earned = 0.0
                 log_nft_count = 0
+                log_nft_special = {}
                 quest_bonus_granted = False
                 save_base_coins = float(fresh_sv.get('coins', 0) or 0)  # для точного диагностического
                 # лога ниже — раньше там ошибочно использовался sv (снимок из НАЧАЛА запроса,
@@ -8935,13 +8997,16 @@ async def process_actions(request):
                 fresh_nft_income_ts = fresh_sv.get('nftIncomeTs') or now_ms
                 nft_elapsed_sec = max(0, (now_ms - fresh_nft_income_ts) / 1000)
                 fresh_nft_count = int(fresh_sv.get('nftCount') or 0)
+                fresh_nft_special = fresh_sv.get('nftSpecial')
+                fresh_nft_special = fresh_nft_special if isinstance(fresh_nft_special, dict) else {}
                 if fresh_nft_count > 0 and nft_elapsed_sec > 0:
-                    nft_earned = round(fresh_nft_count * NFT_INCOME_RATE_PER_SEC * nft_elapsed_sec * 100) / 100
+                    nft_earned = round(nft_daily_income(fresh_nft_count, fresh_nft_special) / 86400 * nft_elapsed_sec * 100) / 100
                     if nft_earned > 0:
                         coins = round((coins + nft_earned) * 100) / 100
                         log_nft_earned = nft_earned
                 other_fields['nftIncomeTs'] = now_ms
                 log_nft_count = fresh_nft_count  # может обновиться чуть ниже, если сработала проверка блокчейна
+                log_nft_special = fresh_nft_special
 
                 # Раз в NFT_HOLDINGS_CHECK_INTERVAL_MS (лениво, на игрока) переспрашиваем
                 # блокчейн, сколько NFT сейчас реально на привязанном кошельке — остальное
@@ -8956,13 +9021,15 @@ async def process_actions(request):
                     except Exception:
                         _lw = None
                     _lw_wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
-                    new_count = await check_nft_holdings_count(_lw_wallet) if _lw_wallet else 0
+                    new_count, new_special = await check_nft_holdings_count(_lw_wallet) if _lw_wallet else (0, {})
                     if new_count is not None:
                         other_fields['nftCount'] = new_count
                         other_fields['nftCheckedAt'] = now_ms
+                        other_fields['nftSpecial'] = new_special
                         log_nft_count = new_count
+                        log_nft_special = new_special
                     # new_count is None (сбой TON Center) — не трогаем ни nftCount, ни
-                    # nftCheckedAt, следующая попытка будет уже на следующем /actions.
+                    # nftCheckedAt/nftSpecial, следующая попытка будет уже на следующем /actions.
 
                 # Автозакрытие созревших вкладов — тем же принципом: список берём заново из
                 # fresh_sv (не из snapshot начала запроса), поверх него накатываем
@@ -9333,6 +9400,9 @@ async def process_actions(request):
         'newBadges': new_badges,  # [{'id':'fisher','tier':2}, ...] — новые значки за этот запрос, для уведомления
         'nftEarned': log_nft_earned,  # сколько начислено от NFT именно в этом запросе — для уведомления (17.11)
         'nftCount': log_nft_count,    # сколько NFT сейчас на привязанном кошельке — для карточки в Настройках
+        'nftPerDay': round(nft_daily_income(log_nft_count, log_nft_special) * 1000) / 1000,  # точная оценка
+        # (24.11) — учитывает особые тарифы (NFT_INCOME_RATE_OVERRIDES), а не плоскую клиентскую
+        # прикидку; клиент использует это значение, если оно пришло, иначе считает сам по старинке.
         **response_truck
     }, headers=CORS)
 
@@ -10336,10 +10406,22 @@ async def nftmint_command(message: types.Message):
                         async with session.put(f"{base}/{path}{FB_AUTH}", json='minted'):
                             pass
                     else:
+                        minted_addr = resp.get('address')
                         patch = {'nft': 'minted', 'nftMintedAt': int(time_module.time() * 1000),
-                                  'nftAddress': resp.get('address'), 'nftUrl': resp.get('url')}
+                                  'nftAddress': minted_addr, 'nftUrl': resp.get('url')}
                         async with session.patch(f"{base}/{path}{FB_AUTH}", json=patch):
                             pass
+                        if minted_addr:
+                            # Индекс "адрес конкретной NFT -> тип значка" (24.11) — нужен, чтобы
+                            # /actions мог узнать по TON Center-ответу, что именно за NFT лежит на
+                            # кошельке, и применить особый тариф дохода (NFT_INCOME_RATE_OVERRIDES),
+                            # если он когда-нибудь появится для этого типа. Пишем для ВСЕХ именных
+                            # медалей заранее — не только для тех, у кого сейчас есть особый тариф.
+                            try:
+                                async with session.put(f"{base}/nft_item_badge/{nft_item_key(minted_addr)}.json{FB_AUTH}", json=bid):
+                                    pass
+                            except Exception as e_idx:
+                                print(f"[nftmint] nft_item_badge index write failed for {uid}/{bid}: {e_idx}")
                     minted.append((uid, nm))
                 except Exception as e:
                     err = str(e)
@@ -10495,6 +10577,77 @@ async def nftbackfill_command(message: types.Message):
                 except Exception as e:
                     print(f"[nftbackfill] {path}: {e}")
             await message.answer(f"✅ Обновлено записей: {done} из {len(to_patch)}. Проверь /nftqueue.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command('nftindexbackfill'))
+async def nftindexbackfill_command(message: types.Message):
+    """Разовая (безопасно повторяемая) задним числом простановка индекса nft_item_badge/{ключ}
+    для именных медалей, начеканенных ДО того, как /nftmint начал сам писать этот индекс
+    (24.11, см. NFT_INCOME_RATE_OVERRIDES) — например, у @upasigospod GTA6-NFT была
+    начеканена раньше и без неё продолжила бы получать обычный плоский доход вместо
+    особого тарифа. Источник — уже сохранённое поле nftAddress в badges/{pid}/named/.../
+    (пишется в /nftmint с самого начала этой фичи, 14.11). Без «да» — подсчёт."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
+    import aiohttp
+    base = "https://fishfarm-3a4f8-default-rtdb.firebaseio.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/badges.json{FB_AUTH}") as r:
+                all_badges = await r.json() or {}
+            async with session.get(f"{base}/nft_item_badge.json{FB_AUTH}") as r:
+                existing_index = await r.json() or {}
+            if not isinstance(existing_index, dict):
+                existing_index = {}
+
+            to_write = []  # (index_key, named_id, label)
+            for pid, data in (all_badges or {}).items():
+                if not isinstance(data, dict) or not pid.startswith('tg_'):
+                    continue
+                uid = pid[3:]
+                named = data.get('named')
+                if not isinstance(named, dict):
+                    continue
+                for named_id, occs in named.items():
+                    if named_id not in NAMED_BADGE_META or not isinstance(occs, dict):
+                        continue
+                    for key, occ in occs.items():
+                        if not isinstance(occ, dict) or occ.get('nft') != 'minted':
+                            continue
+                        addr = occ.get('nftAddress')
+                        if not addr:
+                            continue
+                        idx_key = nft_item_key(addr)
+                        if idx_key in existing_index:
+                            continue
+                        to_write.append((idx_key, named_id, f"ID {uid} — {named_id} ({key})"))
+
+            if not to_write:
+                await message.answer("Нечего досчитывать — у всех начеканенных именных медалей индекс уже есть.")
+                return
+            if not confirm:
+                lines = [f"Найдено задним числом: {len(to_write)} NFT без записи в индексе nft_item_badge.",
+                         "Чтобы записать по-настоящему: /nftindexbackfill да"]
+                text = "\n".join(lines + [l for _, _, l in to_write[:50]])
+                if len(text) > 3500:
+                    await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftindexbackfill_preview.txt'))
+                else:
+                    await message.answer(text)
+                return
+
+            done = 0
+            for idx_key, named_id, _label in to_write:
+                try:
+                    async with session.put(f"{base}/nft_item_badge/{idx_key}.json{FB_AUTH}", json=named_id) as r2:
+                        if r2.status in (200, 204):
+                            done += 1
+                except Exception as e:
+                    print(f"[nftindexbackfill] {idx_key}: {e}")
+            await message.answer(f"✅ Записано в индекс: {done} из {len(to_write)}. Новый тариф подхватится у держателей "
+                                 f"при ближайшей проверке кошелька (раз в {NFT_HOLDINGS_CHECK_INTERVAL_MS // 3600000} ч).")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
