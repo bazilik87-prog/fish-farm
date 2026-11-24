@@ -10484,6 +10484,17 @@ async def nftmint_command(message: types.Message):
                 await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftmint.txt'))
             else:
                 await message.answer(text)
+            if minted:
+                news_html = ("🖼 Начеканена новая партия NFT! Если у тебя есть редкие значки или "
+                             "выпадал «Счастливый билет» в лотерее — загляни в Настройки → «Кошелёк и NFT», "
+                             "возможно твоя NFT уже там.\n———\n"
+                             "🖼 A new batch of NFTs has been minted! If you've earned rare badges or won a "
+                             "Lucky Ticket in the lottery — check Settings → \"Wallet & NFT\", yours might "
+                             "already be there.")
+                try:
+                    await repost_to_news_topic(news_html, None, None, None, None)
+                except Exception as e:
+                    print(f"[nftmint] news repost failed: {e}")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
