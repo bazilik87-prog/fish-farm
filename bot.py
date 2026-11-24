@@ -13404,7 +13404,7 @@ async def playerinfo_command(message: types.Message):
         _lw_wallet = (_lw or {}).get('wallet') if isinstance(_lw, dict) else None
         if _lw_wallet:
             nft_count = int(sv.get('nftCount') or 0)
-            nft_per_day = round(nft_count * NFT_INCOME_RATE_PER_SEC * 86400 * 1000) / 1000
+            nft_per_day = round(nft_daily_income(nft_count, sv.get('nftSpecial')) * 1000) / 1000
             lines.append(f"🖼 NFT на кошельке: {nft_count} (+{nft_per_day:g} монет/сутки) — {_lw_wallet}")
         else:
             lines.append("🖼 NFT: кошелёк не привязан (TonConnect)")
