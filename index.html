@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-24.5">
+<meta name="ff-build" content="2026-11-24.6">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -3959,7 +3959,7 @@ function renderBoosts() {
   // Энергия
   syncEnergy();
   var eMax = getEnergyMax();
-  var adCooldownLeft = Math.min(AD_ENERGY_COOLDOWN, Math.max(0, AD_ENERGY_COOLDOWN - (Date.now() - (state.lastAdEnergyRefill||0))));
+  var adCooldownLeft = Math.min(AD_ENERGY_COOLDOWN, Math.max(0, AD_ENERGY_COOLDOWN - (Date.now() - Math.min(state.lastAdEnergyRefill||0, Date.now()))));
   var ePct=Math.min(100, Math.round(state.energy/eMax*100));
   html += '<div class="bs-card bs-energy"><div class="bs-row"><div class="bs-ico" style="background:linear-gradient(160deg,#3d8fff,#1d5fc4)"><svg viewBox="0 0 24 24" fill="#04142e"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>'
     +'<div class="bs-inf"><b>'+t('Энергия','Energy')+'</b><span>'+t('тратится 1 за каждые 3 рыбы','1 spent per 3 fish caught')+'</span></div>'
@@ -3991,7 +3991,7 @@ function renderBoosts() {
       setTimeout(function(){ if(currentTab==='boosts') renderBoosts(); }, 300);
     });
   }
-  var adLotteryCooldownLeft = Math.min(3600000, Math.max(0, 3600000 - (Date.now() - (state.lastAdLotterySpin||0))));
+  var adLotteryCooldownLeft = Math.min(3600000, Math.max(0, 3600000 - (Date.now() - Math.min(state.lastAdLotterySpin||0, Date.now()))));
   var lm=maxUnlockedMult();
   var prizes=[fmtXp(300*lm)+' 🪙', fmtXp(500*lm)+' 🪙', fmtXp(100*lm)+t(' рыб',' fish'), fmtXp(15*lm)+t(' соли',' salt'), fmtXp(15*lm)+t(' ножей',' knives'), t('грузовик 12 ч','truck 12 h'), t('⚡ +25 энергии','⚡ +25 energy'), t('🎣 удача 1 ч','🎣 luck 1 h'), t('🎟 ещё крутка','🎟 free spin')];
   var prizeHtml=''; for (var pz=0;pz<prizes.length;pz++) prizeHtml+='<span>'+prizes[pz]+'</span>';
@@ -4202,7 +4202,7 @@ function watchAdForEnergy() {
   syncEnergy();
   var max = getEnergyMax();
   if (state.energy >= max) return;
-  var cooldownLeft = Math.min(AD_ENERGY_COOLDOWN, AD_ENERGY_COOLDOWN - (Date.now() - (state.lastAdEnergyRefill||0)));
+  var cooldownLeft = Math.min(AD_ENERGY_COOLDOWN, AD_ENERGY_COOLDOWN - (Date.now() - Math.min(state.lastAdEnergyRefill||0, Date.now())));
   if (cooldownLeft > 0) {
     showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
     return;
@@ -4264,7 +4264,7 @@ function watchAdForEnergy() {
 function watchAdForLottery() {
   // Локальный state.lastAdLotterySpin — только для мгновенного отклика кнопки (кулдаун-таймер
   // на экране). Реальную проверку 1 раз/час теперь делает сервер в /lottery_spin.
-  var cooldownLeft = Math.min(3600000, 3600000 - (Date.now() - (state.lastAdLotterySpin||0)));
+  var cooldownLeft = Math.min(3600000, 3600000 - (Date.now() - Math.min(state.lastAdLotterySpin||0, Date.now())));
   if (cooldownLeft > 0) {
     showNotif(t('⏳ Реклама будет доступна через ','⏳ Ad will be available in ') + fmtTime(Math.ceil(cooldownLeft/1000)));
     return;
@@ -8821,7 +8821,7 @@ function tick() {
     }
     var lte=document.getElementById('lottery-ad-timer');
     if (lte) {
-      var lLeft = Math.min(3600000, 3600000 - (Date.now() - (state.lastAdLotterySpin||0)));
+      var lLeft = Math.min(3600000, 3600000 - (Date.now() - Math.min(state.lastAdLotterySpin||0, Date.now())));
       if (lLeft > 0) {
         lte.textContent = fmtTime(Math.ceil(lLeft/1000));
       } else if (currentTab==='boosts') {
