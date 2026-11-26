@@ -526,6 +526,7 @@ NFT_HOLDINGS_CHECK_INTERVAL_MS = 6 * 3600 * 1000    # как часто спра
 # словарь не входят и продолжают считаться по общему NFT_INCOME_RATE_PER_SEC, как раньше.
 NFT_INCOME_RATE_OVERRIDES = {
     'event_gta6': 13.666 / 86400,
+    'lottery_nft': 3 / 86400,
 }
 
 
