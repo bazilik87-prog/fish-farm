@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-24.8">
+<meta name="ff-build" content="2026-11-27.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4811,7 +4811,7 @@ var NFT_INCOME_RATE_PER_SEC = 0.00001;  // зеркалит NFT_INCOME_RATE_PER_
 // 24.11: зеркалит NFT_INCOME_RATE_OVERRIDES в bot.py — особые тарифы для конкретных значков,
 // тоже только для показа "сколько приносит эта NFT" в экране значков, не для начисления.
 // Тут храним уже В МОНЕТАХ/СУТКИ (в bot.py — в монетах/сек, для формулы с elapsed-секундами).
-var NFT_INCOME_RATE_OVERRIDES = {event_gta6: 13.666};
+var NFT_INCOME_RATE_OVERRIDES = {event_gta6: 13.666, lottery_nft: 3};
 function nftRatePerDay(id) { return NFT_INCOME_RATE_OVERRIDES[id] || (NFT_INCOME_RATE_PER_SEC * 86400); }
 var tonConnectUI = null;
 var linkedWalletAddr = null;
