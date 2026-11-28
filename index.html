@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-27.2">
+<meta name="ff-build" content="2026-11-28.1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -6864,12 +6864,18 @@ function renderClanTourCard(tr) {
 }
 
 function renderClanTournaments(html) {
-  if (clanTourState.isCaptain) {
-    html += '<div class="card">'
-      +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Создать турнир — минимальный взнос 50⭐ (это минимум, который можно вручную вернуть звёздами, если турнир не состоится)','Create a tournament — minimum stake 50⭐ (the smallest amount that can be manually refunded in Stars if the tournament falls through)')+'</div>'
-      +'<input id="clan-tour-amount" type="number" min="50" step="1" placeholder="'+t('Взнос, ⭐ (мин. 50)','Stake, ⭐ (min 50)')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#1f2f4c;color:#fff;font-size:14px;margin-bottom:10px">'
-      +'<button class="btn btn-gold btn-full" onclick="createClanTournament()">🏆 '+t('Создать турнир','Create tournament')+'</button>'
-      +'</div>';
+  var active = clanTourState.tournaments.filter(function(tr){ return !clanTourIsArchived(tr); });
+
+  if (clanTourState.isCaptain && !clanTourState.loading) {
+    if (active.length) {
+      html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('Клан уже участвует в битве — пока она не завершится, создать или принять новую нельзя','Your clan is already in a battle — you can\'t start or accept another until it finishes')+'</div>';
+    } else {
+      html += '<div class="card">'
+        +'<div style="font-size:13px;color:#90caf9;margin-bottom:8px">'+t('Создать турнир — минимальный взнос 50⭐ (это минимум, который можно вручную вернуть звёздами, если турнир не состоится)','Create a tournament — minimum stake 50⭐ (the smallest amount that can be manually refunded in Stars if the tournament falls through)')+'</div>'
+        +'<input id="clan-tour-amount" type="number" min="50" step="1" placeholder="'+t('Взнос, ⭐ (мин. 50)','Stake, ⭐ (min 50)')+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a4a6a;background:#1f2f4c;color:#fff;font-size:14px;margin-bottom:10px">'
+        +'<button class="btn btn-gold btn-full" onclick="createClanTournament()">🏆 '+t('Создать турнир','Create tournament')+'</button>'
+        +'</div>';
+    }
   }
 
   if (clanTourState.loading) {
@@ -6880,8 +6886,6 @@ function renderClanTournaments(html) {
     document.getElementById('content').innerHTML = html;
     return;
   }
-
-  var active = clanTourState.tournaments.filter(function(tr){ return !clanTourIsArchived(tr); });
 
   if (!active.length) {
     html += '<div class="card" style="text-align:center;color:#666;font-size:12px">'+t('У клана сейчас нет активных турниров','Your clan has no active tournaments right now')+'</div>';
@@ -6978,8 +6982,11 @@ function renderClanTournamentsBrowse(html) {
       +'<div style="font-size:12px;color:#90caf9;margin-top:6px">'+t('Клан:','Clan:')+' «'+(tr.initiatorClanName||'')+'»</div>'
       +'<div style="font-size:12px;color:#90caf9;margin-top:2px">'+t('Ставка:','Stake:')+' ⭐'+tr.amountPerPerson+' '+t('с человека','per person')+' · '+t('состав:','squad:')+' '+tr.participantsCount+'/'+tr.requiredCount+'</div>';
 
+    var weHaveActiveBattle = clanTourState.tournaments.some(function(mt){ return !clanTourIsArchived(mt); });
     if (tr.isMine) {
       html += '<div style="font-size:11px;color:#666;margin-top:8px">'+t('Это ваш турнир','This is your own tournament')+'</div>';
+    } else if (weHaveActiveBattle) {
+      html += '<div style="font-size:11px;color:#666;margin-top:8px">'+t('Ваш клан уже участвует в другой битве','Your clan is already in another battle')+'</div>';
     } else if (clanTourBrowseState.isCaptain) {
       html += '<button class="btn btn-gold btn-full" style="margin-top:10px" onclick="acceptClanTournament(\''+tr.id+'\')">⚔️ '+t('Принять вызов','Accept challenge')+' — ⭐'+tr.amountPerPerson+'</button>';
     } else {

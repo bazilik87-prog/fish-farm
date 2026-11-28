@@ -1277,6 +1277,27 @@ async def verified_seed_migrate():
         print(f"[verified_seed_migrate] ошибка: {e}")
 
 
+CLAN_TOURNAMENT_ACTIVE_STATUSES = ('funding', 'open', 'matching', 'running')
+
+
+async def clan_has_active_tournament(session, base, clan_id):
+    """
+    28.11 (решение Саши): клан не может одновременно вести две битвы — проверяется перед
+    clan_tournament_create и clan_tournament_accept. "Активная" — любая НЕ settled/expired,
+    где клан инициатор или принявшая сторона.
+    """
+    async with session.get(f"{base}/clan_tournaments.json{FB_AUTH}") as r:
+        all_t = await r.json()
+    if not isinstance(all_t, dict):
+        return False
+    for t in all_t.values():
+        if not isinstance(t, dict) or t.get('status') not in CLAN_TOURNAMENT_ACTIVE_STATUSES:
+            continue
+        if t.get('initiatorClanId') == clan_id or t.get('acceptedByClanId') == clan_id:
+            return True
+    return False
+
+
 async def create_invoice(request):
     if request.method == 'OPTIONS':
         return web.Response(status=200, headers=CORS)
@@ -1648,8 +1669,10 @@ async def create_invoice(request):
                     return web.json_response({'error': 'у тебя нет клана'}, status=400, headers=CORS)
                 async with session.get(f"{fb_base}/clans/{clan_id}.json{FB_AUTH}") as resp2:
                     clan_data = await resp2.json()
-            if not isinstance(clan_data, dict) or clan_data.get('captainId') != user_id:
-                return web.json_response({'error': 'создавать турнир может только капитан'}, status=403, headers=CORS)
+                if not isinstance(clan_data, dict) or clan_data.get('captainId') != user_id:
+                    return web.json_response({'error': 'создавать турнир может только капитан'}, status=403, headers=CORS)
+                if await clan_has_active_tournament(session, fb_base, clan_id):
+                    return web.json_response({'error': 'ваш клан уже участвует в битве — дождитесь её окончания'}, status=400, headers=CORS)
             payload = f"ctc:{user_id}:{clan_id}:{amount}"
             if len(payload.encode('utf-8')) > 128:
                 return web.json_response({'error': 'internal: payload too long'}, status=500, headers=CORS)
@@ -1732,6 +1755,8 @@ async def create_invoice(request):
                     my_clan_data = await cresp.json()
                 if not isinstance(my_clan_data, dict) or my_clan_data.get('captainId') != user_id:
                     return web.json_response({'error': 'принять турнир может только капитан'}, status=403, headers=CORS)
+                if await clan_has_active_tournament(session, fb_base, my_clan_id):
+                    return web.json_response({'error': 'ваш клан уже участвует в битве — дождитесь её окончания'}, status=400, headers=CORS)
                 async with session.get(f"{fb_base}/clan_tournaments/{tournament_id}.json{FB_AUTH}") as tresp:
                     tdata = await tresp.json()
                 if not isinstance(tdata, dict) or tdata.get('status') != 'open':
