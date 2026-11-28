@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="ff-build" content="2026-11-27.1">
+<meta name="ff-build" content="2026-11-27.2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Рыбная ферма</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -4811,8 +4811,12 @@ var NFT_INCOME_RATE_PER_SEC = 0.00001;  // зеркалит NFT_INCOME_RATE_PER_
 // 24.11: зеркалит NFT_INCOME_RATE_OVERRIDES в bot.py — особые тарифы для конкретных значков,
 // тоже только для показа "сколько приносит эта NFT" в экране значков, не для начисления.
 // Тут храним уже В МОНЕТАХ/СУТКИ (в bot.py — в монетах/сек, для формулы с elapsed-секундами).
-var NFT_INCOME_RATE_OVERRIDES = {event_gta6: 13.666, lottery_nft: 3};
-function nftRatePerDay(id) { return NFT_INCOME_RATE_OVERRIDES[id] || (NFT_INCOME_RATE_PER_SEC * 86400); }
+var NFT_INCOME_RATE_OVERRIDES = {event_gta6: 13.666, lottery_nft: 3,
+  traveler_1: 450, traveler_2: 1350, traveler_3: 3600, traveler_4: 9000};
+function nftRatePerDay(id, tier) {
+  if (tier && NFT_INCOME_RATE_OVERRIDES[id+'_'+tier] !== undefined) return NFT_INCOME_RATE_OVERRIDES[id+'_'+tier];
+  return NFT_INCOME_RATE_OVERRIDES[id] || (NFT_INCOME_RATE_PER_SEC * 86400);
+}
 var tonConnectUI = null;
 var linkedWalletAddr = null;
 var walletNftLoaded = false;
@@ -7332,7 +7336,7 @@ function showBadgeDetail(id) {
     + '<div style="font-size:16px;font-weight:700;color:#FFD700">'+d.icon+' '+t(d.nameRu,d.nameEn)+'</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#c5d6f0;line-height:1.5;margin-bottom:14px;text-align:center">'+t(d.descRu,d.descEn)+'</div>'
-    + (myTier>0 ? '<div style="font-size:11px;color:#FFD700;text-align:center;margin-bottom:10px">🖼 +'+(Math.round(nftRatePerDay(id)*1000)/1000)+' '+t('монет/сутки за каждую NFT этого значка','coins/day for each NFT of this badge')+'</div>' : '')
+    + (myTier>0 ? '<div style="font-size:11px;color:#FFD700;text-align:center;margin-bottom:10px">🖼 +'+(Math.round(nftRatePerDay(id,myTier)*1000)/1000)+' '+t('монет/сутки за каждую NFT этого значка','coins/day for each NFT of this badge')+'</div>' : '')
     + (tiersHtml ? '<div style="display:flex;gap:4px;margin-bottom:6px">'+tiersHtml+'</div>' : '')
     + (d.repeat ? '<div style="font-size:10px;color:#5a6f99;text-align:center;margin-bottom:10px">'+t('Каждый уровень можно получить заново — просто пройди порог ещё раз','Each tier can be earned again — just pass its threshold once more')+'</div>' : '')
     + '<div style="background:#162238;border-radius:10px;padding:12px;font-size:12px;text-align:center;margin-bottom:14px">'+statusHtml+'</div>'

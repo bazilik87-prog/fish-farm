@@ -527,6 +527,12 @@ NFT_HOLDINGS_CHECK_INTERVAL_MS = 6 * 3600 * 1000    # как часто спра
 NFT_INCOME_RATE_OVERRIDES = {
     'event_gta6': 13.666 / 86400,
     'lottery_nft': 3 / 86400,
+    # Путешественник (27.11) — тариф растёт с уровнем локации, composite-ключ "traveler_{tier}"
+    # (не просто "traveler" — у разных уровней разная цена, см. nft_item_badge index в /nftmint).
+    'traveler_1': 450 / 86400,
+    'traveler_2': 1350 / 86400,
+    'traveler_3': 3600 / 86400,
+    'traveler_4': 9000 / 86400,
 }
 
 
@@ -10406,6 +10412,20 @@ async def nftmint_command(message: types.Message):
                         # чтобы /nftqueue/nftbackfill могли сравнивать её как строку).
                         async with session.put(f"{base}/{path}{FB_AUTH}", json='minted'):
                             pass
+                        tier_addr = resp.get('address')
+                        if tier_addr:
+                            # 27.11: индекс + адрес — тот же приём, что у именных медалей (см. ниже),
+                            # нужен для тарифных уровней внутри NFT_INCOME_RATE_OVERRIDES (например
+                            # traveler_1..4) — composite-ключ "{bid}_{tier}", не просто bid, потому
+                            # что у одного badge_id разные уровни могут стоить по-разному.
+                            try:
+                                async with session.put(f"{base}/badges/tg_{uid}/{bid}/nftAddr/{tier}.json{FB_AUTH}", json=tier_addr):
+                                    pass
+                                async with session.put(f"{base}/nft_item_badge/{nft_item_key(tier_addr)}.json{FB_AUTH}",
+                                                        json=f"{bid}_{tier}"):
+                                    pass
+                            except Exception as e_idx:
+                                print(f"[nftmint] tier nft_item_badge index write failed for {uid}/{bid}_{tier}: {e_idx}")
                     else:
                         minted_addr = resp.get('address')
                         patch = {'nft': 'minted', 'nftMintedAt': int(time_module.time() * 1000),
@@ -10596,11 +10616,14 @@ async def nftbackfill_command(message: types.Message):
 @dp.message(Command('nftindexbackfill'))
 async def nftindexbackfill_command(message: types.Message):
     """Разовая (безопасно повторяемая) задним числом простановка индекса nft_item_badge/{ключ}
-    для именных медалей, начеканенных ДО того, как /nftmint начал сам писать этот индекс
-    (24.11, см. NFT_INCOME_RATE_OVERRIDES) — например, у @upasigospod GTA6-NFT была
-    начеканена раньше и без неё продолжила бы получать обычный плоский доход вместо
-    особого тарифа. Источник — уже сохранённое поле nftAddress в badges/{pid}/named/.../
-    (пишется в /nftmint с самого начала этой фичи, 14.11). Без «да» — подсчёт."""
+    для медалей, начеканенных ДО того, как /nftmint начал сам писать этот индекс (24.11 — именные,
+    27.11 — уровневые вроде traveler_1..4, см. NFT_INCOME_RATE_OVERRIDES) — например, у @upasigospod
+    GTA6-NFT была начеканена раньше и без неё продолжила бы получать обычный плоский доход вместо
+    особого тарифа. Для именных — источник уже сохранённое поле nftAddress в badges/{pid}/named/...
+    (пишется в /nftmint с самого начала этой фичи, 14.11). Для уровневых адрес раньше вообще не
+    сохранялся — донаходим его, повторно (идемпотентно, тем же requestId) вызывая Getgems minting
+    API: он не чеканит второй NFT, а просто возвращает уже существующий с его адресом. Без «да» —
+    подсчёт, ничего не пишет и не зовёт Getgems."""
     if message.from_user.id != ADMIN_ID:
         return
     confirm = len(message.text.strip().split()) > 1 and message.text.strip().split()[1].lower() in ('да', 'yes')
@@ -10615,35 +10638,54 @@ async def nftindexbackfill_command(message: types.Message):
             if not isinstance(existing_index, dict):
                 existing_index = {}
 
-            to_write = []  # (index_key, named_id, label)
+            to_write = []  # (index_key, named_id, label) — именные, адрес уже известен
+            to_remint = []  # (pid, uid, bid, tier, label) — уровневые, адрес нужно донайти через Getgems
             for pid, data in (all_badges or {}).items():
                 if not isinstance(data, dict) or not pid.startswith('tg_'):
                     continue
                 uid = pid[3:]
                 named = data.get('named')
-                if not isinstance(named, dict):
-                    continue
-                for named_id, occs in named.items():
-                    if named_id not in NAMED_BADGE_META or not isinstance(occs, dict):
+                if isinstance(named, dict):
+                    for named_id, occs in named.items():
+                        if named_id not in NAMED_BADGE_META or not isinstance(occs, dict):
+                            continue
+                        for key, occ in occs.items():
+                            if not isinstance(occ, dict) or occ.get('nft') != 'minted':
+                                continue
+                            addr = occ.get('nftAddress')
+                            if not addr:
+                                continue
+                            idx_key = nft_item_key(addr)
+                            if idx_key in existing_index:
+                                continue
+                            to_write.append((idx_key, named_id, f"ID {uid} — {named_id} ({key})"))
+                for bid, bdata in data.items():
+                    if bid == 'named' or not isinstance(bdata, dict):
                         continue
-                    for key, occ in occs.items():
-                        if not isinstance(occ, dict) or occ.get('nft') != 'minted':
+                    composite_prefix = f"{bid}_"
+                    has_rate = any(k.startswith(composite_prefix) for k in NFT_INCOME_RATE_OVERRIDES)
+                    if not has_rate:
+                        continue
+                    nft_map = bdata.get('nft')
+                    addr_map = bdata.get('nftAddr') if isinstance(bdata.get('nftAddr'), dict) else {}
+                    if not isinstance(nft_map, dict):
+                        continue
+                    for tier_s, status in nft_map.items():
+                        if status != 'minted' or addr_map.get(tier_s):
                             continue
-                        addr = occ.get('nftAddress')
-                        if not addr:
+                        tier = _nft_tier_from_key(tier_s)
+                        if f"{bid}_{tier}" not in NFT_INCOME_RATE_OVERRIDES:
                             continue
-                        idx_key = nft_item_key(addr)
-                        if idx_key in existing_index:
-                            continue
-                        to_write.append((idx_key, named_id, f"ID {uid} — {named_id} ({key})"))
+                        to_remint.append((pid, uid, bid, tier, tier_s, f"ID {uid} — {bid} ур.{tier}"))
 
-            if not to_write:
-                await message.answer("Нечего досчитывать — у всех начеканенных именных медалей индекс уже есть.")
+            if not to_write and not to_remint:
+                await message.answer("Нечего досчитывать — индекс уже актуален у всех.")
                 return
             if not confirm:
-                lines = [f"Найдено задним числом: {len(to_write)} NFT без записи в индексе nft_item_badge.",
-                         "Чтобы записать по-настоящему: /nftindexbackfill да"]
-                text = "\n".join(lines + [l for _, _, l in to_write[:50]])
+                lines = [f"Именных без индекса: {len(to_write)}. Уровневых без сохранённого адреса "
+                         f"(нужен повторный запрос к Getgems): {len(to_remint)}.",
+                         "Чтобы сделать по-настоящему: /nftindexbackfill да"]
+                text = "\n".join(lines + [l for _, _, l in to_write[:30]] + [l for *_, l in to_remint[:30]])
                 if len(text) > 3500:
                     await message.answer_document(types.BufferedInputFile(text.encode('utf-8'), filename='nftindexbackfill_preview.txt'))
                 else:
@@ -10658,8 +10700,42 @@ async def nftindexbackfill_command(message: types.Message):
                             done += 1
                 except Exception as e:
                     print(f"[nftindexbackfill] {idx_key}: {e}")
-            await message.answer(f"✅ Записано в индекс: {done} из {len(to_write)}. Новый тариф подхватится у держателей "
-                                 f"при ближайшей проверке кошелька (раз в {NFT_HOLDINGS_CHECK_INTERVAL_MS // 3600000} ч).")
+
+            remint_done, remint_failed = 0, 0
+            for pid, uid, bid, tier, tier_s, _label in to_remint:
+                try:
+                    req_id = f"t{uid}_{bid}_{tier}"
+                    nm, desc = nft_name_desc(bid, tier)
+                    series_ru, _, series_en, _ = NFT_BADGE_META[bid]
+                    label_ru, label_en = nft_tier_label(bid, tier)
+                    attrs = [{"trait_type": "Серия / Series", "value": f"{series_ru} / {series_en}"},
+                             {"trait_type": "Уровень / Tier", "value": f"{label_ru} / {label_en}"}]
+                    img = f"{NFT_IMG_BASE}{bid}_{tier}.png"
+                    addr = await get_player_wallet_address(session, base, uid)
+                    if not addr:
+                        remint_failed += 1
+                        continue
+                    resp = await mint_nft_badge(session, req_id, addr, nm, desc, img, attrs)
+                    tier_addr = resp.get('address')
+                    if not tier_addr:
+                        remint_failed += 1
+                        continue
+                    async with session.put(f"{base}/badges/{pid}/{bid}/nftAddr/{tier_s}.json{FB_AUTH}", json=tier_addr):
+                        pass
+                    async with session.put(f"{base}/nft_item_badge/{nft_item_key(tier_addr)}.json{FB_AUTH}",
+                                            json=f"{bid}_{tier}") as r2:
+                        if r2.status in (200, 204):
+                            remint_done += 1
+                        else:
+                            remint_failed += 1
+                except Exception as e:
+                    remint_failed += 1
+                    print(f"[nftindexbackfill] remint {pid}/{bid}_{tier}: {e}")
+
+            await message.answer(f"✅ Именных записано: {done} из {len(to_write)}. "
+                                 f"Уровневых донайдено: {remint_done} из {len(to_remint)} (сбоев: {remint_failed}). "
+                                 f"Новый тариф подхватится у держателей при ближайшей проверке кошелька "
+                                 f"(раз в {NFT_HOLDINGS_CHECK_INTERVAL_MS // 3600000} ч).")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
